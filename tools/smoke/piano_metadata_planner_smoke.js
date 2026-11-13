@@ -32,6 +32,7 @@ for (const token of [
   'Send to Queue', 'Remove from Queue', 'Remove Entirely', 'Replace Queue', 'Go to Queue', 'Go back', 'Play selected', 'Stop playback', 'Shuffle Queue',
   'Save identifiers', 'automatic_identifiers', 'personal_rating', 'conversion_rating',
   'Required tag', 'Min events', 'Max events', 'Custom identifiers',
+  'data-p-folders-edit', 'data-p-groups-edit', 'piano_folders_v1', 'piano_groups_v1', 'datalist',
   'api.updateSongIdentifiers', 'PianoPlayerQueue', 'addSongs', 'document.createTextNode',
   'async function withQueue(action)', '<details class="planner-filters">', 'FILTERS &amp; SORTING'
 ]) assert(PLANNER.includes(token), `planner contract missing: ${token}`);

@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+from urllib.parse import urlsplit
 from http import HTTPStatus
 
 logger = logging.getLogger("EveOSAudioflixBridge")
+
+from server_modules import audioflix_provider_file_auth as _file_auth
+_file_auth.initialize()
 
 from server_modules.audioflix_bridge_devices import list_devices
 from server_modules.audioflix_bridge_playback import (
@@ -16,6 +20,7 @@ from server_modules.audioflix_bridge_playback import (
     play_pcm,
     play_tone,
     play_voice,
+    pause_voices,
     set_voice_volume,
     stop_stream,
     warm,
@@ -59,6 +64,44 @@ def _can_control(handler) -> bool:
     return not origin or origin == "null" or origin.startswith("file://") or origin.startswith("http://127.0.0.1:") or origin.startswith("http://localhost:")
 
 
+def _can_start_provider_capture(handler) -> bool:
+    """Authorize same-origin localhost OR a file:// EveOS with a private on-disk key.
+
+    The key is generated on server startup, loaded from file:// by the installed
+    EveOS page, and BLOCKED from localhost HTTP/HEAD responses. Origin:null alone
+    cannot authorize anything: other opaque origins can send that value too.
+    """
+    if not _can_control(handler):
+        return False
+    try:
+        if str(handler.headers.get("Content-Type", "")).split(";", 1)[0].strip().lower() != "application/json":
+            return False
+        if handler.headers.get("X-EveOS-Provider-Capture") != "v1":
+            return False
+        origin_header = str(handler.headers.get("Origin", "")).strip()
+        fetch_site = str(handler.headers.get("Sec-Fetch-Site", "")).strip().lower()
+        # Chromium can omit Origin/Sec-Fetch-Site entirely for a file:// fetch.
+        # The installation-local capability remains the authority in either
+        # browser form; a missing Origin without that proof is still denied.
+        if origin_header in {"", "null"} or origin_header.startswith("file://"):
+            return bool(fetch_site in {"cross-site", "none", ""} and
+                _file_auth.verify(handler.headers.get("X-EveOS-Provider-File-Auth") or ""))
+        origin = urlsplit(origin_header)
+        host = urlsplit("http://" + str(handler.headers.get("Host", "")).strip())
+        bound_port = int(handler.server.server_address[1])
+        if origin.scheme != "http" or origin.hostname not in {"127.0.0.1", "localhost"}:
+            return False
+        if host.hostname != origin.hostname or host.port != bound_port or origin.port != bound_port:
+            return False
+        if origin.username or origin.password or origin.path or origin.query or origin.fragment:
+            return False
+        if host.username or host.password or host.path or host.query or host.fragment:
+            return False
+        return not fetch_site or fetch_site == "same-origin"
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 def _can_cli_control(handler) -> bool:
     """Allow explicit localhost CLI qualification without granting browser tabs a session bypass."""
     if not _can_control(handler):
@@ -70,6 +113,9 @@ def handle_get_request(handler, path: str, query) -> bool:
     logger.info(f"[Bridge] handle_get_request: path={path}")
     from server_modules import audioflix_spotify_http
     if audioflix_spotify_http.handle_get_request(handler, path, query):
+        return True
+    from server_modules import audioflix_spotify_edge_http
+    if audioflix_spotify_edge_http.handle_get_request(handler, path, query, _send_json, _can_control):
         return True
     if path == "/api/audioflix/status":
         _send_json(handler, {**list_devices(), "devices": []})
@@ -282,6 +328,42 @@ def handle_post_request(handler, path: str) -> bool:
     from server_modules import audioflix_spotify_http
     if audioflix_spotify_http.handle_post_request(handler, path):
         return True
+    from server_modules import audioflix_spotify_edge_http
+    if audioflix_spotify_edge_http.handle_post_request(
+            handler, path, _send_json, _read_json, _can_control, _can_start_provider_capture):
+        return True
+    if path.startswith(("/api/audioflix/provider-capture/", "/api/audioflix/piano-native/")):
+        starts_session = path in {"/api/audioflix/provider-capture/start", "/api/audioflix/piano-native/start"}
+        if starts_session and not _can_start_provider_capture(handler):
+            _send_json(handler, {
+                "ok": False,
+                "message": "Provider capture requires the localhost EveOS page or the verified file:// install credential."
+            }, HTTPStatus.FORBIDDEN)
+            return True
+        if not _can_control(handler):
+            _send_json(handler, {"ok": False, "message": "Local access required."}, HTTPStatus.FORBIDDEN)
+            return True
+        # Unlike ordinary application metadata requests, realtime PCM must never
+        # accept an arbitrarily large request body from a localhost caller.
+        try:
+            body_bytes = int(handler.headers.get("Content-Length", "0") or 0)
+        except (TypeError, ValueError):
+            body_bytes = -1
+        maximum = 24 * 1024 * 1024 if path == "/api/audioflix/piano-native/start" else 128 * 1024
+        if not 0 < body_bytes <= maximum:
+            _send_json(handler, {"ok": False, "message": "Invalid provider capture request size."}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            return True
+        try:
+            if path.startswith("/api/audioflix/piano-native/queue-"):
+                from server_modules.audioflix_piano_queue import handle
+            elif path.startswith("/api/audioflix/piano-native/"):
+                from server_modules.audioflix_piano_native import handle
+            else:
+                from server_modules.audioflix_provider_capture import handle
+            _send_json(handler, handle(path, _read_json(handler)))
+        except Exception as exc:
+            _send_json(handler, {"ok": False, "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+        return True
     if path == "/api/audioflix/spotify-browser/qualify-volume":
         if not _can_cli_control(handler):
             _send_json(handler, {"ok": False, "message": "CLI localhost access required."}, HTTPStatus.FORBIDDEN)
@@ -299,6 +381,7 @@ def handle_post_request(handler, path: str) -> bool:
         "/api/audioflix/play-voice": play_voice,
         "/api/audioflix/set-voice-volume": set_voice_volume,
         "/api/audioflix/clear-voices": clear_voices,
+        "/api/audioflix/pause-voices": pause_voices,
         "/api/audioflix/stop-stream": stop_stream,
         "/api/audioflix/warm": warm,
         "/api/audioflix/hotkeys/set": hotkeys_set,

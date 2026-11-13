@@ -5,27 +5,33 @@ const vm = require('vm');
 
 const root = path.resolve(__dirname, '..', '..');
 const source = fs.readFileSync(path.join(root, 'js/modules/features/audioflix/audioflix.ui.hotkeys.js'), 'utf8');
-const calls = { set: [], clear: 0, bypass: [], play: [] };
-const state = { nativeOutputId: '', hotkeyBypassCombo: 'ctrl+shift+b' };
+const calls = { set: [], clear: 0, bypass: [], play: [], pause: 0, resume: 0, piano: 0 };
+const state = { nativeOutputId: '', hotkeyBypassCombo: 'ctrl+shift+b', hotkeyTransportCombo: 'ctrl+shift+p' };
 const items = [
     { id: 'one', title: 'One', url: 'one.wav', hotkey: 'u', volume: 1 },
     { id: 'two', title: 'Two', url: 'two.wav', hotkey: 'ctrl+y', volume: 0.5 }
 ];
 const statusElement = { textContent: '', dataset: {} };
 const bypassButton = { textContent: '', dataset: {}, setAttribute(name, value) { this[name] = value; } };
+const transportState = { textContent: '', dataset: {} };
+const transportButton = { textContent: '', dataset: {}, setAttribute(name, value) { this[name] = value; } };
+let playback = { item: { id: 'music', type: 'music' }, paused: false };
 const window = {
     EveAudioflixUiHotkeys: {},
     EveAudioflixNative: {
-        setHotkeys: async payload => { calls.set.push(payload); return { ok: true, configured: 2, registered: ['u'], conflicted: ['ctrl+y'], bypassRegistered: true }; },
+        setHotkeys: async payload => { calls.set.push(payload); return { ok: true, configured: 2, registered: ['u'], conflicted: ['ctrl+y'], bypassRegistered: true, transportRegistered: true }; },
         clearHotkeys: async () => { calls.clear++; return { ok: true }; },
-        hotkeyStatus: async () => ({ ok: true, configured: 2, bindings: [{ combo: 'u', registered: true }, { combo: 'ctrl+y', registered: false }], bypassRegistered: true }),
+        hotkeyStatus: async () => ({ ok: true, configured: 2, bindings: [{ combo: 'u', registered: true }, { combo: 'ctrl+y', registered: false }], bypassRegistered: true, transportRegistered: true }),
         setHotkeyBypassed: async bypassed => { calls.bypass.push(bypassed); return { ok: true, configured: 2, registered: ['u'], bypassed, bypassRegistered: true }; }
     },
     EveAudioflixAudio: {
         getDecodedBuffer: async url => ({ sampleRate: 48000, url }),
         encodeBufferToBase64: buffer => `pcm:${buffer.url}`,
-        playItem: async item => calls.play.push(item.id)
+        playSound: async item => calls.play.push(item.id), getPlaybackState: () => playback,
+        pause: async () => { calls.pause++; playback.paused = true; }, resume: async () => { calls.resume++; playback.paused = false; },
+        hasLayers: () => false, layersPaused: () => false
     },
+    EveAudioflixPianoFrontend: { togglePause: () => { calls.piano++; return true; } },
     SearchMonitorBoot: null
 };
 const context = { window, console, setTimeout, clearTimeout, setInterval, clearInterval };
@@ -40,7 +46,9 @@ const ctx = {
     get nativeHotkeysLive() { return live; },
     set nativeHotkeysLive(value) { live = value; },
     overlay: { hidden: false, querySelector: selector => selector === '.audioflix-bypass-state' ? statusElement
-        : selector === '[data-af-action="toggle-hotkey-bypass"]' ? bypassButton : null, querySelectorAll: () => [] },
+        : selector === '[data-af-action="toggle-hotkey-bypass"]' ? bypassButton
+            : selector === '.audioflix-transport-state' ? transportState
+                : selector === '[data-af-action="toggle-audio-pause"]' ? transportButton : null, querySelectorAll: () => [] },
     activeInfoItem: null,
     activeTab: 'soundboard',
     settingsOpen: false
@@ -52,6 +60,7 @@ const controller = window.EveAudioflixUiHotkeys.create(ctx);
     assert.strictEqual(calls.set.length, 1);
     assert.deepStrictEqual(Array.from(calls.set[0].bindings, binding => binding.combo), ['u', 'ctrl+y']);
     assert.strictEqual(calls.set[0].deviceId, 'default');
+    assert.strictEqual(calls.set[0].transportCombo, state.hotkeyTransportCombo);
     assert.strictEqual(live, true, 'partial native registration must remain live');
 
     await controller.syncHotkeys();
@@ -88,6 +97,15 @@ const controller = window.EveAudioflixUiHotkeys.create(ctx);
         target: { tagName: 'DIV' }, preventDefault() {} });
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.deepStrictEqual(calls.play, ['two'], 'only the native-conflicted combo should use focused fallback');
+
+    ctx.activeTab = 'music';
+    assert.strictEqual(await controller.toggleTransportPause(), true);
+    assert.strictEqual(await controller.toggleTransportPause(), true);
+    assert.deepStrictEqual([calls.pause, calls.resume], [1, 1], 'Music transport must pause and resume the existing owner');
+    ctx.activeTab = 'piano';
+    assert.strictEqual(await controller.toggleTransportPause(), true);
+    assert.strictEqual(calls.piano, 1, 'Piano transport must delegate to the existing Piano owner');
+    ctx.activeTab = 'soundboard';
 
     await controller.setBypassed(true);
     assert.deepStrictEqual(calls.bypass, [true], 'manual bypass must use the authoritative native owner');
@@ -129,6 +147,14 @@ const controller = window.EveAudioflixUiHotkeys.create(ctx);
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.deepStrictEqual(calls.play, ['two', 'one'], 're-armed page-local fallback must play the configured sound');
 
+    playback = { item: { id: 'music', type: 'music' }, paused: false };
+    ctx.activeTab = 'music';
+    let prevented = false;
+    controller.handleHotkey({ key: 'p', ctrlKey: true, altKey: false, shiftKey: true, metaKey: false,
+        target: { tagName: 'DIV' }, preventDefault() { prevented = true; } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert(prevented && calls.pause === 2, 'offline transport hotkey must keep its focused-page fallback');
+
     const uiSource = fs.readFileSync(path.join(root, 'js/modules/features/audioflix/audioflix.ui.js'), 'utf8');
     assert(!/beforeunload[\s\S]{0,120}clearHotkeys/.test(uiSource),
         'page unload must not clear durable global registrations');
@@ -138,5 +164,7 @@ const controller = window.EveAudioflixUiHotkeys.create(ctx);
         'opening Music queue details must persist Music tab and disarm Soundboard');
     assert(fs.readFileSync(path.join(root, 'js/modules/features/audioflix/audioflix.ui.panel.js'), 'utf8').includes('data-af-action="toggle-hotkey-bypass"'),
         'settings panel must expose the manual bypass button');
-    console.log('AUDIOFLIX_HOTKEY_LIFECYCLE_OK visibleGroup=true coalesced=true conflictFallback=true durable=true');
+    assert(fs.readFileSync(path.join(root, 'js/modules/features/audioflix/audioflix.ui.panel.js'), 'utf8').includes('data-af-action="toggle-audio-pause"'),
+        'settings panel must expose the manual pause/resume button');
+    console.log('AUDIOFLIX_HOTKEY_LIFECYCLE_OK visibleGroup=true coalesced=true transport=true conflictFallback=true durable=true');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -200,6 +200,6 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/ui/tab-nav-history.js?v=f1c7f16f94e3",
     "js/modules/core/categories.shared.js?v=3f20e27ee797",
     "js/modules/core/categories.move.js?v=6b8d0a9e2478",
-    "js/modules/core/categories.ui.js?v=c4807b835fc5",
+    "js/modules/core/categories.ui.js?v=1c3786cbabf3",
     "js/modules/core/categories.js?v=602d5ed51798"
 ]);

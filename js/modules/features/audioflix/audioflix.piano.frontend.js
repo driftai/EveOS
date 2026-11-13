@@ -16,6 +16,66 @@
     let state = 'idle';
     let message = 'Connect to Piano to see your songs.';
     const pending = new Map();
+    const OFFLINE_KEY = 'eveos:piano:library-preview:v1';
+    const OFFLINE_IDB_KEY = 'eveos_piano_library_preview_v1';
+    let offlineSnapshot = false;
+    let offlineReadGeneration = 0;
+    let latestListId = 0;
+    let libraryFallbackTimer = 0;
+    let libraryChangeTimer = 0;
+    function previewRecord(song) {
+        const id = song.identifiers || {}, custom = id.custom || {}, automatic = song.automatic_identifiers || {};
+        return { id: song.id, title: song.title, artist: song.artist, kind: song.kind,
+            updatedAt: song.updatedAt, source: song.source, source_url: song.source_url, duration_ms: song.duration_ms,
+            identifiers: { author: id.author, genre: id.genre, tags: id.tags, personal_rating: id.personal_rating,
+                custom: { piano_tab: custom.piano_tab, piano_folder: custom.piano_folder,
+                    piano_group: custom.piano_group, piano_folders_v1: custom.piano_folders_v1,
+                    piano_groups_v1: custom.piano_groups_v1, favorite: custom.favorite,
+                    piano_duplicate_keep_v1: custom.piano_duplicate_keep_v1,
+                    piano_playback_v1: custom.piano_playback_v1 && {
+                        route: custom.piano_playback_v1.route, layout: custom.piano_playback_v1.layout,
+                        instrumentId: custom.piano_playback_v1.instrumentId,
+                        internalVolumePercent: custom.piano_playback_v1.internalVolumePercent } } },
+            automatic_identifiers: { source_host: automatic.source_host, kind: automatic.kind, tags: automatic.tags,
+                event_count: automatic.event_count, duration_ms: automatic.duration_ms,
+                conversion_rating: automatic.conversion_rating } };
+    }
+    function saveOfflinePreview(items, { authoritative = false } = {}) {
+        try {
+            const list = items.slice(0, 5000).map(previewRecord);
+            if (!list.length && !authoritative) return; // A transient empty/read failure cannot erase recovery data.
+            const record = { version: 2, savedAt: Date.now(), authoritative: true, songs: list };
+            void Promise.resolve(window.IDBStore?.set?.(OFFLINE_IDB_KEY, record)).catch(() => false);
+            const payload = JSON.stringify(record);
+            if (payload.length <= 3000000) localStorage.setItem(OFFLINE_KEY, payload);
+        } catch (_) { /* Blocked or full browser storage never breaks live playback. */ }
+    }
+    function validOfflinePreview(saved) {
+        if (![1, 2].includes(saved?.version) || !Array.isArray(saved.songs) || saved.songs.length > 5000 ||
+            !Number.isFinite(saved.savedAt) || saved.savedAt <= 0) return null;
+        return { savedAt: saved.savedAt, songs: normalizeSongs(saved.songs) };
+    }
+    async function readOfflinePreview() {
+        try {
+            const saved = validOfflinePreview(await window.IDBStore?.get?.(OFFLINE_IDB_KEY));
+            if (saved) return saved;
+        } catch (_) { /* Fall through to the compact localStorage compatibility copy. */ }
+        try {
+            const raw = localStorage.getItem(OFFLINE_KEY);
+            if (!raw || raw.length > 3000000) return null;
+            return validOfflinePreview(JSON.parse(raw));
+        } catch (_) { return null; }
+    }
+    async function showOfflinePreview() {
+        const generation = ++offlineReadGeneration;
+        const saved = await readOfflinePreview();
+        if (generation !== offlineReadGeneration || (!offlineSnapshot && libraryReady && isRunning())) return;
+        songs = saved?.songs || []; offlineSnapshot = !!saved; libraryReady = !!saved;
+        const when = saved ? new Date(saved.savedAt).toLocaleString() : '';
+        message = saved ? `Offline library preview from ${when} — start Piano to play or edit songs.`
+            : 'Piano offline. Start Piano once to sync your songs; afterward, the library stays visible while offline.';
+        displayStatus(); displaySongs();
+    }
 
     function panel() { return root?.querySelector('[data-audioflix-piano]'); }
     function canvas() { return panel()?.querySelector('[data-piano-frontend]'); }
@@ -49,14 +109,18 @@
             kind: song.kind === 'recording' || Array.isArray(song.performance) && song.performance.length ? 'recording' : 'song',
             updatedAt: Number(song.updated_at || song.updatedAt || 0),
             source: String(song.source || '').slice(0, 120),
+            source_url: String(song.source_url || '').slice(0, 2048),
             duration_ms: Number(song.duration_ms || 0),
             identifiers: song.identifiers && typeof song.identifiers === 'object' ? song.identifiers : {},
             automatic_identifiers: song.automatic_identifiers && typeof song.automatic_identifiers === 'object' ? song.automatic_identifiers : {}
         }));
     }
-    function applyLibrary(items, source = 'bridge') {
+    function applyLibrary(items, source = 'bridge', options = {}) {
+        offlineReadGeneration += 1;
         songs = normalizeSongs(items);
+        offlineSnapshot = false;
         libraryReady = true;
+        saveOfflinePreview(songs, { authoritative: options.authoritative === true });
         if (!bridgeReady && source === 'direct') message = songs.length
             ? 'Library loaded. Connecting playback controls…'
             : 'Library is empty. Add songs from Backend tools.';
@@ -69,6 +133,7 @@
         const to = origin();
         if (!isRunning() || !target || !to) return false;
         const id = ++seq;
+        if (action === 'list') latestListId = id;
         pending.set(id, action);
         setTimeout(() => {
             if (!pending.has(id)) return;
@@ -80,12 +145,14 @@
                 displayStatus();
             }
         }, 6000);
-        try { target.postMessage({ type: 'eveos:piano-frontend-command', id, action, songId }, to); return true; }
-        catch (_) { pending.delete(id); return false; }
+        try { target.postMessage({ type: 'eveos:piano-frontend-command', id, action, songId }, to); return id; }
+        catch (_) { pending.delete(id); return 0; }
     }
     function setNotice(text) { message = text; const node = canvas()?.querySelector('[data-pf-message]'); if (node) node.textContent = message; }
     function sortedSongs() {
-        const matching = songs.filter(song => window.EveAudioflixPianoFrontendPorts?.matches?.(song, filter) ?? `${song.title} ${song.artist}`.toLowerCase().includes(filter));
+        const matching = songs.filter(song => (window.EveAudioflixPianoFrontendPorts?.matches?.(song, filter)
+            ?? `${song.title} ${song.artist}`.toLowerCase().includes(filter))
+            && (window.EveAudioflixPianoFrontendOrganize?.matches?.(song) ?? true));
         if (window.EveAudioflixPianoFrontendPorts?.sortSongs) return window.EveAudioflixPianoFrontendPorts.sortSongs(matching, sortMode);
         return matching.sort((a, b) => {
             if (sortMode === 'az') return a.title.localeCompare(b.title);
@@ -104,7 +171,7 @@
         if (!matching.length) {
             const empty = document.createElement('p');
             empty.className = 'piano-frontend-empty';
-            empty.textContent = songs.length ? 'No songs match your search.' : isRunning() && libraryReady ? 'No saved songs yet. Add songs from Backend tools.' : isRunning() ? 'Connecting to Piano library…' : 'Start Piano to open your saved songs.';
+            empty.textContent = songs.length ? 'No songs match your search.' : offlineSnapshot ? 'The last synced Piano library is empty.' : isRunning() && libraryReady ? 'No saved songs yet. Add songs from Backend tools.' : isRunning() ? 'Connecting to Piano library…' : 'Start Piano once to sync your songs. They will remain visible here when Piano is stopped.';
             target.append(empty); return;
         }
         for (const song of matching) {
@@ -139,7 +206,7 @@
             button.textContent = stopping ? 'Stop' : 'Play';
             button.setAttribute('aria-label', `${stopping ? 'Stop' : 'Play'} ${song.title}`);
             button.classList.toggle('is-stop', stopping);
-            button.disabled = !isRunning() || !bridgeReady || !!busy;
+            button.disabled = !isRunning() || !bridgeReady || offlineSnapshot || !!busy;
         });
     }
     function setSongFavorite(songId, value) {
@@ -165,7 +232,7 @@
             serviceStart.disabled = isRunning() || lifecycle?.disabled === true;
         }
         for (const action of ['pause', 'stop', 'refresh']) {
-            const button = c.querySelector(`[data-af-action="piano-frontend-${action}"]`);
+            const button = c.querySelector(`.piano-frontend-transport [data-af-action="piano-frontend-${action}"]`);
             if (!button) continue;
             button.disabled = !isRunning() || !!busy || (action !== 'refresh' && !bridgeReady);
         }
@@ -173,19 +240,27 @@
         updateSongTransportButtons();
     }
     function reset() {
-        pending.clear(); songs = []; bridgeReady = false; libraryReady = false; lastLibrary = lastStatus = 0; busy = ''; state = 'idle';
-        message = isRunning() ? 'Connecting to Piano library…' : 'Start Piano to browse your songs.';
+        clearTimeout(libraryFallbackTimer); clearTimeout(libraryChangeTimer);
+        libraryFallbackTimer = libraryChangeTimer = 0;
+        pending.clear(); latestListId = ++seq; bridgeReady = false; lastLibrary = lastStatus = 0; busy = ''; state = 'idle';
+        void showOfflinePreview();
+        if (isRunning()) message = offlineSnapshot ? 'Connecting to Piano — showing last synced library preview.' : 'Connecting to Piano library…';
         displayStatus(); displaySongs();
     }
     function invalidate(messageText = 'Refreshing Piano library…') {
-        pending.clear(); bridgeReady = false; lastLibrary = lastStatus = 0; busy = '';
+        clearTimeout(libraryFallbackTimer); clearTimeout(libraryChangeTimer);
+        libraryFallbackTimer = libraryChangeTimer = 0;
+        pending.clear(); latestListId = ++seq; bridgeReady = false; lastLibrary = lastStatus = 0; busy = '';
         if (isRunning()) message = messageText;
         displayStatus(); displaySongs();
     }
-    async function loadLibraryDirect() {
+    async function loadLibraryDirect(requestId = latestListId, force = false) {
         try {
             const data = await directJson('/api/songs');
-            if (!bridgeReady) applyLibrary(data.songs, 'direct');
+            if (requestId === latestListId && (force || pending.get(requestId) === 'list' || !bridgeReady)) {
+                pending.delete(requestId);
+                applyLibrary(data.songs, 'direct', { authoritative: data.authoritative === true });
+            }
         } catch (_) {
             if (!libraryReady && !bridgeReady) { message = 'Connecting to Piano library…'; displayStatus(); }
         }
@@ -198,8 +273,13 @@
         if ((!isShowing() && !force) || !isRunning()) return;
         const now = Date.now();
         if (force || now - lastLibrary > 15000) {
-            send('list');
-            void loadLibraryDirect();
+            const requestId = send('list');
+            clearTimeout(libraryFallbackTimer);
+            if (requestId) libraryFallbackTimer = setTimeout(() => {
+                libraryFallbackTimer = 0;
+                if (pending.get(requestId) === 'list') void loadLibraryDirect(requestId);
+            }, 1200);
+            else void loadLibraryDirect(latestListId, true);
             lastLibrary = now;
         }
         if (force || now - lastStatus > 4000) {
@@ -212,7 +292,7 @@
         if (host) root = host;
         const source = frame()?.getAttribute('src') || '';
         if (source !== frameSource) { frameSource = source; reset(); }
-        if (!isRunning() && (bridgeReady || libraryReady)) reset();
+        if (!isRunning() && (bridgeReady || (libraryReady && !offlineSnapshot))) reset();
         displayStatus(); refresh();
     }
     function mount(host) {
@@ -223,9 +303,10 @@
         c.setAttribute('aria-label', 'Piano songs frontend');
         c.innerHTML = `<div class="piano-frontend-inner">
           <header class="piano-frontend-header">
-            <div class="piano-frontend-title"><span class="piano-frontend-kicker">PIANO LIBRARY</span><h2>Piano Auto Player - Frontend</h2><p>Choose a song and play it here.</p></div>
-            <div class="piano-frontend-transport" aria-label="Piano playback controls"><span class="piano-frontend-state" data-pf-playback role="status">Connecting…</span><button type="button" data-af-action="piano-toggle" data-pf-service-start hidden>Start Piano</button><button type="button" data-af-action="piano-frontend-pause">Pause / Resume</button><button type="button" data-af-action="piano-frontend-stop">Stop</button></div>
+            <div class="piano-frontend-title"><span class="piano-frontend-kicker">PIANO LIBRARY</span><h2>Piano Auto Player - Frontend</h2><p>Choose a song, organize the library, and play it here.</p></div>
           </header>
+          <div class="piano-frontend-transport" aria-label="Piano playback controls"><span class="piano-frontend-state" data-pf-playback role="status">Connecting…</span><button type="button" data-af-action="piano-toggle" data-pf-service-start hidden>Start Piano</button><button type="button" data-af-action="piano-frontend-pause">Pause / Resume</button><button type="button" data-af-action="piano-frontend-stop">Stop</button></div>
+          <div class="piano-frontend-workspace-heading">Piano workspace</div>
           <section class="piano-frontend-library">
             <div class="piano-frontend-library-head"><div><span>LIBRARY</span><h3>Songs <small data-pf-count>0 songs</small></h3></div>
               <div class="piano-frontend-library-tools">
@@ -238,9 +319,11 @@
             <div data-pf-songs class="piano-frontend-song-list"></div>
           </section>
         </div>`;
+
         c.querySelector('[data-pf-search]')?.addEventListener('input', event => { filter = event.target.value.toLowerCase().trim(); displaySongs(); });
         c.querySelector('[data-pf-sort]')?.addEventListener('change', event => { sortMode = event.target.value || 'recent'; displaySongs(); });
-        displayStatus();
+        if (!isRunning()) void showOfflinePreview();
+        displayStatus(); displaySongs();
     }
     function handleAction(target) {
         const action = target?.dataset?.afAction || '';
@@ -266,25 +349,43 @@
             return;
         }
         if (event.data?.type === 'piano:eveos-frontend-ready') {
-            bridgeReady = true; lastLibrary = lastStatus = 0; message = libraryReady ? 'Your saved Piano songs.' : 'Loading Piano library…'; displayStatus(); refresh(true); return;
+            const firstReady = !bridgeReady;
+            bridgeReady = true;
+            if (firstReady || (!libraryReady && ![...pending.values()].includes('list'))) {
+                lastLibrary = lastStatus = 0;
+                message = libraryReady ? 'Your saved Piano songs.' : 'Loading Piano library…';
+                displayStatus(); refresh(true);
+            }
+            return;
         }
-        if (event.data?.type === 'piano:eveos-library-changed') { lastLibrary = 0; refresh(true); return; }
+        if (event.data?.type === 'piano:eveos-library-changed') {
+            if (!libraryChangeTimer) libraryChangeTimer = setTimeout(() => {
+                libraryChangeTimer = 0; lastLibrary = 0; refresh(true);
+            }, 80);
+            return;
+        }
         if (event.data?.type !== 'piano:eveos-frontend-response') return;
         const data = event.data;
         const action = pending.get(data.id); if (!action) return;
         pending.delete(data.id); bridgeReady = true;
-        if (data.error) { if (busy === action) busy = ''; message = String(data.error).slice(0, 180); }
-        else if (action === 'list' && Array.isArray(data.songs)) applyLibrary(data.songs, 'bridge');
+        if (data.error) {
+            if (busy === action) busy = '';
+            message = String(data.error).slice(0, 180);
+            if (action === 'list' && data.id === latestListId) void loadLibraryDirect(data.id, true);
+        }
+        else if (action === 'list' && data.id === latestListId && Array.isArray(data.songs))
+            applyLibrary(data.songs, 'bridge', { authoritative: data.authoritative === true });
         else if (action === 'status') state = String(data.status || 'idle');
         else if (busy === action) { busy = ''; message = action === 'play' ? 'Song sent to Piano player.' : 'Playback command completed.'; lastStatus = 0; }
         displayStatus();
     });
     Object.assign(ns, {
-        ready: true, mount, sync, refresh, invalidate, handleAction, repaint: displaySongs,
-        syncPlayback: updateSongTransportButtons, setSongFavorite,
+        ready: true, mount, sync, refresh, invalidate, handleAction, togglePause: () => send('pause'), repaint: displaySongs,
+        syncPlayback: updateSongTransportButtons, syncControls: displayStatus, setSongFavorite,
         bridgeReady: () => bridgeReady, serviceOrigin: origin,
         pendingCount: () => pending.size,
         getSongs: () => songs.map(song => ({ ...song, identifiers: { ...(song.identifiers || {}) }, automatic_identifiers: { ...(song.automatic_identifiers || {}) } })),
+        getVisibleSongs: () => sortedSongs().map(song => ({ ...song })),
         requestLibrary: () => { lastLibrary = 0; refresh(true); }
     });
 })(window.EveAudioflixPianoFrontend = window.EveAudioflixPianoFrontend || {});

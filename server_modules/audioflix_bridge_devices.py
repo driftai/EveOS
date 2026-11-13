@@ -23,6 +23,27 @@ except Exception:  # pragma: no cover - optional runtime dependency
 _DEVICE_CACHE: dict = {"at": 0.0, "payload": None}
 _DEVICE_CACHE_TTL = 10.0
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+def spotify_mode_prerequisites(*, platform=None, environ=None, exists=None, module_exists=None) -> dict:
+    """Read-only optional Spotify requirements; never launches browsers or changes audio routes."""
+    import importlib.util
+    import os
+    import sys
+    platform = sys.platform if platform is None else platform
+    environ = os.environ if environ is None else environ
+    exists = Path.is_file if exists is None else exists
+    module_exists = (lambda name: importlib.util.find_spec(name) is not None) if module_exists is None else module_exists
+    windows = platform == 'win32'
+    roots = [environ.get('PROGRAMFILES(X86)'), environ.get('PROGRAMFILES'), environ.get('LOCALAPPDATA')]
+    candidates = {str(Path(root) / 'Microsoft' / 'Edge Beta' / 'Application' / 'msedge.exe')
+                  for root in roots if root} if windows else set()
+    edge = any(exists(Path(candidate)) for candidate in candidates)
+    return {
+        'platform': platform,
+        'edgeBetaInstalled': edge,
+        'windowsRoutingAdapterInstalled': bool(module_exists('winappaudiorouter')) if windows else False,
+    }
+
 def _sd_outputs() -> list[dict]:
     if sd is None:
         return []
@@ -253,6 +274,7 @@ def list_devices(force: bool = False) -> dict:
         "ok": True,
         "bridge": True,
         "playbackAvailable": sd is not None and np is not None,
+        "spotifyModePrerequisites": spotify_mode_prerequisites(),
         "devices": merged,
         "deviceCount": len(merged),
         "scannedAt": time.time(),
@@ -260,6 +282,15 @@ def list_devices(force: bool = False) -> dict:
         "message": "Native playback ready." if sd is not None and np is not None
         else "Install sounddevice to enable native playback; endpoint names are discovery-only.",
     }
+    # Optional read-only presence checks: never reconfigure or refresh audio devices.
+    try:
+        from server_modules.audioflix_mode_capabilities import detect_mode_capabilities
+        payload["modeCapabilitiesV042"] = detect_mode_capabilities()
+    except Exception:
+        payload["modeCapabilitiesV042"] = {"schemaVersion": 1,
+            "edgeBeta": {"status": "not_checked", "detail": "Host detection unavailable."},
+            "windowsAppRouting": {"status": "not_checked", "detail": "Routing dependency detection unavailable."},
+            "playbackVerified": False}
     _DEVICE_CACHE["at"] = now
     _DEVICE_CACHE["payload"] = payload
     return _copy_device_payload(payload, False)

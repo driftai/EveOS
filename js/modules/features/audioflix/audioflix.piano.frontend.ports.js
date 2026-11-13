@@ -5,34 +5,28 @@
   let host = null, remote = '', seq = 1000000, controls = null, queue = null, progress = null, media = null;
   let lastRead = 0, updating = false, scope = 'all', genre = '', author = '', source = '', tag = '', rating = '', duration = '', events = '';
   let membershipSignature = '', queueRenderSignature = '', draggedQueueId = '';
-  const pending = new Map();
-  const subscribers = new Set();
-  const canvas = () => host?.querySelector('[data-piano-frontend]');
-  const frame = () => host?.querySelector('[data-piano-frame]');
-  const $ = selector => canvas()?.querySelector(selector);
-  const active = () => { const panel = host?.querySelector('[data-audioflix-piano]'); return panel?.dataset.pianoView === 'frontend' && panel.dataset.running === 'true'; };
-  const list = value => (Array.isArray(value) ? value : String(value || '').split(',')).map(x => String(x).trim()).filter(Boolean);
-  const norm = value => String(value || '').toLowerCase().trim();
+  const pending = new Map(); const subscribers = new Set();
+  const canvas = () => host?.querySelector('[data-piano-frontend]'); const frame = () => host?.querySelector('[data-piano-frame]');
+  const $ = selector => canvas()?.querySelector(selector); const active = () => { const panel = host?.querySelector('[data-audioflix-piano]'); return panel?.dataset.pianoView === 'frontend' && panel.dataset.running === 'true'; };
+  const list = value => (Array.isArray(value) ? value : String(value || '').split(',')).map(x => String(x).trim()).filter(Boolean); const norm = value => String(value || '').toLowerCase().trim();
   const favorite = song => song.identifiers?.custom?.favorite === 'true' ||
     (song.identifiers?.custom?.favorite !== 'false' && (list(song.identifiers?.tags).some(x => norm(x) === 'favorite') || Number(song.identifiers?.personal_rating) >= 4.5));
   const queued = song => queue?.items?.some(item => String(item.songId) === String(song.id)) || false;
   const kind = song => song.kind === 'recording' || song.automatic_identifiers?.kind === 'performance' ? 'recording' : 'sheet';
-  const durationMs = song => Number(song.automatic_identifiers?.duration_ms || song.duration_ms || 0);
-  const eventCount = song => Number(song.automatic_identifiers?.event_count || 0);
+  const durationMs = song => Number(song.automatic_identifiers?.duration_ms || song.duration_ms || 0); const eventCount = song => Number(song.automatic_identifiers?.event_count || 0);
   const sourceLabel = song => {
     const raw = String(song.automatic_identifiers?.source_host || song.source || '').trim();
     if (!raw) return '';
     try { return new URL(raw).hostname.replace(/^www\./, ''); } catch (_) { return raw.slice(0, 40); }
   };
-
   function matches(song, search) {
     if (scope === 'favorites' && !favorite(song)) return false;
     if (scope === 'sheets' && kind(song) !== 'sheet') return false;
     if (scope === 'recordings' && kind(song) !== 'recording') return false;
     if (scope === 'queued' && !queued(song)) return false;
     const id = song.identifiers || {}, auto = song.automatic_identifiers || {};
-    const tags = [...list(id.tags), ...list(auto.tags)];
-    const hay = [song.title, song.artist, id.author, song.source, auto.source_host, auto.kind, ...list(id.genre), ...tags].map(norm).join(' ');
+    const tags = [...list(id.tags), ...list(auto.tags)]; const taxonomy = window.EveAudioflixPianoTaxonomy;
+    const hay = [song.title, song.artist, id.author, song.source, auto.source_host, auto.kind, ...list(id.genre), ...tags, ...(taxonomy?.searchTerms?.(song) || [])].map(norm).join(' ');
     if (search && !hay.includes(norm(search))) return false;
     if (genre && !list(id.genre).some(x => norm(x) === norm(genre))) return false;
     if (author && norm(id.author || song.artist) !== norm(author)) return false;
@@ -58,8 +52,7 @@
   }
   function optionNodes(node, values, placeholder, selectedValue) {
     if (!node) return;
-    const oldValue = selectedValue ?? node.value;
-    node.replaceChildren();
+    const oldValue = selectedValue ?? node.value; node.replaceChildren();
     for (const { value, label } of [{value:'',label:placeholder}, ...values]) {
       const o = document.createElement('option'); o.value = String(value); o.textContent = label; node.append(o);
     }
@@ -156,16 +149,18 @@
     pending.set(id, { action, sent: Date.now() });
     try { receiver.postMessage({ type: 'eveos:piano-frontend-port-command', action, id, ...fields }, dest); }
     catch (_) { pending.delete(id); return false; }
-    setTimeout(() => { if (pending.has(id)) { pending.delete(id); note('Piano controls did not respond. Try Refresh.'); } }, 7000);
-    return true;
+    setTimeout(() => { const entry = pending.get(id); if (entry) { pending.delete(id); entry.resolve?.({ ok: false, error: 'Piano controls did not respond. Try Refresh.' }); note('Piano controls did not respond. Try Refresh.'); } }, 7000);
+    return id;
   }
+  const request = (action, fields = {}) => new Promise(resolve => { const id = send(action, fields); if (id === false) resolve({ ok: false, error: 'Backend is not ready.' }); else pending.get(id).resolve = resolve; });
+  function settlePending(reason = 'Piano controls reloaded before the Backend acknowledged this request.') { for (const entry of pending.values()) entry.resolve?.({ ok: false, stale: true, error: reason }); pending.clear(); }
   function note(message) { const node = $('[data-pxp-notice]'); if (node) node.textContent = message; }
   function publish() {
-    front.syncPlayback?.();
+    front.syncControls?.(); front.syncPlayback?.();
     for (const listener of subscribers) { try { listener({ controls, queue, progress, media }); } catch (_) {} }
   }
   function updateControls() {
-    const internal = $('[data-pxp-internal]'), target = $('[data-pxp-target]');
+    const internal = $('[data-pxp-internal]'), target = $('[data-pxp-target]'); const engine = window.EveAudioflixPianoUi?.engineChoice?.() || { selected:'server', available:false, attached:false, message:'Checking native Piano…' }; canvas()?.querySelectorAll('[data-pxp-engine-option]').forEach(input => { input.checked = input.value === engine.selected; input.disabled = !active() || (input.value === 'server' && !engine.available) || (input.value === 'browser' && engine.attached); }); const engineNote = $('[data-pxp-engine-note]'); if (engineNote) engineNote.textContent = engine.message;
     if (internal) internal.disabled = !active() || !controls;
     if (!controls) { for (const selector of ['[data-pxp-target]','[data-pxp-layout]','[data-pxp-sound]']) { const node = $(selector); if (node) node.disabled = true; } return; }
     if (internal) internal.checked = !!controls.internal;
@@ -176,8 +171,7 @@
       optionNodes(node, controls[optionsKey] || [], 'Choose…', controls[key]?.value || '');
       node.disabled = !active() || (key === 'target' && (!!controls.internal || !!controls.targetDisabled));
     }
-    const targetLabel = $('[data-pxp-target-note]'); if (targetLabel) targetLabel.textContent = controls.internal ? 'Not used during Internal Play' : 'Sends notes to the selected window';
-    if (target) target.setAttribute('aria-disabled', String(!!controls.internal || !!controls.targetDisabled));
+    const targetLabel = $('[data-pxp-target-note]'); if (targetLabel) targetLabel.textContent = controls.internal ? 'Not used during Internal Play' : 'Sends notes to the selected window'; if (target) target.setAttribute('aria-disabled', String(!!controls.internal || !!controls.targetDisabled));
     const sound = $('[data-pxp-sound-note]'); if (sound) sound.textContent = controls.soundStatus || 'Choose the built-in instrument';
   }
   function updateQueue() {
@@ -192,8 +186,7 @@
       queue?.mode || '', queue?.currentId || '', Number(queue?.cursor) || 0, !!queue?.active,
       items.map(item => [item.queueId, item.songId, item.label])
     ]);
-    membershipSignature = nextMembershipSignature;
-    if (total) total.textContent = queue ? `${items.length} queued` : (active() ? 'Queue starting…' : '0 queued');
+    membershipSignature = nextMembershipSignature; if (total) total.textContent = queue ? `${items.length} queued` : (active() ? 'Queue starting…' : '0 queued');
     if (now) now.textContent = queue?.currentId ? (items.find(x => x.queueId === queue.currentId)?.label || 'Ready') : 'Nothing playing';
     if (next) {
       const currentIndex = items.findIndex(x => x.queueId === queue?.currentId);
@@ -275,14 +268,12 @@
       progress.status === 'countdown' ? 'Starting…' : progress.status === 'complete' ? 'Finished' : 'Ready';
     if (rail) { rail.setAttribute('aria-valuenow', String(current)); rail.setAttribute('aria-valuemax', String(Math.max(1, total))); }
     if (fill) fill.style.width = `${total ? (100 * current / total).toFixed(2) : 0}%`;
-    const input = c.querySelector('[data-pxp-event-input]');
-    if (input) { input.max=String(Math.max(1,total)); if(document.activeElement!==input)input.value=String(current||1); input.disabled=!active()||!total; }
+    const input = c.querySelector('[data-pxp-event-input]'); if (input) { input.max=String(Math.max(1,total)); if(document.activeElement!==input)input.value=String(current||1); input.disabled=!active()||!total; }
     c.querySelectorAll('[data-pxp-event-seek]').forEach(button=>{button.disabled=!active()||!total;});
   }
-  function invalidate() {
-    controls = null; queue = null; progress = null; media = null;
-    membershipSignature = ''; queueRenderSignature = ''; draggedQueueId = ''; lastRead = 0;
-    pending.clear(); updateControls(); updateQueue(); updateEventProgress(); publish();
+  function invalidate(reason) {
+    controls = null; queue = null; progress = null; media = null; membershipSignature = ''; queueRenderSignature = ''; draggedQueueId = ''; lastRead = 0;
+    settlePending(reason); updateControls(); updateQueue(); updateEventProgress(); publish();
   }
   function refresh(force = false) {
     const src = frame()?.getAttribute('src') || '';
@@ -292,27 +283,10 @@
       send('controls:get'); send('queue:get'); send('progress:get'); send('media:get'); lastRead = Date.now();
     }
   }
-  function mount() {
-    const c = canvas(); if (!c || c.querySelector('.piano-pxp-controls')) return;
-    const workspace=document.createElement('details');workspace.className='piano-pxp-workspace';
-    workspace.innerHTML='<summary><strong>Player controls &amp; library tools</strong><span>Playback, queue, song controls, history, inbox, and metadata</span></summary><div data-pxp-workspace-body></div>';
-    c.querySelector('.piano-frontend-header')?.after(workspace);
-    const settings = document.createElement('details'); settings.className = 'piano-pxp-controls';
-    settings.innerHTML = `<summary class="piano-pxp-heading"><strong>Playback setup</strong><span>Optional controls · expand to configure</span></summary>
-      <div class="piano-pxp-control-grid">
-        <label class="piano-pxp-toggle"><span>Internal Play</span><input type="checkbox" data-pxp-internal aria-label="Internal Play"><small>Play through the built-in Piano</small></label>
-        <label><span>Target Window</span><select data-pxp-target aria-label="Piano target window" disabled><option>Connecting…</option></select><small data-pxp-target-note>External keyboard target</small></label>
-        <label><span>Piano Layout</span><select data-pxp-layout aria-label="Piano layout" disabled><option>Connecting…</option></select><small>Choose the keyboard range</small></label>
-        <label><span>Internal Piano Sound</span><select data-pxp-sound aria-label="Internal Piano Sound" disabled><option>Connecting…</option></select><small data-pxp-sound-note>Choose the built-in instrument</small></label>
-      </div><div class="piano-pxp-mini"><button type="button" data-af-action="piano-frontend-port-controls-refresh">Refresh target windows</button><span data-pxp-notice role="status"></span></div>`;
-    workspace.querySelector('[data-pxp-workspace-body]')?.append(settings);
-    const events = document.createElement('details'); events.className = 'piano-pxp-events';
-    events.setAttribute('aria-label', 'Live Piano event progress');
-    events.innerHTML = `<summary class="piano-pxp-events-head"><strong>Event view</strong><span data-pxp-event-state>Connecting…</span></summary>
-      <div class="piano-pxp-events-data"><span data-pxp-event-count>0 / 0 events</span><span>Current note <b data-pxp-event-token>—</b></span></div>
-      <div class="piano-pxp-event-nav" aria-label="Piano event navigation"><button type="button" data-pxp-event-seek="start" title="First event">↤</button><button type="button" data-pxp-event-seek="-100">−100</button><button type="button" data-pxp-event-seek="-10">−10</button><button type="button" data-pxp-event-seek="-1">−1</button><label>Event <input data-pxp-event-input type="number" min="1" value="1" aria-label="Piano event number"></label><button type="button" data-pxp-event-seek="go">Go</button><button type="button" data-pxp-event-seek="1">+1</button><button type="button" data-pxp-event-seek="10">+10</button><button type="button" data-pxp-event-seek="100">+100</button><button type="button" data-pxp-event-seek="end" title="Last event">↦</button></div>
-      <div class="piano-pxp-event-rail" data-pxp-event-rail role="progressbar" aria-label="Piano song event progression" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"><span data-pxp-event-fill></span></div>`;
-    workspace.before(events);
+  // Single owner for Advanced Filters, including late recovery after player mounting.
+  function ensureFilters() {
+    const c = canvas(); if (!c) return false;
+    if (c.querySelector('.piano-pxp-advanced')) return true;
     const filter = document.createElement('section'); filter.className = 'piano-pxp-filters';
     filter.innerHTML = `<div class="piano-pxp-pills" role="group" aria-label="Piano library scope">
        <button type="button" class="active" data-pxp-scope="all">All</button><button type="button" data-pxp-scope="favorites">★ Favorites</button>
@@ -327,7 +301,32 @@
          <input data-pxp-events type="number" min="0" step="1" placeholder="Min events" aria-label="Minimum event count">
          <button type="button" data-af-action="piano-frontend-port-filters-clear">Reset filters</button>
        </div></details>`;
+    if (c.querySelector('.piano-pxp-pills')) filter.querySelector('.piano-pxp-pills')?.remove();
     c.querySelector('.piano-frontend-library-head')?.after(filter);
+    return !!c.querySelector('.piano-pxp-advanced');
+  }
+  function mount() {
+    const c = canvas(); if (!c) return; if (c.querySelector('.piano-pxp-controls')) { ensureFilters(); return; }
+    const workspace=document.createElement('details');workspace.className='piano-pxp-workspace';
+    workspace.innerHTML='<summary><strong>Player controls &amp; library tools</strong><span>Playback, queue, song controls, history, inbox, and metadata</span></summary><div data-pxp-workspace-body></div>';
+    c.querySelector('.piano-frontend-header')?.after(workspace);
+    const settings = document.createElement('details'); settings.className = 'piano-pxp-controls';
+    settings.innerHTML = `<summary class="piano-pxp-heading"><strong>Playback setup</strong><span>Optional controls · expand to configure</span></summary>
+      <div class="piano-pxp-control-grid">
+        <label class="piano-pxp-toggle"><span>Internal Play</span><input type="checkbox" data-pxp-internal aria-label="Internal Play"><small>Play through the built-in Piano</small></label><fieldset class="piano-pxp-engine" data-pxp-engine><legend>Internal Play engine</legend><div class="piano-pxp-engine-options"><label><input type="radio" name="piano-pxp-engine" value="server" data-pxp-engine-option><span><strong>Server-owned output · Recommended</strong><small>The EveOS server renders notes independently of your browser. Uses the device selected in AudioFlix Audio Output / Voice Port.</small></span></label><label><input type="radio" name="piano-pxp-engine" value="browser" data-pxp-engine-option><span><strong>Browser PCM · Compatibility</strong><small>The browser generates notes and streams PCM to the same AudioFlix output; may stutter in the background.</small></span></label></div><p class="piano-pxp-engine-status" data-pxp-engine-note role="status"></p></fieldset>
+        <label><span>Target Window</span><select data-pxp-target aria-label="Piano target window" disabled><option>Connecting…</option></select><small data-pxp-target-note>External keyboard target</small></label>
+        <label><span>Piano Layout</span><select data-pxp-layout aria-label="Piano layout" disabled><option>Connecting…</option></select><small>Choose the keyboard range</small></label>
+        <label><span>Internal Piano Sound</span><select data-pxp-sound aria-label="Internal Piano Sound" disabled><option>Connecting…</option></select><small data-pxp-sound-note>Choose the built-in instrument</small></label>
+      </div><div class="piano-pxp-mini"><button type="button" data-af-action="piano-frontend-port-controls-refresh">Refresh target windows</button><span data-pxp-notice role="status"></span></div>`;
+    workspace.querySelector('[data-pxp-workspace-body]')?.append(settings);
+    const events = document.createElement('details'); events.className = 'piano-pxp-events';
+    events.setAttribute('aria-label', 'Live Piano event progress');
+    events.innerHTML = `<summary class="piano-pxp-events-head"><strong>Event view</strong><span data-pxp-event-state>Connecting…</span></summary>
+      <div class="piano-pxp-events-data"><span data-pxp-event-count>0 / 0 events</span><span>Current note <b data-pxp-event-token>—</b></span></div>
+      <div class="piano-pxp-event-nav" aria-label="Piano event navigation"><button type="button" data-pxp-event-seek="start" title="First event">↤</button><button type="button" data-pxp-event-seek="-100">−100</button><button type="button" data-pxp-event-seek="-10">−10</button><button type="button" data-pxp-event-seek="-1">−1</button><label>Event <input data-pxp-event-input type="number" min="1" value="1" aria-label="Piano event number"></label><button type="button" data-pxp-event-seek="go">Go</button><button type="button" data-pxp-event-seek="1">+1</button><button type="button" data-pxp-event-seek="10">+10</button><button type="button" data-pxp-event-seek="100">+100</button><button type="button" data-pxp-event-seek="end" title="Last event">↦</button></div>
+      <div class="piano-pxp-event-rail" data-pxp-event-rail role="progressbar" aria-label="Piano song event progression" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"><span data-pxp-event-fill></span></div>`;
+    workspace.before(events);
+    ensureFilters();
     const queuePanel = document.createElement('details'); queuePanel.className = 'piano-pxp-queue';
     queuePanel.innerHTML = `<summary><strong>Player Queue</strong><span data-pxp-queue-count>Queue starting…</span></summary>
       <div class="piano-pxp-queue-now"><div><small>NOW</small><strong data-pxp-now>Nothing playing</strong></div><div><small>NEXT</small><strong data-pxp-next>Nothing queued next</strong></div></div>
@@ -339,7 +338,7 @@
     workspace.querySelector('[data-pxp-workspace-body]')?.append(queuePanel);
     const sort = c.querySelector('[data-pf-sort]'); if (sort) for (const [value,text] of [['rating','Personal rating'],['conversion','Conversion rating'],['longest','Longest'],['shortest','Shortest'],['events','Most events']]) { const op=document.createElement('option');op.value=value;op.textContent=text;sort.append(op); }
     c.addEventListener('change', event => {
-      const el = event.target;
+      const el = event.target; if (el.matches('[data-pxp-engine-option]')) { void Promise.resolve(window.EveAudioflixPianoUi?.chooseEngine?.(el.value === 'server')).then(result => { if (result?.ok === false) note(result.message); updateControls(); }); return; }
       if (el.matches('[data-pxp-internal]')) {
         if (controls) { controls.internal = el.checked; updateControls(); }
         send('controls:set',{field:'internal',value:el.checked}); return;
@@ -408,7 +407,7 @@
       return;
     }
     if (data?.type !== 'piano:eveos-frontend-port-response' || !pending.has(data.id)) return;
-    const action = pending.get(data.id)?.action; pending.delete(data.id);
+    const entry = pending.get(data.id), action = entry?.action; pending.delete(data.id);
     if (data.error) {
       note(data.error);
       if (action?.startsWith('queue:')) { const count = $('[data-pxp-queue-count]'); if (count) count.textContent = 'Queue unavailable · Refresh'; }
@@ -424,6 +423,7 @@
       if (action === 'song:update') front.requestLibrary?.();
       publish();
     }
+    entry?.resolve?.({ ok: !data.error, error: data.error || '', data });
   });
   const oldMount = front.mount, oldSync = front.sync, oldHandle = front.handleAction, oldRefresh = front.refresh;
   front.mount = h => { host = h; oldMount(h); mount(); };
@@ -431,10 +431,10 @@
   front.handleAction = button => handleAction(button) || oldHandle(button);
   front.refresh = force => { oldRefresh(force); refresh(force); };
   Object.assign(ports,{
-    ready:true,matches,sortSongs,
+    ready:true,ensureFilters,matches,sortSongs,
     decorateSongs(target, visible, all) { decorateSongs(target, visible, all); window.EveAudioflixPianoFrontendMedia?.decorateSongs?.(target, visible, all); },
-    command: send, invalidate,
-    snapshot: () => ({ controls, queue, progress, media }),
+    command: (action, fields) => send(action, fields) !== false, request, invalidate, settlePending,
+    snapshot: () => ({ controls, queue, progress, media }), syncEngine: updateControls,
     subscribe(listener) { if (typeof listener !== 'function') return () => {}; subscribers.add(listener); listener({ controls, queue, progress, media }); return () => subscribers.delete(listener); }
   });
 })(window.EveAudioflixPianoFrontendPorts = window.EveAudioflixPianoFrontendPorts || {}, window.EveAudioflixPianoFrontend);

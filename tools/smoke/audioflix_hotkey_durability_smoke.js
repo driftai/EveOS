@@ -46,7 +46,7 @@ function bootstrap(raw) {
     };
     const context = vm.createContext({ window: win, localStorage, console, Date, Math,
         setTimeout, clearTimeout, setInterval, clearInterval });
-    for (const file of ['audioflix.state.schema.js', 'audioflix.state.recovery.js', 'audioflix.state.js'])
+    for (const file of ['audioflix.state.schema.js', 'audioflix.state.hotkey-journal.js', 'audioflix.state.recovery.js', 'audioflix.state.js'])
         vm.runInContext(read(file), context, { filename: file });
     return { win, context };
 }
@@ -57,6 +57,12 @@ async function main() {
     const first = bootstrap(data), store = first.win.EveAudioflixState;
     assert.equal(store.ensure().soundboard.length, 100);
     assert.equal(Object.keys(store.ensure().portHotkeys).length, 100);
+    const seeded = JSON.parse(localStorage.getItem('eveAudioflixHotkeyAssignmentsV1'));
+    assert.equal(Object.keys(seeded.assignments).length, 100, 'item-only assignments seed the journal immediately');
+    store.setItemHotkey('sound', 'sound_2', 'ctrl+alt+x');
+    const stale = bootstrap({ ...data, portHotkeys: { sound_2: combo(2) },
+        soundboard: originals, durabilityRevision: 2, durabilityUpdatedAt: 2 }).win.EveAudioflixState.ensure();
+    assert.equal(stale.soundboard[2].hotkey, 'ctrl+alt+x', 'stale catalog values cannot overwrite a newer journal remap');
     first.win.EveAudioflixStateRecovery.write(key, store.getSnapshot());
     const reload = bootstrap({ ...data, soundboard: originals.map(item => ({ ...item, hotkey: '' })),
         portHotkeys: {}, durabilityRevision: 9, durabilityUpdatedAt: 2 });
@@ -65,6 +71,13 @@ async function main() {
     assert.equal(restored.soundboard.filter(item => item.hotkey).length, 100,
         '100 assignments must survive higher-revision partial core config');
     assert.equal(Object.keys(restored.portHotkeys).length, 100);
+    // A later incomplete structural write may not replace the independent assignment mirror.
+    localStorage.setItem(`${key}:structure:v1`, JSON.stringify({ schemaVersion: 2, savedAt: Date.now() + 10,
+        durabilityRevision: 99, durabilityUpdatedAt: 99, portHotkeys: {}, lastAudioflixTab: 'soundboard' }));
+    const afterUnrelatedWrite = bootstrap({ ...data, soundboard: originals.map(item => ({ ...item, hotkey: '' })),
+        portHotkeys: {}, durabilityRevision: 99, durabilityUpdatedAt: 99 }).win.EveAudioflixState.ensure();
+    assert.equal(afterUnrelatedWrite.soundboard.filter(item => item.hotkey).length, 100,
+        'an unrelated structural journal replacement must not erase assignments');
     // A scoped workspace backup must carry every hotkey, and restoring it must not
     // discard assignments outside the imported scope.
     reload.win.EveAudioflixLinks = {

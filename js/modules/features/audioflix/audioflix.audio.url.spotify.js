@@ -60,6 +60,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
     ns.create = function create(ctx) {
         const { ensureStage, setStageStatus, emitPlayback, emitProgress } = ctx;
         const V = ctx.view;
+        const independentLayer = ctx.independentLayer === true;
 
         async function playSpotify(item) {
             const identity = media.fromItem(item);
@@ -68,7 +69,7 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
             const mount = document.createElement('div');
             mount.className = 'audioflix-spotify-player';
             host.appendChild(mount);
-            window.EveAudioflixSpotifyVolume?.mount?.(host);
+            if (!independentLayer) window.EveAudioflixSpotifyVolume?.mount?.(host);
             const api = await loadApi();
 
             await new Promise((resolve, reject) => {
@@ -251,13 +252,13 @@ window.EveAudioflixSpotifyPlayback = window.EveAudioflixSpotifyPlayback || {};
                         setVolume: (volume) => {
                             const safe = Math.max(0, Math.min(1, Number(volume) || 0));
                             const direct = typeof controller.setVolume === 'function';
-                            window.EveAudioflixSpotifyVolume?.setSpotifyVolume?.(safe, { direct });
+                            if (!independentLayer) window.EveAudioflixSpotifyVolume?.setSpotifyVolume?.(safe, { direct });
                             return direct ? controller.setVolume(safe) : undefined;
                         },
                         destroy: () => {
                             destroyed = true;
                             clearStartTimer();
-                            window.EveAudioflixSpotifyVolume?.clearSpotify?.();
+                            if (!independentLayer) window.EveAudioflixSpotifyVolume?.clearSpotify?.();
                             destroyCompletionScheduler();
                             return controller.destroy?.();
                         },

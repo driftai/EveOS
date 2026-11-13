@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ast
 import threading
 import time
 from pathlib import Path
@@ -119,9 +120,67 @@ class SongLibrary:
         return int(max(event["at_ms"] + event["duration_ms"] for event in events))
 
     @staticmethod
+    def _collection_values(raw: Any, depth: int = 0) -> list[Any]:
+        if depth > 3:
+            return []
+        if isinstance(raw, (list, tuple, set)):
+            return [nested for value in raw for nested in SongLibrary._collection_values(value, depth + 1)]
+        text = str(raw or "").strip()
+        if text.startswith("[") and text.endswith("]"):
+            for parser in (json.loads, ast.literal_eval):
+                try:
+                    value = parser(text)
+                    if isinstance(value, (list, tuple, set)):
+                        return SongLibrary._collection_values(value, depth + 1)
+                except (ValueError, SyntaxError, TypeError, json.JSONDecodeError):
+                    pass
+        return text.split(",")
+
+    @staticmethod
     def _clean_values(raw: Any) -> list[str]:
-        values = raw if isinstance(raw, list) else str(raw or "").split(",")
-        return list(dict.fromkeys(str(value).strip()[:80] for value in values if str(value).strip()))[:40]
+        values = SongLibrary._collection_values(raw)
+        return list(dict.fromkeys(str(value).strip()[:80] for value in values if str(value).strip()))[:80]
+
+    @staticmethod
+    def _clean_custom_collection(key: str, raw: Any) -> list[str]:
+        values = SongLibrary._collection_values(raw)
+        limit = 180 if key == "piano_duplicate_keep_v1" else 80
+        count = 20 if key == "piano_duplicate_keep_v1" else 80
+        return list(dict.fromkeys(str(value).strip()[:limit] for value in values if str(value).strip()))[:count]
+
+    @staticmethod
+    def normalize_playback_settings(raw: Any) -> dict[str, Any]:
+        if not isinstance(raw, dict):
+            raise ValueError("Piano playback settings must be an object")
+        route = str(raw.get("route") or "inherit").strip().lower()
+        if route not in {"inherit", "internal", "target"}:
+            raise ValueError("Invalid Piano playback route")
+        layout_raw = raw.get("layout")
+        layout = None if layout_raw in (None, "", "inherit") else str(layout_raw)
+        if layout not in {None, "61", "88"}:
+            raise ValueError("Invalid Piano layout override")
+        target = None if raw.get("targetHint") in (None, "") else str(raw.get("targetHint")).strip()[:180]
+        instrument = None if raw.get("instrumentId") in (None, "") else str(raw.get("instrumentId")).strip()[:80]
+        volume_raw = raw.get("internalVolumePercent")
+        if volume_raw in (None, ""):
+            volume = None
+        else:
+            if isinstance(volume_raw, bool):
+                raise ValueError("Invalid Piano internal volume")
+            try:
+                parsed = float(volume_raw)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Invalid Piano internal volume") from exc
+            if not parsed.is_integer() or not 0 <= parsed <= 100:
+                raise ValueError("Piano internal volume must be a whole number from 0 to 100")
+            volume = int(parsed)
+        return {
+            "route": route,
+            "targetHint": target,
+            "layout": layout,
+            "instrumentId": instrument,
+            "internalVolumePercent": volume,
+        }
 
     @classmethod
     def _merge_identifiers(cls, existing: Any, incoming: Any) -> dict[str, Any]:
@@ -129,6 +188,10 @@ class SongLibrary:
         patch = incoming if isinstance(incoming, dict) else {}
         base_custom = base.get("custom")
         custom = dict(base_custom) if isinstance(base_custom, dict) else {}
+        collection_keys = {"piano_folders_v1": 80, "piano_groups_v1": 80, "piano_duplicate_keep_v1": 20}
+        for key in collection_keys:
+            if key in custom:
+                custom[key] = cls._clean_custom_collection(key, custom[key])
         if "custom" in patch:
             # The editor sends custom identifiers as the complete desired set.
             # Treat an explicit empty dict as a real delete-all operation instead
@@ -139,7 +202,11 @@ class SongLibrary:
                 for key, value in raw_custom.items():
                     clean_key = str(key).strip()[:80]
                     if clean_key:
-                        custom[clean_key] = str(value).strip()[:240]
+                        custom[clean_key] = (cls.normalize_playback_settings(value)
+                                             if clean_key == "piano_playback_v1"
+                                             else cls._clean_custom_collection(clean_key, value)
+                                             if clean_key in collection_keys
+                                             else str(value).strip()[:240])
         rating = patch.get("personal_rating", base.get("personal_rating"))
         try:
             rating = None if rating in (None, "") else max(0, min(5, round(float(rating), 2)))

@@ -103,3 +103,11 @@ When adding a capability, ask two questions before committing:
 2. **Could committing this file expose user, machine, credential, session, or generated runtime state?** If yes, keep the state ignored and track only schemas/examples/tools required to recreate or inspect it.
 
 This keeps GitHub pull/clone as the normal transport for EveOS code and test capability instead of manual file replacement.
+
+## Public agent documentation versus private agent state
+
+The repository may carry **shared contributor rules** (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `docs/agents/`) and TLO's reviewed **resident public seed** (`config/agents/tlo/`). These files are portable interface documentation, not actual user/agent sessions. Eve (currently using ChatGPT as her brain), Nova (Codex), Iris (Claude Code) and Astro (Gemini CLI) are visiting development agents whose local memory, private prompts, configs and session artifacts must never be copied into the public repository. TLO alone has a deliberate tracked resident identity; its mutable runtime state remains private in ignored local stores.
+
+Use the [public documentation index](README.md) as the cross-agent map. Before publishing, audit the staged diff, ignored/untracked files, generated evidence and attachments for secrets, personal machine paths and conversation/room identifiers. Source-visible schemas and synthetic examples are not permission to commit real profile data.
+
+The EveOS web server denies static requests for private harness files and Agent Management or Dex runtime state. The local Agent Management API remains the supported access path and applies its own caller and scope checks.

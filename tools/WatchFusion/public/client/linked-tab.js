@@ -2,6 +2,7 @@
   const CONTROL_ECHO_TTL_MS=2500;
   let link=null,peer=null,lastMetadata={},loadedPageUrl='',resolvingUrl='',pendingUrl='',resolveRevision=0,applying=false;
   let lastMirrorAnchor=null,mirrorInFlight=false,queuedMirror=null;
+  let lastTransportTiming=null;
   const pendingControls=new Map();
 
   function active(){return !!link;}
@@ -109,6 +110,7 @@
     if(queued&&queued!==loadedPageUrl)void followUrl(queued);
   }
   function onMetadata(metadata={}){
+    lastTransportTiming=window.WatchFusionLinkedPlaybackSync?.transportTiming?.(metadata,Date.now())||null;
     lastMetadata=applyPendingControls({...lastMetadata,...metadata});renderControls(lastMetadata);
     const pageUrl=String(lastMetadata.pageUrl||'');
     if(pageUrl&&pageUrl!==loadedPageUrl){void followUrl(pageUrl);return;}
@@ -137,5 +139,6 @@
   }
   function reconnect(){if(!link)return start();connectPeer();return true;}
   $('linkTabBtn').onclick=()=>{void(active()?stop():start());};
-  window.watchFusionLinkedTab={active,applying:()=>applying,setApplying,control,start,stop,reconnect,render:renderControls,metadata:()=>lastMetadata};
+  window.watchFusionLinkedTab={active,applying:()=>applying,setApplying,control,start,stop,reconnect,render:renderControls,
+    metadata:()=>lastMetadata,diagnostics:()=>({transport:lastTransportTiming})};
 })();

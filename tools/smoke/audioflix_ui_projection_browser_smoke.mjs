@@ -57,6 +57,7 @@ try {
             uiClass: { renderButton: () => '<button data-af-action="toggle-classifiers">Classifiers</button>' },
             getFlags: () => ({ addFormOpen: {}, localizeFormOpen: {}, groupsOpen: {}, foldersOpen: {}, nexusState: { open: window.__nexus, type: 'music' } }) });
         const panel = window.__panel = window.EveAudioflixUiPanel.create({ state: () => window.__state, esc, closeSvg: 'Close', hotkeyComboIssue: () => null,
+            frontendActiveGroup: renderer.frontendActiveGroup,
             renderItems: renderer.renderItems, renderAddSection: type => toolbar(type).replace('data-af-action="toggle-view-mode"', 'id="view-toggle" data-af-action="toggle-view-mode"'),
             view: () => window.__view, modal: () => '', tools: () => ({ routing: { renderStatusCards: () => '<select id="live-output"><option>Output</option></select>' },
                 narration: { renderAudioflixSummary: () => '<strong id="narration-title"></strong>', syncAudioflixSummary: () => { const title = document.getElementById('narration-title'); if (title) title.textContent = 'Selected stopped reader'; } } }),
@@ -99,13 +100,13 @@ try {
         play: window.__play === document.querySelector('[data-af-action="play"]'), wave: window.__wave === document.querySelector('canvas'),
         output: window.__output === document.querySelector('#live-output') })), { card: true, play: true, wave: true, output: true });
     checks.push('transient-preserves-library-and-live-routing');
-    assert.equal(await page.locator('.audioflix-volume-slider').first().isDisabled(), true);
+    assert.equal(await page.locator('.audioflix-volume-slider').first().isDisabled(), false);
     await page.evaluate(() => { window.__volume = document.querySelector('.audioflix-volume-slider'); window.__directVolume = true; window.__panel.playback(document.getElementById('audioflix-overlay')); });
     assert.equal(await page.locator('.audioflix-volume-slider').first().isDisabled(), false);
     await page.evaluate(() => { window.__directVolume = false; window.__panel.playback(document.getElementById('audioflix-overlay')); });
-    assert.equal(await page.locator('.audioflix-volume-slider').first().isDisabled(), true);
+    assert.equal(await page.locator('.audioflix-volume-slider').first().isDisabled(), false);
     assert.equal(await page.evaluate(() => window.__volume === document.querySelector('.audioflix-volume-slider')), true);
-    checks.push('capability-reconnect-preserves-slider');
+    checks.push('spotify-owner-changes-preserve-shared-volume-slider');
     await page.locator('[data-af-action="toggle-routing-drawer"]').click();
     await page.locator('[data-af-action="toggle-routing-drawer"]').click();
     assert.equal(await page.locator('#narration-title').textContent(), 'Selected stopped reader');

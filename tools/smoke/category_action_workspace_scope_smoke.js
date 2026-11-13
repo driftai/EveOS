@@ -65,9 +65,25 @@ async function seedState(page, seed) {
       window.eveState.links = links;
     }
 
+    // CARD_LAUNCH_FIXTURE_INDEX_INVALIDATION_V5: synthetic links bypass EveOS mutations.
+    // The startup datapack index may still contain the Start card after replacing links.
+    const fixtureIndex = window.EveOS?.DatapackIndex || window.EveOS?.SearchAdvanced?.Index || null;
+    if (fixtureIndex && typeof fixtureIndex.markDirty !== 'function') {
+      throw new Error('Card Launch test index cannot invalidate its stale fixture');
+    }
+    fixtureIndex?.markDirty?.('card-launch-test-fixture-replaced');
+    window.EveDashboardPrefetch?.clearCache?.();
     window.showToast = function () {};
-    if (typeof window.renderDashboard === 'function') window.renderDashboard();
+    if (typeof window.renderDashboard !== 'function') {
+      throw new Error('Card Launch test dashboard renderer is missing');
+    }
+    window.renderDashboard();
   }, seed);
+  // renderDashboard coalesces work into the next animation frame. Observe the
+  // real category DOM before asserting context menu or invoking the Launch action.
+  await page.waitForFunction(() => (
+    !!document.querySelector('.category-card[data-card-category="Alpha"][data-card-workspace="main"]')
+  ), undefined, { timeout: 15000 });
 }
 
 async function runSmoke(page) {
@@ -130,6 +146,126 @@ async function runSmoke(page) {
   return snapshot;
 }
 
+
+// Real pointer-click regression for the card Launch action; mocks only tab ownership
+// for exact multi-URL assertions. The final case uses an actual Chromium popup.
+async function runCardLaunchSmoke(page) {
+  const cardSelector = '.category-card[data-card-category="Alpha"][data-card-workspace="main"]';
+  const selector = cardSelector + ' .launch-btn';
+  // The preceding context-menu assertions leave the menu open. Clear it before
+  // exercising the production pointer action and re-render this small seeded scope.
+  await page.evaluate(() => {
+    if (typeof window.closeAllMenus === 'function') window.closeAllMenus();
+    const search = document.getElementById('search');
+    if (search) search.value = '';
+    config.activeWorkspace = 'main';
+    if (typeof window.renderDashboard === 'function') window.renderDashboard();
+  });
+  const card = page.locator(cardSelector);
+  try {
+    await card.waitFor({ state: 'visible', timeout: 15000 });
+    // Deferred shells intentionally omit header actions until hydrated.
+    // Hover triggers EveOS' real on-demand hydration, not an injected test button.
+    await card.hover();
+    await page.locator(selector).waitFor({ state: 'visible', timeout: 15000 });
+  } catch (error) {
+    const snapshot = await page.evaluate(() => ({
+      activeWorkspace: config.activeWorkspace,
+      viewMode: config.viewMode,
+      cards: Array.from(document.querySelectorAll('.category-card')).slice(0, 12).map(node => ({
+        workspace: node.dataset.cardWorkspace || '',
+        category: node.dataset.cardCategory || '',
+        deferred: node.dataset.cardDeferred || '',
+        hydrationError: node.dataset.cardHydrationError || '',
+        launchButtons: node.querySelectorAll('.launch-btn').length
+      })),
+      gridExists: !!document.getElementById('dashboard-grid'),
+      liveLinks: typeof getLiveLinks === 'function' ? getLiveLinks().length : -1
+    }));
+    throw new Error('Card Launch fixture not hydrated: ' + JSON.stringify(snapshot)
+      + ' | ' + String(error && error.message ? error.message : error));
+  }
+  await page.evaluate(() => {
+    window.__cardLaunchSmokeOriginal = {
+      activeWorkspace: config.activeWorkspace,
+      links: window.eveState?.links,
+      open: window.open
+    };
+    const entries = [
+      { id: 'l1', workspace: 'main', category: 'Alpha', url: 'https://example.com/one', done: false },
+      { id: 'l2', workspace: 'main', category: 'Alpha', url: 'https://example.com/two', done: false },
+      { id: 'l3', workspace: 'main', category: 'Alpha', url: 'https://example.com/three', done: false },
+      { id: 'l4', workspace: 'main', category: 'Alpha', url: 'https://example.com/one', done: false },
+      { id: 'l5', workspace: 'main', category: 'Alpha', url: 'javascript:alert(1)', done: false },
+      { id: 'l6', workspace: 'main', category: 'Alpha', url: '', done: false },
+      { id: 'l7', workspace: 'main', category: 'Alpha', url: 'https://example.com/done', done: true },
+      { id: 'l8', workspace: 'child', category: 'Alpha', url: 'https://example.com/other', done: false },
+      { id: 'l9', workspace: 'main', category: 'Other', url: 'https://example.com/wrong', done: false }
+    ];
+    if (window.eveState) window.eveState.links = entries;
+    window.links = entries;
+    config.activeWorkspace = 'child'; // Rendered main card must retain its own scope.
+    window.__cardLaunchOpened = [];
+    window.__cardLaunchTabs = [];
+    window.open = function () {
+      const tab = {
+        opener: window,
+        location: { replace(url) { window.__cardLaunchOpened.push(url); } },
+        close() {}
+      };
+      window.__cardLaunchTabs.push(tab);
+      return tab;
+    };
+  });
+  const button = page.locator(selector);
+  if (await button.getAttribute('data-ws') !== 'main') throw new Error('Launch button lost its card workspace scope');
+  await button.click();
+  const result = await page.evaluate(() => ({
+    urls: window.__cardLaunchOpened.slice(),
+    safe: window.__cardLaunchTabs.every(tab => tab.opener === null)
+  }));
+  const expected = ['https://example.com/one', 'https://example.com/two', 'https://example.com/three'];
+  if (JSON.stringify(result.urls) !== JSON.stringify(expected) || !result.safe) {
+    throw new Error('Scoped Launch was not exact/deduplicated/opener-safe: ' + JSON.stringify(result));
+  }
+
+  await page.evaluate(() => { window.open = () => null; });
+  await button.click();
+  const blocked = await page.locator('#eve-card-launch-blocked-links a').evaluateAll(nodes =>
+    nodes.map(node => ({ href: node.href, rel: node.rel, target: node.target })));
+  if (JSON.stringify(blocked.map(x => x.href)) !== JSON.stringify(expected)
+      || blocked.some(x => !x.rel.includes('noopener') || x.target !== '_blank')) {
+    throw new Error('Blocked popup fallback omitted safe, clickable URLs: ' + JSON.stringify(blocked));
+  }
+
+  await page.evaluate(() => {
+    window.open = window.__cardLaunchSmokeOriginal.open;
+    const one = [{ id: 'one', workspace: 'main', category: 'Alpha', url: 'https://example.com/one', done: false }];
+    if (window.eveState) window.eveState.links = one;
+    window.links = one;
+    document.getElementById('eve-card-launch-blocked-links')?.remove();
+  });
+  await page.context().route('https://example.com/**', route => route.fulfill({
+    contentType: 'text/html', body: '<!doctype html><title>Card Launch fixture</title>'
+  }));
+  const popupPromise = page.waitForEvent('popup', { timeout: 12000 });
+  await button.click();
+  const popup = await popupPromise;
+  await popup.waitForURL('https://example.com/one', { timeout: 12000 });
+  await popup.close();
+  await page.evaluate(() => {
+    const previous = window.__cardLaunchSmokeOriginal;
+    config.activeWorkspace = previous.activeWorkspace;
+    if (window.eveState) window.eveState.links = previous.links;
+    window.links = previous.links;
+    window.open = previous.open;
+    delete window.__cardLaunchSmokeOriginal;
+    delete window.__cardLaunchOpened;
+    delete window.__cardLaunchTabs;
+  });
+  return { scopedUrls: expected.length, blockedFallback: blocked.length, realPopup: true };
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
@@ -148,6 +284,8 @@ async function main() {
     await waitForApp(page);
     await seedState(page, buildSeedPayload());
     const smoke = await runSmoke(page);
+    const launchSmoke = await runCardLaunchSmoke(page);
+    smoke.cardLaunch = launchSmoke;
     console.log(JSON.stringify({
       ok: true,
       smoke,

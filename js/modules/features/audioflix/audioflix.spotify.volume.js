@@ -40,8 +40,13 @@
         const remote = remoteSnapshot();
         state.managedControl = remote.connected === true;
         state.helperReachable = remote.connected === true;
-        state.directControl = Boolean(state.controllerDirect || state.managedControl);
-        if (state.controllerDirect) {
+        const officialEmbedActive = activeSpotifyPlayback()?.edgeEmbed === true
+            && window.EveAudioflixSpotifyEdge?.snapshot?.().active === true;
+        state.directControl = Boolean(state.controllerDirect || state.managedControl || officialEmbedActive);
+        if (officialEmbedActive) {
+            state.status = 'official-embed-native';
+            state.message = 'Official Spotify Embed volume is controlled through the selected Windows audio session.';
+        } else if (state.controllerDirect) {
             state.status = 'direct';
             state.message = '';
         } else if (state.managedControl) {

@@ -103,6 +103,7 @@ window.EveAudioflixSpotifyQueueHandoff = window.EveAudioflixSpotifyQueueHandoff 
         return true;
     }
     function invalidate() {
+        window.EveAudioflixSpotifyEdgeQueue?.invalidate?.();
         ++serial;
         const prior = lease;
         lease = null;

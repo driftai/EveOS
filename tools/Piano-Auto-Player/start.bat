@@ -32,8 +32,7 @@ goto :local
 powershell -NoProfile -ExecutionPolicy Bypass -File "%BOOT_DIR%\set-exposure-state.ps1" -Service piano -Mode local >nul 2>nul
 echo Starting privately on http://127.0.0.1:8771
 %PY% run.py --host 127.0.0.1 --port 8771
-if errorlevel 1 goto :fail
-exit /b 0
+exit /b %ERRORLEVEL%
 
 :lan
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$ip=[System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) ^| Where-Object {$_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork -and -not [System.Net.IPAddress]::IsLoopback($_)} ^| Select-Object -First 1; if($ip){$ip.IPAddressToString}"`) do set "LAN_IP=%%I"
@@ -45,13 +44,12 @@ echo [WARN] LAN mode exposes Piano controls and the saved Piano library to devic
 echo [READY] %LAN_URL%
 echo.
 %PY% run.py --host 0.0.0.0 --port 8771
-if errorlevel 1 goto :fail
-exit /b 0
+exit /b %ERRORLEVEL%
 
 :cloudflare
 powershell -NoProfile -ExecutionPolicy Bypass -File "%BOOT_DIR%\set-exposure-state.ps1" -Service piano -Mode local >nul 2>nul
 echo [START] Piano origin stays private on 127.0.0.1:8771.
-start "Piano Auto Player Origin" cmd /k "cd /d "%CD%" && %PY% run.py --host 127.0.0.1 --port 8771"
+start "Piano Auto Player Origin" cmd /c "cd /d "%CD%" && %PY% run.py --host 127.0.0.1 --port 8771"
 for /L %%R in (1,1,40) do (
   powershell -NoProfile -Command "try {(Invoke-RestMethod -Uri 'http://127.0.0.1:8771/api/status' -TimeoutSec 1).ok -eq $true} catch {$false}" | findstr /I "True" >nul && goto :piano_ready
   timeout /t 1 /nobreak >nul

@@ -15,23 +15,12 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     let nativeGeneration = 0;
     let nativeFallbackNoticeShown = false;
     let activeStreamVolume = 1.0;
-    let urlPlayback = null;
+    let urlPlayback = null, resumeMusicCapture = false;
 
-    async function getDecodedBuffer(url) {
-        return window.EveAudioflixAudioCodec.getDecodedBuffer(
-            url,
-            () => waveformController?.getContext?.()
-        );
-    }
-    function encodeBufferToBase64(audioBuffer, startAt = 0) {
-        return window.EveAudioflixAudioCodec.encodeBufferToBase64(audioBuffer, startAt);
-    }
-    function state() {
-        return window.EveAudioflixState?.ensure?.() || {};
-    }
-    function dispatch(name, detail) {
-        window.dispatchEvent(new CustomEvent(name, { detail }));
-    }
+    async function getDecodedBuffer(url) { return window.EveAudioflixAudioCodec.getDecodedBuffer(url, () => waveformController?.getContext?.()); }
+    function encodeBufferToBase64(audioBuffer, startAt = 0) { return window.EveAudioflixAudioCodec.encodeBufferToBase64(audioBuffer, startAt); }
+    function state() { return window.EveAudioflixState?.ensure?.() || {}; }
+    function dispatch(name, detail) { window.dispatchEvent(new CustomEvent(name, { detail })); }
     urlPlayback = window.EveAudioflixUrlPlayback?.createController?.({
         onPlayback(detail) {
             currentItem = detail.item || currentItem;
@@ -119,7 +108,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         });
         audio.addEventListener('error', function () {
             lastStatus = 'Audio failed to load';
-            dispatch('eve:audioflix-playback', { status: lastStatus, item: currentItem, error: true });
+            dispatch('eve:audioflix-playback', { status: lastStatus, item: currentItem, error: true, terminal: true });
         });
         return audio;
     }
@@ -156,15 +145,14 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     async function preparePlaybackItem(item) {
         let prepared;
         try {
-            prepared = await window.EveAudioflixLocalPlayback?.prepare?.(item) || {
-                item: item && typeof item === 'object' ? { ...item } : item,
-                localPath: '',
-                status: ''
-            };
+            const decision = window.EveAudioflixPlaybackPolicy?.prepareItem?.(item) || { item: item && typeof item === 'object' ? { ...item } : item, policy: window.EveAudioflixPlaybackPolicy?.resolve?.(item) || null };
+            prepared = await window.EveAudioflixLocalPlayback?.prepare?.(decision.item)
+                || { item: decision.item, localPath: '', status: '' };
+            if (prepared?.item && decision.policy) prepared.item._effectivePlaybackPolicy = decision.policy;
             // Spotify playback-source ownership is an Audioflix invariant. Invoke the source
             // mapper explicitly after local-file preparation so a script/DOMContentLoaded race
             // cannot silently route an ordinary library play back into Spotify's iframe.
-            prepared = await window.EveAudioflixNativeSpotify?.preparePlaybackSource?.(item, prepared) || prepared;
+            prepared = await window.EveAudioflixNativeSpotify?.preparePlaybackSource?.(decision.item, prepared, decision.policy) || prepared;
         } catch (error) {
             lastStatus = error?.message || 'The local audio source is unavailable.';
             throw error;
@@ -176,8 +164,9 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     async function openInternalView(item) {
         const prior = getPlaybackState();
         const sameItem = String(prior?.item?.id || '') === String(item?.id || '');
-        const prepared = await preparePlaybackItem(item);
+        resumeMusicCapture = false; const prepared = await preparePlaybackItem(item);
         const requestedItem = prepared?.item || (item && typeof item === 'object' ? { ...item } : {});
+        if (prepared?.localPath) { const started = await playItem(item); if (started) urlPlayback?.presentExternal?.(requestedItem, getPlaybackState()); return started; }
         if (!requestedItem.url) throw new Error(requestedItem.sourceIsLocal ? 'This Spotify local file has no linked file in EveOS yet.' : 'Audioflix item is missing a URL.');
         let playableItem = requestedItem;
         if (window.EveAudioflixAudioSource?.needsResolution?.(requestedItem.url) && window.EveAudioflixUrlProviders?.providerFor?.(requestedItem.url) !== 'instagram') {
@@ -192,8 +181,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         return opened;
     }
     async function playItem(item) {
-        // Resume an existing provider controller before any async preparation can consume the
-        // originating click gesture. This matters for protected iframe players such as Spotify.
+        // Resume protected provider controllers before async work consumes the click gesture.
         if (urlPlayback?.isActive?.()
             && urlPlayback.matches(item)
             && urlPlayback.shouldPreferBrowser?.(item)) {
@@ -202,7 +190,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             window.EveAudioflixState?.recordPlay?.(item);
             return true;
         }
-        const prepared = await preparePlaybackItem(item);
+        resumeMusicCapture = false; const prepared = await preparePlaybackItem(item);
         const requestedItem = prepared?.item || (item && typeof item === 'object' ? { ...item } : {});
         if (!requestedItem.url) throw new Error(requestedItem.sourceIsLocal ? 'This Spotify local file has no linked file in EveOS yet.' : 'Audioflix item is missing a URL.');
 
@@ -254,13 +242,15 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             await urlPlayback.stop();
         }
 
-        if (safeItem.type === 'sound' && window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()) {
+        const effectivePolicy = window.EveAudioflixPlaybackPolicy?.policyOf?.(safeItem);
+        const customNativeOutput = effectivePolicy?.outputMode === 'custom' && effectivePolicy.outputKind === 'native' && effectivePolicy.outputId;
+        if (safeItem.type === 'sound' && (customNativeOutput || window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.())) {
             try {
                 lastStatus = `Decoding ${safeItem.title || 'audio'}...`;
                 dispatch('eve:audioflix-playback', { status: lastStatus, item: safeItem });
                 const audioBuffer = await getDecodedBuffer(safeItem.url);
                 currentItem = safeItem;
-                lastStatus = `Native route playing ${safeItem.title || 'audio'} -> ${state().nativeOutputLabel || 'selected output'}`;
+                lastStatus = `Native route playing ${safeItem.title || 'audio'} -> ${effectivePolicy?.outputLabel || state().nativeOutputLabel || 'selected output'}`;
                 dispatch('eve:audioflix-playback', { status: lastStatus, item: safeItem, native: true });
                 await startNativeBuffer(audioBuffer, safeItem, 0);
                 nativeFallbackNoticeShown = false;
@@ -287,9 +277,9 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         window.EveAudioflixLocalPlayback?.setMediaSource?.(player, safeItem.url) || (player.src = safeItem.url);
         currentItem = safeItem;
         const directRoute = await routeBrowserStream(safeItem) || '';
-        const nativeMusic = safeItem.type === 'music' && !directRoute
-            && window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()
-            && await musicCapture?.start(player, safeItem.id);
+        const nativeMusic = safeItem.type === 'music' && !directRoute && (window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()
+                || (window.EveAudioflixPlaybackPolicy?.policyOf?.(safeItem)?.outputMode === 'custom' && window.EveAudioflixPlaybackPolicy.policyOf(safeItem).outputKind === 'native'))
+            && await musicCapture?.start(player, safeItem.id, window.EveAudioflixPlaybackPolicy?.policyOf?.(safeItem));
         if (!nativeMusic) await musicCapture?.stop?.().catch(() => false);
         activeBrowserRouteLabel = nativeMusic ? (state().nativeOutputLabel || 'native route') : directRoute;
         try {
@@ -313,13 +303,24 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         state, dispatch, tryNativePlayback, getDecodedBuffer, encodeBufferToBase64, playUrlItem,
         canPlayUrl: (item) => urlPlayback?.canHandle?.(item),
         shouldPreferUrl: (item) => urlPlayback?.shouldPreferBrowser?.(item),
+        canUseSharedUrlLayer: () => getPlaybackState()?.paused !== false,
         stopUrlPlayback: (id) => {
             const item = urlPlayback?.getPlaybackState?.()?.item;
             return String(item?.id || item?.url || '') === String(id || '') && urlPlayback?.stop?.();
         },
         stopNativeItem: (id) => window.EveAudioflixNative?.stopStream?.({ allDevices: true, itemId: id })
     });
-    const layerPlay = layerController.layerPlay;
+    const layerPlay = async item => layerController.layerPlay((await preparePlaybackItem(item))?.item || item);
+    async function playSound(item) {
+        if (!item?.url) return false;
+        const safeItem = { ...item, type: 'sound' };
+        const id = String(safeItem.id ?? safeItem.url ?? '');
+        await Promise.allSettled(layerController.stopItemLayers(id));
+        await window.EveAudioflixNative?.clearVoices?.(`hk:${id}`).catch?.(() => false);
+        const played = await layerController.layerPlay(safeItem);
+        if (played) window.EveAudioflixState?.recordPlay?.(safeItem);
+        return played;
+    }
     async function stopItemLayers(itemId, preserveProvider = false) {
         waveformController?.stop?.();
         const pending = [...layerController.stopItemLayers(itemId), window.EveAudioflixNative?.stopStream?.({ allDevices: true, itemId: String(itemId || '') })];
@@ -355,7 +356,7 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         await urlPlayback?.stop?.().catch?.(() => {});
         await stopNativePlayback(false).catch(() => {});
         await Promise.allSettled(pending);
-        currentItem = null;
+        currentItem = null; resumeMusicCapture = false;
         lastStatus = 'Stopped';
         dispatch('eve:audioflix-playback', { status: lastStatus, item: stoppedItem });
         dispatch('eve:audioflix-progress', { item: stoppedItem, currentTime: 0, duration: 0, paused: true });
@@ -369,9 +370,10 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
             nativeProgress(nativePausedAt, activeNativeBuffer?.duration || 0, true);
             return;
         }
-        await musicCapture?.stop?.().catch(() => false);
+        resumeMusicCapture = musicCapture?.isActive?.() === true; await musicCapture?.stop?.().catch(() => false);
         ensureAudio().pause();
     }
+    async function resume() { if (!currentItem) return false; if (urlPlayback?.isActive?.()) { await urlPlayback.play(currentItem); return true; } if (activeNativeMode && activeNativeBuffer) { await startNativeBuffer(activeNativeBuffer, currentItem, nativePausedAt, activeNativeMode); return true; } const player = ensureAudio(); if (resumeMusicCapture) await musicCapture?.start?.(player, currentItem.id, window.EveAudioflixPlaybackPolicy?.policyOf?.(currentItem)); await player.play(); return true; }
     async function seek(seconds) {
         const target = Math.max(0, Number(seconds || 0) || 0);
         if (urlPlayback?.isActive?.()) return urlPlayback.seek(target);
@@ -395,7 +397,6 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
         dispatch('eve:audioflix-progress', getPlaybackState());
         return true;
     }
-
     function updateItemVolume(itemId, vol, options = {}) {
         const safeVolume = Math.max(0, Math.min(1, Number(vol) || 0));
         const outputVolume = window.EveAudioflixOutputPort?.effective?.(safeVolume) ?? safeVolume;
@@ -419,16 +420,15 @@ window.EveAudioflixAudio = window.EveAudioflixAudio || {};
     function attachWaveform(targetCanvas) {
         waveformController?.attach?.(targetCanvas);
         const internalPlayer = urlPlayback?.getAudioElement?.();
-        if (targetCanvas && internalPlayer?._eveAudioflixWaveformSafe) {
-            waveformController?.attachPlayer?.(internalPlayer);
-        }
+        if (targetCanvas && internalPlayer?._eveAudioflixWaveformSafe) waveformController?.attachPlayer?.(internalPlayer);
     }
 
     Object.assign(ns, {
-        ready: true, playItem, openInternalView, pause, seek, selectOutput, listOutputs, setOutputById, unlockDeviceLabels,
-        playTestSignal, applySink, attachWaveform, browserOutputStatus, resolvePlaybackSink, layerPlay, stopItemLayers,
-        stopAll, updateItemVolume, getDecodedBuffer, encodeBufferToBase64, getAudioElement: ensureAudio, getPlaybackState,
-        setQueueBridge, syncQueueView, setPlaybackRate, isInternalViewOpen: () => urlPlayback?.isInternalViewOpen?.() === true,
+        ready: true, playItem, openInternalView, pause, resume, seek, selectOutput, listOutputs, setOutputById, unlockDeviceLabels,
+        playTestSignal, applySink, attachWaveform, browserOutputStatus, resolvePlaybackSink, routeBrowserStream,
+        playSound, layerPlay, projectExternalLayer: layerController.projectExternalLayer, stopItemLayers,
+        stopAll, pauseLayers: layerController.pauseAll, resumeLayers: layerController.resumeAll, layersPaused: layerController.isPaused, hasLayers: layerController.hasLayers, updateItemVolume, getDecodedBuffer, encodeBufferToBase64, getAudioElement: ensureAudio, getPlaybackState,
+        setQueueBridge, syncQueueView, setPlaybackRate, presentExternalTransport: (item, status) => urlPlayback?.presentExternal?.(item, status), isInternalViewOpen: () => urlPlayback?.isInternalViewOpen?.() === true,
         hideInternalView: () => urlPlayback?.hideInternalView?.(), closeInternalView: () => urlPlayback?.closeInternalView?.(),
         getPlaybackRate: () => urlPlayback?.getRate?.() ?? 1, getMusicCapture: () => musicCapture,
         getWaveformController: () => waveformController,

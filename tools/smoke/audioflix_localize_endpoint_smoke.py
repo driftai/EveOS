@@ -76,7 +76,12 @@ for source in (
 ):
     normalized = SPOTIFY.normalize_playlist_input(source)
     check(normalized.get("ok") and normalized.get("playlistId") == spotify_id, "Spotify source did not normalize")
-    check(normalized.get("url") == f"https://open.spotify.com/playlist/{spotify_id}", "Spotify public URL was not canonical")
+    # Share parameters are intentionally preserved (private-share pt= is an access capability).
+    check(str(normalized.get("url") or "").split("?", 1)[0] == f"https://open.spotify.com/playlist/{spotify_id}",
+          "Spotify public URL was not canonical")
+shared = SPOTIFY.normalize_playlist_input(f"https://open.spotify.com/playlist/{spotify_id}?pt=cap123")
+check(shared.get("url") == f"https://open.spotify.com/playlist/{spotify_id}?pt=cap123",
+      "Spotify private-share pt= capability was dropped")
 check(not SPOTIFY.normalize_playlist_input("https://example.com/list").get("ok"), "non-Spotify sources must be rejected")
 
 # 6. bridge route wiring
@@ -91,6 +96,17 @@ spotify_scraper = open(
     encoding="utf-8",
 ).read()
 check("[data-testid^='tracklist-row']" in spotify_scraper, "Spotify indexed rows use a prefix selector")
-check("byTitle.get(matchKey(row.title))" in spotify_scraper, "Spotify DOM rows join saved JSON metadata")
+# The DOM/metadata join moved to audioflix_spotify_scrape_core.mergePlaylistRows; exercise it directly.
+import json as _json
+import subprocess as _subprocess
+_join = _subprocess.run(["node", "-e", (
+    "const {mergePlaylistRows}=require(process.argv[1]);"
+    "const out=mergePlaylistRows([{title:'Purpose Is Glorious'}],"
+    "[{id:'4cOdK2wGLETKBW3PvgPWqT',title:'Purpose is glorious!',artists:['Natalie Holt'],durationMs:188000}]);"
+    "console.log(JSON.stringify(out));"
+), os.path.join(ROOT, "server_modules", "audioflix_spotify_scrape_core.js")], capture_output=True, text=True, timeout=30)
+_joined = _json.loads(_join.stdout or "[]") if _join.returncode == 0 else []
+check(len(_joined) == 1 and _joined[0].get("artist") == "Natalie Holt" and _joined[0].get("duration") == 188,
+      "Spotify DOM rows join saved JSON metadata")
 
 print("AUDIOFLIX_LOCALIZE_ENDPOINT_SMOKE_OK")

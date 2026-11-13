@@ -1,0 +1,141 @@
+/* Piano v9D.2: compact, consistent contextual Edit Scopes workspace. */
+.audioflix-piano-frontend .piano-frontend-song .piano-pxm-song-actions {grid-template-columns:repeat(3,minmax(0,1fr))}
+.p9d-scope-manager{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:10px!important;padding:12px!important}
+.p9d-scope-manager[hidden]{display:none!important}
+.p9d-folder-head{display:grid;gap:4px;padding:0 0 9px;border-bottom:1px solid #31555b}
+.p9d-folder-head strong{font-size:13px;color:#e8c978}
+.p9d-folder-head span,.p9d-editor-head small,.p9d-context-note,.p9d-add-section small{font-size:11px;color:#90b3ba}
+.p9d-folder-picks{display:grid;gap:8px}
+.p9d-folder-picks>strong{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#73d0df}
+.p9d-scope-choices,.p9d-scope-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.audioflix-piano-frontend .p9d-scope-pill{min-height:29px;max-width:100%;font-size:11px;padding:5px 9px;border:1px solid #355c64;border-radius:8px;background:#0d2730;color:#c8e9ed;overflow-wrap:anywhere}
+.audioflix-piano-frontend .p9d-scope-pill.active{background:#79dce9;color:#08242b;border-color:#79dce9}
+.audioflix-piano-frontend .p9d-scope-pill.is-excluded{background:#5e232a;color:#ffe0e0;border-color:#bd5b64}
+.p9d-editor{display:grid;min-width:0;gap:10px;padding-top:9px;border-top:1px solid #2b4a52}
+.p9d-editor-head{display:flex;gap:7px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+.p9d-editor-head>strong{font-size:13px;color:#def5f5}
+.p9d-taxonomy{display:flex;align-items:flex-start;flex-wrap:wrap;gap:7px;border:0;background:transparent;padding:0}
+.p9d-taxonomy>details{min-width:min(100%,115px);max-width:100%;padding:0;border:0;background:none}
+.p9d-taxonomy>details[open]{min-width:min(100%,260px);flex:1 1 220px;padding:7px;border:1px solid #31565e;border-radius:9px;background:#0d242b}
+.p9d-taxonomy summary{display:inline-flex;align-items:center;cursor:pointer;padding:7px 11px;border:1px solid #31565e;border-radius:8px;font-size:11px;color:#c4e8eb;list-style:none;background:#102b32}
+.p9d-taxonomy summary::-webkit-details-marker{display:none}
+.p9d-taxonomy details[open] summary{background:#153840;border-color:#5dabb8}
+.p9d-taxonomy input{width:100%;box-sizing:border-box;margin:7px 0;border:1px solid #31565e;border-radius:8px;background:#0b1c21;color:#e1f5f6;padding:7px 10px;min-height:33px}
+.p9d-taxonomy .p9d-scope-choices{max-height:200px;overflow:auto;gap:5px}
+.p9d-member-section,.p9d-add-section,.p9d-edit-actions{min-width:0;border:1px solid #2c4d55;border-radius:9px;background:#0b2229;padding:10px}
+.p9d-member-section>summary,.p9d-edit-actions>summary{cursor:pointer;color:#d6eeef;font-size:12px;font-weight:700;list-style:revert}
+.p9d-member-section>input{margin:9px 0 5px;width:100%;max-width:360px;min-height:34px;border:1px solid #345f67;border-radius:8px;background:#081a21;color:#d8eff1;padding:7px 9px;box-sizing:border-box}
+.p9d-members{display:grid;gap:5px;max-height:245px;overflow:auto;padding:4px 0}
+.p9d-member-row{display:flex;align-items:center;gap:6px;border:1px solid rgba(62,117,130,.25);border-radius:8px;padding:5px 7px;background:#133139}
+.p9d-member-row>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.audioflix-piano-frontend .p9d-member-row button{flex:0 0 auto;min-height:27px;font-size:10px;padding:4px 8px}
+.p9d-add-section{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:9px}
+.p9d-add-head{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px}
+.p9d-add-head>strong{font-size:12px;color:#d3eff1}
+.p9d-picker{position:relative;min-width:0}
+.p9d-picker>input{display:block;width:100%;box-sizing:border-box;min-height:36px;padding:8px 11px;border:1px solid #396a74;border-radius:9px;background:#091e25;color:#e9fcfd;outline-offset:2px;font:12px system-ui}
+.p9d-picker>input:focus{border-color:#7bd6df;outline:1px solid #64c5d3}
+.p9d-choices{position:absolute;z-index:50;left:0;right:0;top:calc(100% + 4px);max-height:min(250px,42vh);overflow-y:auto;box-sizing:border-box;padding:5px;border:1px solid #438795;border-radius:9px;background:#0b1c24;box-shadow:0 12px 30px #0009}
+.p9d-choices[hidden]{display:none!important}
+.audioflix-piano-frontend .p9d-choose-item{display:block;width:100%;text-align:left;font:12px system-ui;padding:8px 10px;border:0;border-radius:6px;background:transparent;color:#d8f0f4;white-space:normal;overflow-wrap:anywhere}
+.audioflix-piano-frontend .p9d-choose-item:hover,.audioflix-piano-frontend .p9d-choose-item:focus{background:#195363;color:white}
+.p9d-add-section>[data-p9d-eligible-count]{font-size:10px;color:#8dafb7;grid-column:1/-1}
+.p9d-edit-actions p{color:#a4c3c9;font-size:11px;margin:10px 0}
+.p9d-create-row,.p9d-rename-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr)) auto;gap:8px;align-items:end;margin:10px 0}
+.p9d-create-type{display:grid;gap:5px;min-width:0}.p9d-create-type>small{font-size:11px;color:#aacbd0}
+.p9d-edit-actions label{display:grid;gap:5px;font-size:11px;color:#aacbd0;min-width:0}
+.p9d-edit-actions input,.p9d-edit-actions select{box-sizing:border-box;width:100%;min-width:0;min-height:36px;padding:7px 10px;border:1px solid #35606a;border-radius:8px;background:#091c23;color:#daf3f3}
+.audioflix-piano-frontend .p9d-danger{border-color:#934d56;color:#ffc7ce}
+.p9d-context-note{font-size:10px}
+.p9d-scope-manager [data-p9d-note]{font-size:11px;color:#a9cbd0}
+.p9d-scope-manager [data-p9d-note][data-state=error]{color:#ffb3b3}
+.p9d-scope-manager [data-p9d-note][data-state=success]{color:#9dedc1}
+/* Compact classifier filter in the library scope box: one inline disclosure, not a nested panel. */
+.piano-pfo-library-scopes .p9d-classifier-row{display:grid;grid-template-columns:62px minmax(0,1fr);gap:8px;align-items:center;min-height:30px}
+.p9d-classifier-row strong{font-size:10px;color:#69d4e1;text-transform:uppercase;letter-spacing:.08em}
+.p9d-classifier-row details{width:100%;min-width:0}
+.p9d-classifier-row details>summary{display:inline-flex;align-items:center;gap:4px;cursor:pointer;list-style:none;min-height:27px;padding:4px 8px;border:1px solid #31555b;border-radius:8px;background:#0c2930;color:#bce1e5;font-size:11px}
+.p9d-classifier-row details>summary::-webkit-details-marker{display:none}
+.p9d-classifier-row details[open] .p9d-chevron{transform:rotate(90deg)}
+.p9d-classifier-row input{display:block;width:min(100%,280px);max-width:100%;margin:8px 0;min-height:31px;border:1px solid #315b63;border-radius:8px;background:#0b2026;color:#d6eff3;padding:5px 8px;box-sizing:border-box}
+.p9d-scope-chips{max-height:220px;overflow:auto;padding:3px 0}
+@media(max-width:680px){.p9d-create-row,.p9d-rename-row{grid-template-columns:repeat(2,minmax(0,1fr))}.p9d-create-row>button,.p9d-rename-row>button:last-child{grid-column:1/-1}.piano-pfo-library-scopes .p9d-classifier-row{grid-template-columns:1fr}}
+@media(max-width:440px){.p9d-create-row,.p9d-rename-row,.p9d-add-section{grid-template-columns:1fr}.p9d-add-section>[data-p9d-eligible-count]{grid-column:1}.p9d-member-row{flex-wrap:wrap}.p9d-member-row>span{flex:1 1 100%}}
+/* v9D.3: small, contextual actions replace the always-present editing form. */
+.p9d-scope-manager{gap:8px!important;padding:10px!important}
+.p9d-folder-head{padding-bottom:7px}
+.p9d-scope-entry{display:inline-flex;min-width:0;max-width:100%;align-items:stretch;border:1px solid #355c64;border-radius:8px;overflow:hidden;background:#0d2730}
+.audioflix-piano-frontend .p9d-scope-entry>.p9d-scope-pill{border:0;border-radius:0 0 0 0;min-height:27px;padding:4px 7px;min-width:0}
+.audioflix-piano-frontend .p9d-edit-trigger{flex:0 0 auto;min-height:27px;min-width:29px;padding:4px 7px;border:0;border-left:1px solid #355c64;border-radius:0;background:#132f36;color:#9fdae2;font-size:12px}
+.audioflix-piano-frontend .p9d-edit-trigger:hover,.audioflix-piano-frontend .p9d-edit-trigger:focus-visible{background:#1d4d59;color:#fff}
+.audioflix-piano-frontend .p9d-plus-trigger{min-height:27px;min-width:30px;flex:0 0 auto;padding:4px 8px;border:1px solid #416c75;border-radius:7px;background:#14323a;color:#9ee8ed;font-size:15px;line-height:1.1}
+.audioflix-piano-frontend .p9d-plus-trigger:hover,.audioflix-piano-frontend .p9d-plus-trigger:focus-visible{background:#1a4f58;color:#fff}
+.p9d-taxonomy>details{position:relative;min-width:min(100%,106px)}
+.p9d-taxonomy>details[open]{flex:1 1 190px;min-width:min(100%,198px);padding:7px;max-width:100%}
+.p9d-taxonomy>details:not([open])>.p9d-plus-trigger{display:none!important}
+.p9d-taxonomy>details>.p9d-plus-trigger{margin-left:6px;vertical-align:middle}
+.p9d-taxonomy summary{min-height:29px;padding:6px 9px}
+.p9d-taxonomy .p9d-scope-choices{max-height:165px;align-items:flex-start}
+.p9d-member-section{padding:8px}.p9d-members{max-height:185px}.p9d-member-row{padding:4px 7px}
+.p9d-action-panel{display:grid;gap:9px;min-width:0;padding:10px;border:1px solid #4b8994;border-radius:10px;background:#0b2630;box-shadow:0 6px 18px #0002}
+.p9d-action-panel[hidden],.p9d-action-panel [hidden]{display:none!important}
+.p9d-action-panel label{display:grid;gap:5px;min-width:0;color:#accbd1;font-size:11px}
+.p9d-action-panel input{box-sizing:border-box;width:100%;min-width:0;min-height:34px;border:1px solid #396874;border-radius:8px;background:#081e25;color:#e0f7f7;padding:7px 10px}
+.p9d-action-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.p9d-action-head strong{font-size:12px;color:#e4c878}
+.p9d-action-panel>small,.p9d-action-panel [data-p9d-eligible-count]{font-size:10px;color:#94b9c0}
+.p9d-action-panel [data-p9d-add-seed],.p9d-action-panel [data-p9d-rename-row]{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:end}
+.p9d-action-panel [data-p9d-add-seed]>label,.p9d-action-panel [data-p9d-add-seed]>.p9d-picker,.p9d-action-panel [data-p9d-add-seed]>small{grid-column:1/-1}
+.p9d-action-panel [data-p9d-create-row]{max-width:360px}
+.p9d-action-panel [data-p9d-remove-row]{display:flex;justify-content:flex-end}
+.p9d-choices{max-height:min(166px,32vh);padding:3px;z-index:65}.audioflix-piano-frontend .p9d-choose-item{padding:6px 9px;font-size:11px}
+@media(max-width:480px){.p9d-action-panel [data-p9d-add-seed],.p9d-action-panel [data-p9d-rename-row]{grid-template-columns:1fr}.p9d-taxonomy>details[open]{flex-basis:100%}}
+
+/* v9D.4: floating, nonmodal edit panel; the library remains interactive. */
+.p9d-scope-manager .p9d-action-panel{position:fixed!important;z-index:105;right:clamp(12px,2vw,28px);top:clamp(55px,11vh,105px);bottom:auto;left:auto;width:min(460px,calc(100vw - 24px));max-height:min(76dvh,690px);overflow-y:auto;box-sizing:border-box;box-shadow:0 18px 60px #000c;border:1px solid #60b9c4;background:#09252c;padding:14px;border-radius:13px}
+.p9d-scope-manager .p9d-action-panel[hidden]{display:none!important}
+.p9d-action-head{position:sticky;top:-14px;z-index:2;background:#09252c;padding:3px 0 10px;border-bottom:1px solid #28515a}
+.audioflix-piano-frontend .p9d-edit-trigger[aria-expanded="true"]{background:#295b64;color:#fff;box-shadow:inset 0 -2px #76d8e3}
+/* Collapsed facets form one tight, left-aligned row instead of three widely spaced boxes. */
+.p9d-taxonomy{justify-content:flex-start!important;align-items:flex-start;gap:6px!important}
+.p9d-taxonomy>details:not([open]){flex:0 0 auto!important;width:max-content!important;min-width:0!important;max-width:100%!important}
+.p9d-taxonomy>details:not([open])>summary{padding:6px 10px;white-space:nowrap}
+@media(max-width:560px){.p9d-scope-manager .p9d-action-panel{right:10px;top:auto;bottom:10px;max-height:min(79dvh,690px);width:calc(100vw - 20px)}}
+
+/* v9D.5: centered, genuinely modal scope editor with quiet backdrop. */
+.p9d-scope-manager .p9d-modal-backdrop{position:fixed;inset:0;z-index:104;background:rgba(0,8,12,.68);backdrop-filter:blur(2px)}
+.p9d-scope-manager .p9d-modal-backdrop[hidden]{display:none!important}
+.p9d-scope-manager .p9d-action-panel{position:fixed!important;z-index:105!important;top:50%!important;left:50%!important;right:auto!important;bottom:auto!important;transform:translate(-50%,-50%);width:min(570px,calc(100vw - 30px))!important;max-height:min(82dvh,740px)!important;overflow-y:auto;box-shadow:0 28px 85px #000c;padding:17px!important;border-radius:15px}
+.p9d-action-panel [data-p9d-inspect-row]{border:1px solid #3b6470;border-radius:9px;background:#10313a;padding:12px;color:#d1eef2;font-size:12px}
+.p9d-action-panel [data-p9d-inspect-row] strong{color:#8bdfeb}
+.p9d-action-panel [data-p9d-inspect-row] p{margin:7px 0 0;color:#9dc2ca}
+.audioflix-piano-frontend .p9d-inspect-trigger{color:#e5d39a;border-left-color:#786f51;background:#262c2c;font-size:13px}
+.audioflix-piano-frontend .p9d-inspect-trigger:hover,.audioflix-piano-frontend .p9d-inspect-trigger:focus-visible{background:#51482c;color:#fff}
+/* Auto = system-derived; Custom = authored Genre classifiers. Same include/exclude mechanism. */
+.p9d-classifier-splits{display:flex;flex-wrap:wrap;align-items:flex-start;gap:7px;min-width:0}
+.p9d-classifier-splits>details{width:auto;min-width:0}
+.p9d-classifier-splits>details[open]{flex:1 1 180px;min-width:min(100%,180px)}
+.p9d-classifier-splits>details>summary{white-space:nowrap}
+@media(max-width:580px){.p9d-scope-manager .p9d-action-panel{width:calc(100vw - 20px)!important;padding:13px!important}.p9d-classifier-splits>details[open]{flex-basis:100%}}
+
+/* v9D.6: Auto/Custom disclosures align with Folder, Group and Tag chips. */
+.piano-pfo-library-scopes .p9d-classifier-row{align-items:start;min-height:28px}
+.piano-pfo-library-scopes .p9d-classifier-row>strong{padding-top:7px}
+.piano-pfo-library-scopes .p9d-classifier-splits{align-items:flex-start;gap:6px}
+.piano-pfo-library-scopes .p9d-classifier-splits>details{flex:0 0 auto;width:auto!important;min-width:0!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
+.piano-pfo-library-scopes .p9d-classifier-splits>details[open]{flex:0 1 240px;max-width:100%}
+.piano-pfo-library-scopes .p9d-classifier-splits>details>summary{min-height:28px;padding:4px 9px;font-size:10px;border:1px solid #31555b;border-radius:8px;background:#0c2930;box-shadow:none}
+.piano-pfo-library-scopes .p9d-classifier-splits>details[open]>summary{border-color:#65bcc8}
+/* Edit Scopes classifier disclosure: separate sources without nested chunky boxes. */
+.p9d-taxonomy [data-p9d-classifiers]{display:grid;gap:8px;align-items:start;max-height:190px;overflow-y:auto}
+.p9d-taxonomy .p9d-classifier-source{display:grid;gap:5px;min-width:0}
+.p9d-taxonomy .p9d-classifier-source+.p9d-classifier-source{padding-top:8px;border-top:1px solid rgba(77,126,138,.32)}
+.p9d-taxonomy .p9d-classifier-source>strong{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:#80bfca}
+.p9d-taxonomy .p9d-classifier-source>.p9d-scope-choices{max-height:none;overflow:visible;align-items:flex-start}
+@media(max-width:580px){.piano-pfo-library-scopes .p9d-classifier-splits>details[open]{flex-basis:100%}}
+
+/* v9D.7: the Smart Scoping classifier disclosures use the same grid alignment as other facets. */
+.piano-pfo-library-scopes{--p9d-scope-label:62px}
+.piano-pfo-library-scopes .p9d-classifier-row{grid-template-columns:var(--p9d-scope-label) minmax(0,1fr)!important;column-gap:12px!important;align-items:start}
+.piano-pfo-library-scopes .p9d-classifier-row>strong{min-width:0;white-space:nowrap;font-size:9px;letter-spacing:0;padding-top:7px}
+.piano-pfo-library-scopes .p9d-classifier-splits{gap:7px;align-items:flex-start}
+@media(max-width:680px){.piano-pfo-library-scopes .p9d-classifier-row{grid-template-columns:1fr!important;gap:5px!important}}

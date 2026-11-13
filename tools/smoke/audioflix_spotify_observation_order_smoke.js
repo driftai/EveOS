@@ -91,7 +91,7 @@ async function playbackOrdering() {
             return state;
         } };
     const audio = { ready: true, playItem: async () => true, openInternalView: async () => true,
-        pause: async () => true, seek: async () => true, stopAll: async () => true,
+        pause: async () => true, resume: async () => true, seek: async () => true, stopAll: async () => true,
         stopItemLayers: async () => true, updateItemVolume() {}, getPlaybackState: () => ({}), getStatus: () => ({}) };
     const window = { EveAudioflixSpotifyRemote: remote, EveAudioflixAudio: audio,
         addEventListener() {}, dispatchEvent: event => events.push(event) };
@@ -104,6 +104,7 @@ async function playbackOrdering() {
     const create = window.EveAudioflixSpotifyStatusWatch.create;
     window.EveAudioflixSpotifyStatusWatch.create = options => { observer = create(options); return observer; };
     vm.runInContext(read('audioflix.spotify.playback-lifecycle.js'), context);
+    vm.runInContext(read('audioflix.spotify.native-capture.js'), context);
     vm.runInContext(read('audioflix.spotify.any-browser.js'), context);
     try {
         await audio.playItem({ id: 'fixture-song', url: `https://open.spotify.com/track/${id}`, title: 'Fixture', volume: 1 });

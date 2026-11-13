@@ -1,17 +1,15 @@
 window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {};
 (function () {
     'use strict';
-
     const ns = window.EveAudioflixSpotifyAnyBrowser;
     if (ns.ready) return;
-
     const remote = () => window.EveAudioflixSpotifyRemote;
     const media = window.EveAudioflixSpotifyMedia;
+    const nativeCapture = window.EveAudioflixSpotifyNativeCapture;
     const isSpotify = (item) => !!media.fromItem(item);
     const effectiveGain = (raw) => window.EveAudioflixSpotifyVolume.effectiveGain(raw);
     const sameItem = (left, right) => String(left?.id || left?.url || '') === String(right?.id || right?.url || '')
         && media.fromItem(left)?.spotifyUri === media.fromItem(right)?.spotifyUri;
-
     let installed = false;
     let active = false;
     // A remote start in flight is not `active` yet, but Pause/Stop/switch-away must still reach
@@ -45,7 +43,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         onDegraded: () => emitPlayback('Spotify status disconnected. Press Play to reconnect.', true),
         notify
     });
-
+    nativeCapture.configure({ remote, resolvePolicy: (value) => window.EveAudioflixPlaybackPolicy?.resolve?.(value), onLost: () => emitPlayback('Managed Spotify PCM capture stopped; Spotify was paused to prevent speaker fallback.', true), applyState: (value) => { if (active) applyEngineState(value); } });
     function dispatch(name, detail) {
         window.dispatchEvent(new CustomEvent(name, { detail }));
     }
@@ -137,7 +135,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             return { ok: false, fallback: false, reason: String(error?.message || error) };
         }
     }
-    async function preferredLocalItem(nextItem) {
+    async function preferredLocalItem(nextItem, policy = null) {
+        if (policy?.sourcePreference === 'original') return null;
         const localPlayback = window.EveAudioflixLocalPlayback;
         const prepare = localPlayback?.prepare;
         if (typeof prepare !== 'function') return null;
@@ -153,6 +152,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
     }
     function applyEngineState(result) {
         if (!result?.ok || !active) return;
+        if (!nativeCapture.guard(result, playbackRun, item)) return;
         window.EveAudioflixSpotifyQueueHandoff?.adopt?.(result, (next) => { item = next; playback.item = next; lastEngineStatus = ''; ended = false; });
         const engine = result.engine || {};
         if ((engine.spotifyId || engine.spotifyUri || engine.mediaType) && !media.matches(engine, media.fromItem(item))) return;
@@ -223,30 +223,31 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         fallbackTimer = setInterval(() => { fallbackPollOnce().catch(() => {}); }, 1000);
         fallbackPollOnce().catch(() => {});
     }
-    // A cold engine start (launching the managed browser and Spotify's iframe API) can outlast the
-    // play reply window while the broker still finishes load+play. Adopt that playback instead of
-    // leaving it unobserved: an unobserved first track can never report Ended, so the queue stalls on #1.
-    async function adoptSlowStart(identity, requested) {
-        const deadline = Date.now() + SLOW_START_ADOPT_MS;
-        let last = null;
+    // A cold engine start can outlast the reply window; adopt only matching confirmed playback,
+    // because an unobserved first track cannot report Ended and leaves the queue stalled on #1.
+    async function adoptSlowStart(identity, requested, playPayload, commandId) {
+        const deadline = Date.now() + SLOW_START_ADOPT_MS; let last = null, receiptChecked = false, polls = 0;
         while (Date.now() < deadline && item === requested) {
-            const state = await remote().status().catch(() => null);
-            const engine = state?.engine || {};
-            if (state?.ok && state.isOwner === true && media.matches(engine, identity)) {
-                last = state;
-                if (['playing', 'starting', 'ended'].includes(String(engine.status || ''))) return state;
+            const state = await remote().status().catch(() => null), engine = state?.engine || {};
+            if (state?.ok && state.isOwner === true && media.matches(engine, identity)) last = state;
+            if (last === state && String(engine.status || '').toLowerCase() === 'playing' && engine.paused !== true) return state; polls += 1;
+            // Re-query the original fingerprinted broker receipt; never issue a second Play intent.
+            if (!receiptChecked && polls >= 2 && commandId) {
+                receiptChecked = true;
+                const receipt = await remote().send('play', playPayload, { timeout: 12000, commandId }).catch(() => null), receiptEngine = receipt?.engine || {};
+                if (receipt?.ok && receipt.isOwner === true && media.matches(receiptEngine, identity) && String(receiptEngine.status || '').toLowerCase() === 'playing' && receiptEngine.paused !== true) return receipt;
             }
             await new Promise((resolve) => setTimeout(resolve, SLOW_START_POLL_MS));
         }
-        if (last && item === requested) {
-            const resumed = await remote().send('resume', {}, { timeout: 12000 });
-            if (resumed?.ok) return resumed;
+        const lastEngine = last?.engine || {}, resumable = ['paused', 'provider-paused'].includes(String(lastEngine.status || '').toLowerCase());
+        if (last && item === requested && last.isOwner === true && media.matches(lastEngine, identity) && resumable) {
+            const resumed = await remote().send('resume', {}, { timeout: 12000 }), resumedEngine = resumed?.engine || {};
+            if (resumed?.ok && resumed.isOwner === true && media.matches(resumedEngine, identity) && String(resumedEngine.status || '').toLowerCase() === 'playing' && resumedEngine.paused !== true) return resumed;
         }
         return { ok: false, reason: 'Spotify took too long to start in the managed engine.' };
     }
-    async function remotePlay(nextItem) {
+    async function remotePlay(nextItem, policy = null) {
         const run = ++playbackRun;
-        const finish = window.EveAudioflixDiagnostics?.span?.('spotify:start');
         const connection = await ensureRemote();
         if (run !== playbackRun) return false;
         if (!connection.ok) {
@@ -254,6 +255,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             error.eveSpotifyFallback = connection.fallback === true;
             throw error;
         }
+        const captureRequired = await nativeCapture.ensure(policy, nextItem);
+        const finish = window.EveAudioflixDiagnostics?.span?.('spotify:start');
         const identity = media.fromItem(nextItem);
         if (!identity) throw new Error('This Spotify item has no valid track or episode identity.');
         if (!active) await stopLocalPlayback?.().catch?.(() => {});
@@ -265,13 +268,12 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         lastEngineStatus = ''; lastCompletionId = ''; ended = false; latestEngineState = null;
         starting = true;
         let result;
+        const playPayload = { ...identity, title: item.title || '', duration: playback.duration,
+            effectiveVolume: effectiveGain(item.volume ?? 1), itemId: String(item.id || ''), type: String(item.type || 'music') };
+        const playCommandId = `spotify-play:${Date.now()}:${Math.random().toString(36).slice(2)}`;
         try {
-            result = await remote().send('play', {
-                ...identity, title: item.title || '', duration: playback.duration,
-                effectiveVolume: effectiveGain(item.volume ?? 1),
-                itemId: String(item.id || ''), type: String(item.type || 'music')
-            }, { timeout: PLAY_REPLY_TIMEOUT_MS });
-            if (!result?.ok && result?.timeout) result = await adoptSlowStart(identity, nextItem);
+            result = await remote().send('play', playPayload, { timeout: PLAY_REPLY_TIMEOUT_MS, commandId: playCommandId });
+            if (!result?.ok && result?.timeout) result = await adoptSlowStart(identity, nextItem, playPayload, playCommandId);
         } catch (error) {
             if (run !== playbackRun) return false; // a superseded run's late failure is not a skip
             throw error;
@@ -287,14 +289,14 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         finish?.(!result?.ok);
         if (!result?.ok) throw new Error(result?.reason || 'Managed Spotify playback failed.');
         active = true;
+        nativeCapture.bind(run, captureRequired);
         applyEngineState(result);
         startPoll(result);
         refreshControls();
         return true;
     }
     async function stopRemote(released = false) {
-        const run = ++playbackRun;
-        starting = false;
+        const run = ++playbackRun; starting = false;
         clearPoll();
         if (item && remote()?.snapshot?.().connected) {
             try { await remote().send('stop', {}, { timeout: 5000 }); } catch {}
@@ -302,6 +304,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         if (run !== playbackRun) return;
         const stopped = item;
         active = false;
+        nativeCapture.clear();
         item = null;
         ended = false;
         playback = { item: stopped, currentTime: 0, duration: 0, paused: true, provider: 'spotify', browserOnly: true, remoteManaged: true };
@@ -312,7 +315,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         notify();
         refreshControls();
     }
-
     function install() {
         if (installed || !window.EveAudioflixAudio?.ready || !remote()?.ready) return false;
         installed = true;
@@ -320,7 +322,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         const original = {
             playItem: audio.playItem.bind(audio),
             openInternalView: audio.openInternalView.bind(audio),
-            pause: audio.pause.bind(audio),
+            pause: audio.pause.bind(audio), resume: audio.resume.bind(audio),
             seek: audio.seek.bind(audio),
             stopAll: audio.stopAll.bind(audio),
             stopItemLayers: audio.stopItemLayers.bind(audio),
@@ -329,45 +331,51 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             getStatus: audio.getStatus?.bind(audio)
         };
         stopLocalPlayback = () => original.stopAll();
-
         audio.playItem = async function anyBrowserPlay(nextItem) {
             if (!isSpotify(nextItem)) {
                 if (active || starting) await stopRemote();
                 return original.playItem(nextItem);
             }
-            const localItem = await preferredLocalItem(nextItem);
+            const policy = window.EveAudioflixPlaybackPolicy?.resolve?.(nextItem) || { spotifyMethod: 'managed' };
+            if (policy.spotifyMethod === 'embed') { if (active || starting) await stopRemote(); return original.playItem(nextItem); }
+            const localItem = await preferredLocalItem(nextItem, policy);
             if (localItem) {
                 if (active || starting) await stopRemote();
                 return original.playItem(localItem);
             }
             if (active && sameItem(item, nextItem) && !ended) {
-                item = nextItem;
-                playback.item = item;
-                const ownsEngine = remote()?.snapshot?.().lastState?.isOwner === true;
-                if (!ownsEngine) return remotePlay(nextItem);
-                if (playback.paused) {
+                const run = playbackRun, owner = remote()?.snapshot?.().lastState?.isOwner === true;
+                const lease = owner ? await remote().status().catch(() => null) : null;
+                if (run !== playbackRun || !active || !sameItem(item, nextItem)) return false;
+                // An idle/replaced Playwright page cannot resume the old selected song.
+                if (!lease?.ok || lease.isOwner !== true || !media.matches(lease.engine || {}, media.fromItem(nextItem))
+                    || !['playing', 'paused', 'provider-paused', 'starting'].includes(String(lease.engine?.status || '').toLowerCase())) return remotePlay(nextItem, policy);
+                const captureRequired = await nativeCapture.ensure(policy, nextItem);
+                item = nextItem; playback.item = item;
+                if (playback.paused || lease.engine?.paused === true) {
                     const resumed = await remote().send('resume');
                     if (!resumed?.ok) throw new Error(resumed?.reason || 'Spotify could not resume.');
                     applyEngineState(resumed);
                 }
+                nativeCapture.bind(playbackRun, captureRequired);
                 return true;
             }
-            try { return await remotePlay(nextItem); }
-            catch (error) {
+            try { return await remotePlay(nextItem, policy); } catch (error) {
                 if (error?.eveSpotifyFallback) return original.playItem(nextItem);
                 throw error;
             }
         };
         audio.openInternalView = async function anyBrowserInternal(nextItem) {
-            if (!isSpotify(nextItem)) return original.openInternalView(nextItem);
-            const localItem = await preferredLocalItem(nextItem);
+            if (!isSpotify(nextItem)) { if (active || starting) await stopRemote(); return original.openInternalView(nextItem); }
+            const policy = window.EveAudioflixPlaybackPolicy?.resolve?.(nextItem) || { spotifyMethod: 'managed' };
+            if (policy.spotifyMethod === 'embed') { if (active || starting) await stopRemote(); return original.openInternalView(nextItem); }
+            const localItem = await preferredLocalItem(nextItem, policy);
             if (localItem) {
                 if (active || starting) await stopRemote();
                 return original.openInternalView(localItem);
             }
-            if (active) return audio.playItem(nextItem);
-            try { return await remotePlay(nextItem); }
-            catch (error) {
+            if (active) { const resumed = await audio.playItem(nextItem); if (resumed) audio.presentExternalTransport?.(nextItem, audio.getPlaybackState()); return resumed; }
+            try { const started = await remotePlay(nextItem, policy); if (started) audio.presentExternalTransport?.(nextItem, audio.getPlaybackState()); return started; } catch (error) {
                 if (error?.eveSpotifyFallback) return original.openInternalView(nextItem);
                 throw error;
             }
@@ -380,6 +388,8 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             applyEngineState(result);
             return true;
         };
+        audio.resume = async () => !active && !starting ? original.resume()
+            : starting || !item || ended ? false : audio.playItem(item);
         audio.seek = async function anyBrowserSeek(seconds) { window.EveAudioflixSpotifyQueueHandoff?.invalidate?.();
             if (!active) return original.seek(seconds);
             const result = await remote().send('seek', { seconds: Math.max(0, Number(seconds || 0)) });
@@ -389,7 +399,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         };
         audio.stopAll = async function anyBrowserStopAll() { window.EveAudioflixSpotifyQueueHandoff?.invalidate?.();
             if (!active && !starting) return original.stopAll();
-            await stopRemote();
+            await stopRemote(); await original.stopAll();
             return true;
         };
         audio.stopItemLayers = async function anyBrowserStopItem(itemId, preserveProvider = false) {
@@ -408,9 +418,7 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
             playback.item = item;
             volumeLane?.request(effectiveGain(safe));
         };
-        audio.getPlaybackState = function anyBrowserState() {
-            return active ? { ...playback } : original.getPlaybackState();
-        };
+        audio.getPlaybackState = function anyBrowserState() { return active ? { ...playback } : original.getPlaybackState(); };
         if (original.getStatus) {
             audio.getStatus = function anyBrowserStatus() {
                 const value = original.getStatus();
@@ -424,7 +432,6 @@ window.EveAudioflixSpotifyAnyBrowser = window.EveAudioflixSpotifyAnyBrowser || {
         notify();
         return true;
     }
-
     Object.assign(ns, {
         ready: true, install, snapshot, volumeDiagnostics: () => volumeLane?.diagnostics(),
         subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); }

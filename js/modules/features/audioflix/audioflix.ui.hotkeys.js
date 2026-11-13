@@ -11,10 +11,11 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
     if (ns.ready) return;
 
     ns.create = function create(ctx) {
-        let hotkeyPollTimer = null, lastFiredAt = 0, hotkeyPollTick = 0, syncPromise = null;
+        let hotkeyPollTimer = null, lastFiredAt = 0, lastTransportSeq = 0, hotkeyPollTick = 0, syncPromise = null;
         let appliedFingerprint = '', queuedResync = false, lastStatus = null, localBypassed = false;
-        let registeredCombos = new Set(), nativeBypassed = false, nativeBypassReady = false;
+        let registeredCombos = new Set(), nativeBypassed = false, nativeBypassReady = false, nativeTransportReady = false;
         let preparedFingerprint = '', preparedPayload = null;
+        const transportPaused = { soundboard: false, music: false, piano: false };
 
         const canonicalCombo = (combo) => String(combo || '').split('+').map(part => {
             const key = part.trim().toLowerCase();
@@ -50,13 +51,13 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
                 ? result.registered.length : bindings.filter(binding => binding?.registered === true).length;
             const conflicts = (Array.isArray(result?.conflicted) ? result.conflicted.length : bindings.filter(binding => binding?.registered === false).length)
                 + (Array.isArray(result?.duplicates) ? result.duplicates.length : 0)
-                + (result?.bypassConflict ? 1 : 0);
+                + (result?.bypassConflict ? 1 : 0) + (result?.transportConflict ? 1 : 0);
             return { registered, conflicts, configured: Number(result?.configured ?? bindings.length ?? 0) };
         }
 
         function paintStatus(result) {
             lastStatus = result;
-            const counts = statusCounts(result), bypassReady = result?.bypassRegistered === true;
+            const counts = statusCounts(result), bypassReady = result?.bypassRegistered === true, transportReady = result?.transportRegistered === true;
             const localOnly = result?.localOnly === true, localCount = configuredItems().length;
             const standby = ctx.activeTab !== 'soundboard';
             const localBypassConfigured = Boolean(String(ctx.state().hotkeyBypassCombo || '').trim());
@@ -64,8 +65,8 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
                 const registered = Array.isArray(result?.registered) ? result.registered
                     : (result?.bindings || []).filter(binding => binding?.registered === true).map(binding => binding.combo);
                 registeredCombos = new Set(registered.map(canonicalCombo));
-                nativeBypassed = result?.bypassed === true; nativeBypassReady = bypassReady;
-                ctx.nativeHotkeysLive = result?.ok !== false && (result?.bypassed === true || counts.registered > 0 || bypassReady);
+                nativeBypassed = result?.bypassed === true; nativeBypassReady = bypassReady; nativeTransportReady = transportReady;
+                ctx.nativeHotkeysLive = result?.ok !== false && (result?.bypassed === true || counts.registered > 0 || bypassReady || transportReady);
             }
             const el = ctx.overlay?.querySelector('.audioflix-bypass-state');
             if (!el) return;
@@ -93,6 +94,51 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
                 toggle.dataset.bypassed = String(bypassed);
                 toggle.setAttribute('aria-pressed', String(bypassed));
             }
+            const transportState = ctx.overlay?.querySelector('.audioflix-transport-state');
+            const transportToggle = ctx.overlay?.querySelector('[data-af-action="toggle-audio-pause"]');
+            const tab = ctx.activeTab, playback = window.EveAudioflixAudio?.getPlaybackState?.() || {};
+            if (tab === 'music' && playback.item?.type === 'music') transportPaused.music = playback.paused === true;
+            if (tab === 'soundboard' && (playback.item?.type === 'sound' || window.EveAudioflixAudio?.hasLayers?.())) transportPaused.soundboard = (playback.item?.type !== 'sound' || playback.paused === true) && (!window.EveAudioflixAudio?.hasLayers?.() || window.EveAudioflixAudio?.layersPaused?.());
+            const isPaused = transportPaused[tab] === true, configured = Boolean(String(ctx.state().hotkeyTransportCombo || '').trim());
+            if (transportState) {
+                transportState.textContent = result?.transportConflict ? 'CONFLICT' : transportReady ? 'SYSTEM-WIDE READY' : configured ? 'PAGE ONLY' : 'NOT CONFIGURED';
+                transportState.dataset.state = result?.transportConflict ? 'conflict' : transportReady ? 'active' : configured ? 'local' : 'unknown';
+            }
+            if (transportToggle) {
+                transportToggle.textContent = `${isPaused ? 'Resume' : 'Pause'} ${tab === 'piano' ? 'Piano' : tab === 'music' ? 'Music Library' : tab === 'soundboard' ? 'Soundboard' : 'current tab'}`;
+                transportToggle.dataset.paused = String(isPaused); transportToggle.setAttribute('aria-pressed', String(isPaused));
+            }
+        }
+
+        async function toggleTransportPause(source = 'manual') {
+            const tab = ctx.activeTab, audio = window.EveAudioflixAudio;
+            let handled = false, nextPaused = transportPaused[tab] !== true;
+            if (tab === 'soundboard') {
+                const playback = audio?.getPlaybackState?.() || {}, main = playback.item?.type === 'sound', layers = audio?.hasLayers?.() === true;
+                if (!main && !layers) return false;
+                nextPaused = !((!main || playback.paused === true) && (!layers || audio?.layersPaused?.() === true));
+                if (nextPaused) {
+                    if (main && !playback.paused) await audio?.pause?.();
+                    if (layers && !audio?.layersPaused?.()) await audio?.pauseLayers?.();
+                } else {
+                    if (main && playback.paused) await audio?.resume?.();
+                    if (layers && audio?.layersPaused?.()) await audio?.resumeLayers?.();
+                }
+                handled = true;
+            } else if (tab === 'music') {
+                const playback = audio?.getPlaybackState?.() || {};
+                if (playback.item?.type !== 'music') return false;
+                nextPaused = playback.paused !== true;
+                if (nextPaused) await audio?.pause?.(); else await audio?.resume?.();
+                handled = true;
+            } else if (tab === 'piano') {
+                handled = window.EveAudioflixPianoFrontend?.togglePause?.() === true;
+            }
+            if (!handled) return false;
+            transportPaused[tab] = nextPaused;
+            paintStatus(lastStatus || { ok: false, localOnly: true, configured: configuredItems().length });
+            recordAudioflixNexus(`${source === 'native' ? 'Global hotkey' : 'Manual control'} ${nextPaused ? 'paused' : 'resumed'} ${tab} audio`);
+            return true;
         }
 
         async function setBypassed(desired) {
@@ -108,11 +154,11 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
 
         async function performSync(force) {
             if (ctx.activeTab === 'soundboard' && !ctx.hotkeyCatalogReady()) return lastStatus || { ok: false, pending: true };
-            const snapshot = ctx.state(), items = armedItems(), bypassCombo = String(snapshot.hotkeyBypassCombo || '').trim();
-            const fingerprint = JSON.stringify({ soundboardArmed: ctx.activeTab === 'soundboard', device: snapshot.nativeOutputId || 'default', bypassCombo,
+            const snapshot = ctx.state(), items = armedItems(), bypassCombo = String(snapshot.hotkeyBypassCombo || '').trim(), transportCombo = String(snapshot.hotkeyTransportCombo || '').trim();
+            const fingerprint = JSON.stringify({ soundboardArmed: ctx.activeTab === 'soundboard', device: snapshot.nativeOutputId || 'default', bypassCombo, transportCombo,
                 items: items.map(item => [item.id, item.url, item.hotkey, Number(item.volume ?? 1)]) });
             if (!force && fingerprint === appliedFingerprint && ctx.nativeHotkeysLive) return lastStatus;
-            if (!items.length && !bypassCombo) {
+            if (!items.length && !bypassCombo && !transportCombo) {
                 const result = await window.EveAudioflixNative?.clearHotkeys?.();
                 appliedFingerprint = fingerprint; paintStatus({ ...(result || {}), configured: 0, bindings: [] }); return result;
             }
@@ -126,7 +172,7 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
                 const available = decoded.filter(Boolean), sampleRate = available[0]?.buffer?.sampleRate || 48000;
                 const bindings = available.map(({ item, buffer }) => ({ combo: String(item.hotkey).trim(),
                     audio: window.EveAudioflixAudio.encodeBufferToBase64(buffer), volume: item.volume ?? 1, voiceId: `hk:${item.id}` }));
-                preparedPayload = { deviceId: snapshot.nativeOutputId || 'default', sampleRate, bindings, bypassCombo };
+                preparedPayload = { deviceId: snapshot.nativeOutputId || 'default', sampleRate, bindings, bypassCombo, transportCombo };
                 preparedFingerprint = fingerprint;
             }
             const result = await window.EveAudioflixNative?.setHotkeys?.(preparedPayload);
@@ -150,12 +196,13 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
         function startHotkeyFeedbackPoll() {
             if (hotkeyPollTimer) return;
             hotkeyPollTick = 0;
-            window.EveAudioflixNative?.hotkeyStatus?.().then(r => { lastFiredAt = r?.lastFired?.at || 0; paintStatus(r); }).catch(() => {});
+            window.EveAudioflixNative?.hotkeyStatus?.().then(r => { lastFiredAt = r?.lastFired?.at || 0; lastTransportSeq = Number(r?.transportFired?.seq || 0); paintStatus(r); }).catch(() => {});
             hotkeyPollTimer = setInterval(() => {
                 hotkeyPollTick++;
                 const visible = !!ctx.overlay && !ctx.overlay.hidden;
                 const onSoundboardFrontend = visible && ctx.activeTab === 'soundboard' && (ctx.state().soundboardViewMode || 'backend') === 'frontend';
-                if (!onSoundboardFrontend && !ctx.settingsOpen && hotkeyPollTick % 16 !== 0) return;
+                const transportConfigured = Boolean(String(ctx.state().hotkeyTransportCombo || '').trim());
+                if (!onSoundboardFrontend && !ctx.settingsOpen && !transportConfigured && hotkeyPollTick % 16 !== 0) return;
                 if (!ctx.nativeHotkeysLive) {
                     if (hotkeyPollTick % 120 !== 0) return;
                     syncHotkeys({ force: true });
@@ -164,11 +211,23 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
                 window.EveAudioflixNative?.hotkeyStatus?.().then(r => {
                     paintStatus(r);
                     if (r?.ok === false || (!r?.bypassed && armedItems().length && statusCounts(r).registered === 0)) syncHotkeys({ force: true });
+                    const transportSeq = Number(r?.transportFired?.seq || 0);
+                    if (transportSeq && transportSeq !== lastTransportSeq) {
+                        const delta = transportSeq > lastTransportSeq ? transportSeq - lastTransportSeq : 1;
+                        lastTransportSeq = transportSeq;
+                        if (delta % 2) Promise.resolve(toggleTransportPause('native')).catch(() => false);
+                    }
                     if (!onSoundboardFrontend) return;
                     const lf = r?.lastFired;
                     if (lf?.at && lf.at !== lastFiredAt) {
                         lastFiredAt = lf.at;
-                        const card = String(lf.vid || '').startsWith('hk:') && ctx.overlay.querySelector(`.audioflix-item-grid[data-af-active-group] [data-af-id="${lf.vid.slice(3)}"]`)?.closest('.audioflix-item-card');
+                        const firedId = String(lf.vid || '').startsWith('hk:') ? lf.vid.slice(3) : '';
+                        const firedItem = firedId && configuredItems().find(item => String(item.id) === firedId);
+                        if (firedItem) window.EveAudioflixAudio?.projectExternalLayer?.({
+                            itemId: firedId, voiceId: lf.vid, title: firedItem.title,
+                            duration: Number(lf.duration || firedItem.duration || 0), startedAt: Number(lf.at) * 1000
+                        });
+                        const card = firedId && ctx.overlay.querySelector(`.audioflix-item-grid[data-af-active-group] [data-af-id="${firedId}"]`)?.closest('.audioflix-item-card');
                         if (card) { card.classList.add('is-hotkey-hit'); setTimeout(() => card.classList.remove('is-hotkey-hit'), 220); }
                         recordAudioflixNexus(`Hotkey ${lf.combo || ''} fired a soundboard clip`);
                     }
@@ -201,15 +260,19 @@ window.EveAudioflixUiHotkeys = window.EveAudioflixUiHotkeys || {};
                 e.preventDefault(); localBypassed = !localBypassed;
                 paintStatus({ ok: false, localOnly: true, configured: configuredItems().length }); return;
             }
+            if (matchEventToHotkey(e, ctx.state().hotkeyTransportCombo)) {
+                if (nativeTransportReady) return;
+                e.preventDefault(); Promise.resolve(toggleTransportPause('page')).catch(() => false); return;
+            }
             if (localBypassed || nativeBypassed || ctx.activeTab !== 'soundboard' || ctx.activeInfoItem) return;
             const items = armedItems(), matched = items.find(item => matchEventToHotkey(e, item.hotkey));
             if (!matched) return; e.preventDefault();
             if (registeredCombos.has(canonicalCombo(matched.hotkey))) return;
             flashHotkey(matched.id);
-            Promise.resolve(window.EveAudioflixAudio?.playItem?.(matched)).catch(() => {});
+            Promise.resolve(window.EveAudioflixAudio?.playSound?.(matched)).catch(() => {});
         }
 
-        return { startHotkeyFeedbackPoll, stopHotkeyFeedbackPoll, handleHotkey, syncHotkeys, setBypassed, status: () => lastStatus };
+        return { startHotkeyFeedbackPoll, stopHotkeyFeedbackPoll, handleHotkey, syncHotkeys, setBypassed, toggleTransportPause, status: () => lastStatus };
     };
 
     ns.ready = true;

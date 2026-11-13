@@ -1,7 +1,9 @@
 import { renderPiano } from "./piano.js";
-import { pianoSoundCatalog } from "./piano_sound.js";
+import { pianoSoundCatalog, preparePianoPcmOutput, setPianoMasterVolume, setPianoOutputRoute } from "./piano_sound.js";
+import { configurePianoPcm } from "./piano_pcm_capture.js";
 
 const LAYOUT_PREFERENCE_KEY = "eveos:piano:layout:v1";
+const SOUND_PREFERENCE_KEY = "eveos:piano:sound:v1";
 function savedPianoLayout() {
   try {
     const value = window.localStorage.getItem(LAYOUT_PREFERENCE_KEY);
@@ -11,6 +13,14 @@ function savedPianoLayout() {
 function savePianoLayout(value) {
   if (value !== "61" && value !== "88") return;
   try { window.localStorage.setItem(LAYOUT_PREFERENCE_KEY, value); } catch (_) {}
+}
+function savedPianoSound() {
+  try { return String(window.localStorage.getItem(SOUND_PREFERENCE_KEY) || "") || null; }
+  catch (_) { return null; }
+}
+function savePianoSound(value) {
+  if (!value) return;
+  try { window.localStorage.setItem(SOUND_PREFERENCE_KEY, value); } catch (_) {}
 }
 
 export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, visualMeta, piano, recorder, preview }) {
@@ -27,6 +37,24 @@ export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, vis
     preview.setSound(soundId);
     soundStatus.textContent = soundId === "legacy_synth" ? "offline" : "sampled";
     updateMeta();
+  }
+
+  function setLayout(value, { persist = false } = {}) {
+    if (value !== "61" && value !== "88") return false;
+    layoutSelect.value = value;
+    if (persist) savePianoLayout(value);
+    render();
+    return true;
+  }
+
+  async function setSound(value, { persist = false } = {}) {
+    if (![...soundSelect.options].some(option => option.value === value)) return false;
+    soundSelect.value = value;
+    if (persist) savePianoSound(value);
+    applySound();
+    recorder.unlock();
+    await prepareSound();
+    return true;
   }
 
   async function prepareSound() {
@@ -64,21 +92,31 @@ export function setupPianoControls({ layoutSelect, soundSelect, soundStatus, vis
   layoutSelect.addEventListener("change", () => {
     // Layout only changes the visible/manual key range. Keep the active song
     // timeline and internal voices alive, just as an instrument change does.
-    savePianoLayout(layoutSelect.value);
-    render();
+    setLayout(layoutSelect.value, { persist: true });
   });
   soundSelect.addEventListener("change", () => {
     // Keep the playback timeline alive while the sound engine releases the
     // current voices and routes subsequent notes through the new instrument.
-    applySound();
-    recorder.unlock();
-    prepareSound().catch(() => {});
+    setSound(soundSelect.value, { persist: true }).catch(() => {});
   });
 
   const ids = new Set(pianoSoundCatalog().map(item => item.id));
-  if (!ids.has(soundSelect.value)) soundSelect.value = "acoustic_grand";
+  const preferredSound = savedPianoSound();
+  if (preferredSound && ids.has(preferredSound) && [...soundSelect.options].some(option => option.value === preferredSound)) soundSelect.value = preferredSound;
+  else if (!ids.has(soundSelect.value)) soundSelect.value = "acoustic_grand";
   applySound();
   render();
   warmSelectedSound();
-  return { render, applySound, prepareSound, updateMeta };
+  const syncOutputRoute = event => { const detail = event?.detail || window.PianoEveOS?.getContext?.() || {};
+    if (detail.audioOutput) setPianoOutputRoute(detail.audioOutput).catch(() => {});
+    configurePianoPcm(detail.pianoPcm || {});
+    if (detail.pianoPcm?.active) preparePianoPcmOutput().catch(() => {}); };
+  window.addEventListener("piano:eveos-context", syncOutputRoute);
+  syncOutputRoute();
+  const restorePreferences = async () => {
+    setLayout(savedPianoLayout() || layoutSelect.value || "61");
+    await setSound(savedPianoSound() || soundSelect.value || "acoustic_grand");
+  };
+  return { render, applySound, prepareSound, updateMeta, setLayout, setSound,
+    restorePreferences, setVolume: setPianoMasterVolume };
 }

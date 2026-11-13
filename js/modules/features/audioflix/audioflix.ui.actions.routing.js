@@ -3,10 +3,25 @@ window.EveAudioflixUiActionsRouting = window.EveAudioflixUiActionsRouting || {};
 (function (ns) {
     'use strict';
     ns.create = ctx => async (actionTarget, action) => {
+            if (await window.EveAudioflixNexusSpotify?.handleAction?.(actionTarget, action, ctx)) return true;
+            if (window.EveAudioflixPlaybackPolicyUi?.handleAction?.(actionTarget, action, ctx)) return true;
+            // Do not consume the user gesture for unrelated routing controls.
+            if (['provider-open-companion', 'provider-test-tone', 'provider-managed-toggle', 'provider-managed-capture-toggle', 'provider-arm', 'provider-stop', 'provider-retry'].includes(action)) {
+                return !!(await window.EveAudioflixProviderCaptureUi?.handleAction?.(actionTarget, action, ctx));
+            }
             if (action === 'select-output') { try { await window.EveAudioflixAudio?.selectOutput?.(); } catch (err) { ctx.playbackStatus = err.message || 'Output selection failed'; } ctx.rerender(); return true; }
             if (action === 'unlock-output-names') {
                 try { const ok = await window.EveAudioflixAudio?.unlockDeviceLabels?.(); ctx.playbackStatus = ok ? 'Output access granted.' : 'Output access still blocked here.'; }
                 catch (err) { ctx.playbackStatus = err.message || 'Device name unlock failed'; } ctx.rerender(); return true;
+            }
+            if (action === 'route-piano-output') {
+                try {
+                    let sink = await window.EveAudioflixAudio?.resolvePlaybackSink?.(true);
+                    if (!sink?.deviceId && await window.EveAudioflixAudio?.unlockDeviceLabels?.()) sink = await window.EveAudioflixAudio?.resolvePlaybackSink?.(true);
+                    if (!sink?.deviceId) throw new Error('The selected native port is not browser-authorized yet. Pick the matching Browser Output once.');
+                    await window.EveAudioflixAudio?.setOutputById?.(sink.deviceId, sink.label); ctx.playbackStatus = `Piano routed to ${sink.label}`;
+                } catch (err) { ctx.playbackStatus = err.message || 'Piano output routing failed'; }
+                ctx.rerender(); return true;
             }
             if (action === 'local-only') {
                 window.EveAudioflixNative?.setNativeBridgeEnabled?.(false); window.EveAudioflixGemini?.setVoicePortEnabled?.(false); window.EveAudioflixGemini?.setMonitorEnabled?.(true);

@@ -1,9 +1,20 @@
 'use strict';
 
 const STARTUP = require('./audioflix_spotify_browser_startup.json');
+const fs = require('node:fs');
+const path = require('node:path');
 const EDGE_LAUNCH_TIMEOUT_MS = Number(STARTUP.edgeLaunchTimeoutMs || 45000);
 const CHROMIUM_LAUNCH_TIMEOUT_MS = Number(STARTUP.chromiumLaunchTimeoutMs || 45000);
 const NAVIGATION_TIMEOUT_MS = Number(STARTUP.navigationTimeoutMs || 30000);
+
+function edgeBetaExecutable() {
+    if (process.platform !== 'win32') throw new Error('Microsoft Edge Beta is Windows-only.');
+    const roots = [process.env['PROGRAMFILES(X86)'], process.env.PROGRAMFILES, process.env.LOCALAPPDATA].filter(Boolean);
+    const candidate = roots.map(root => path.join(root, 'Microsoft', 'Edge Beta', 'Application', 'msedge.exe'))
+        .find(exe => fs.existsSync(exe));
+    if (!candidate) throw new Error('Microsoft Edge Beta is missing; refusing Stable/Chromium fallback.');
+    return candidate;
+}
 
 function setPhase(runtime, note, phase) {
     runtime.phase = phase;
@@ -13,16 +24,12 @@ function setPhase(runtime, note, phase) {
 async function launchManagedContext(chromium, profileDir, launchOptions, headlessRequested, runtime, note) {
     let context;
     if (process.platform === 'win32') {
-        try {
-            setPhase(runtime, note, 'launch-edge');
-            context = await chromium.launchPersistentContext(profileDir, {
-                ...launchOptions, channel: 'msedge', timeout: EDGE_LAUNCH_TIMEOUT_MS
-            });
-            runtime.browserChannel = headlessRequested ? 'msedge-headless' : 'msedge';
-            return context;
-        } catch (edgeError) {
-            note('launch-error', `Edge unavailable: ${edgeError.message}`);
-        }
+        setPhase(runtime, note, 'launch-edge-beta');
+        context = await chromium.launchPersistentContext(profileDir, {
+            ...launchOptions, executablePath: edgeBetaExecutable(), timeout: EDGE_LAUNCH_TIMEOUT_MS
+        });
+        runtime.browserChannel = headlessRequested ? 'msedge-beta-headless' : 'msedge-beta';
+        return context;
     }
     setPhase(runtime, note, 'launch-chromium');
     context = await chromium.launchPersistentContext(profileDir, {
@@ -62,6 +69,7 @@ module.exports = {
     EDGE_LAUNCH_TIMEOUT_MS,
     CHROMIUM_LAUNCH_TIMEOUT_MS,
     NAVIGATION_TIMEOUT_MS,
+    edgeBetaExecutable,
     launchManagedContext,
     prepareManagedPage
 };

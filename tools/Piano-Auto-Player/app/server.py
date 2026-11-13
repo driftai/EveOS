@@ -74,7 +74,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/windows":
             return self._json({"windows": list_windows()})
         if path == "/api/songs":
-            return self._json({"songs": LIBRARY.list()})
+            return self._json({"songs": LIBRARY.list(), "authoritative": True})
         if path == "/api/library/export":
             params = parse_qs(parsed.query)
             ids = [item for raw in params.get("ids", []) for item in raw.split(",") if item]

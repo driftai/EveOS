@@ -375,6 +375,57 @@ finally:
     mod.engine.transport = transport
 assert broker.connect(file_connect, context)["ok"] and fake.state["status"] == "stopped"
 
+# Engine stop retires managed PCM capture before ownership clears; a capture-stop failure
+# is reported but never blocks the engine stop.
+def fake_capture_stop():
+    fake.calls.append(("capture-stop",))
+    return {"ok": True, "capture": {"state": "idle", "active": False}}
+
+capture_stop = getattr(mod.engine, "stop_provider_capture")
+mod.engine.stop_provider_capture = fake_capture_stop
+try:
+    stop_owner = broker.connect(file_connect, context)
+    assert command(stop_owner, "play", {"spotifyId": "4cOdK2wGLETKBW3PvgPWqT"})["ok"]
+    mark = len(fake.calls)
+    engine_stopped = command(stop_owner, "engine-stop")
+    names = [call[0] for call in fake.calls[mark:]]
+    assert engine_stopped["ok"] and engine_stopped["captureStopResult"]["ok"]
+    assert names.index("capture-stop") < names.index("engine-stop"), names
+    assert broker._owner_client_id == ""
+
+    def failing_capture_stop():
+        raise ConnectionError("fixture capture helper gone")
+
+    mod.engine.stop_provider_capture = failing_capture_stop
+    stop_owner = broker.connect(file_connect, context)
+    assert command(stop_owner, "play", {"spotifyId": "4cOdK2wGLETKBW3PvgPWqT"})["ok"]
+    engine_stopped = command(stop_owner, "engine-stop")
+    assert engine_stopped["ok"] and not engine_stopped["captureStopResult"]["ok"]
+    assert "fixture capture helper gone" in engine_stopped["captureStopResult"]["reason"]
+    assert broker._owner_client_id == "" and not fake.running
+finally:
+    mod.engine.stop_provider_capture = capture_stop
+
+
+# Web-restart teardown (selective EveOS update) retires managed capture the same way.
+from server_modules import audioflix_spotify_restart as restart_mod  # noqa: E402
+
+singleton = mod._broker
+mod._broker = broker
+mod.engine.stop_provider_capture = fake_capture_stop
+try:
+    restart_owner = broker.connect(file_connect, context)
+    assert command(restart_owner, "play", {"spotifyId": "4cOdK2wGLETKBW3PvgPWqT"})["ok"]
+    mark = len(fake.calls)
+    prepared = restart_mod.prepare_restart({})
+    names = [call[0] for call in fake.calls[mark:]]
+    assert prepared["ok"] and prepared["captureStop"]["ok"], prepared
+    assert names.index("capture-stop") < names.index("engine-stop"), names
+    assert broker._owner_client_id == "" and prepared["autoplayRequested"] is False
+finally:
+    mod.engine.stop_provider_capture = capture_stop
+    mod._broker = singleton
+
 # Run the actual broker/RPC/manager read path in isolation from this file's fake engine.
 import subprocess
 for script in ("audioflix_spotify_status_reads_smoke.py", "audioflix_spotify_volume_fence_smoke.py"):

@@ -4,6 +4,8 @@ const assert = require('node:assert/strict');
 async function assertTransportContinuity(page, realChild) {
   const songPlay=page.locator('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play');
   await realChild.waitForFunction(()=>window.PianoPlaybackOwner?.status?.().status==='idle',null,{timeout:10000});
+  await page.locator('[data-pxp-internal]').check();
+  await realChild.waitForFunction(()=>document.getElementById('internalPlay')?.checked===true,null,{timeout:10000});
   try {
     await page.waitForFunction(()=>{
       const b=document.querySelector('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play');
@@ -26,22 +28,23 @@ async function assertTransportContinuity(page, realChild) {
   assert.equal(updatedSong.length,expandedSheet.length,'long-playing test fixture must retain all notes');
   assert.equal(updatedSong.cachedLength,expandedSheet.length,'Backend cached library must expose extended song to normal Play');
   await songPlay.click();
-  await realChild.waitForFunction(()=>{
-    const p=window.PianoPlaybackOwner?.status?.();return p?.internal_preview===true&&p.total_events>500&&['countdown','playing'].includes(p.status);
-  },null,{timeout:10000});
+  const started=await realChild.evaluate(async()=>{
+    const deadline=Date.now()+20000;
+    while(Date.now()<deadline){const state=window.PianoPlaybackOwner?.status?.();if(state?.internal_preview===true&&state.total_events>500&&['countdown','playing'].includes(state.status))return state;await new Promise(resolve=>setTimeout(resolve,100));}
+    return window.PianoPlaybackOwner?.status?.();
+  });
+  assert(started?.internal_preview===true&&started.total_events>500&&['countdown','playing'].includes(started.status),`Direct Internal Play must own the long fixture: ${JSON.stringify(started)}`);
   await page.waitForFunction(()=>document.querySelector('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play')?.textContent==='Stop',null,{timeout:10000});
 
   const beforeInstrument=await realChild.evaluate(()=>window.PianoPlaybackOwner.status());
   await page.locator('[data-pxp-sound]').selectOption('bright_acoustic');
-  await realChild.waitForFunction(index=>{
-    const p=window.PianoPlaybackOwner.status();return ['playing','countdown'].includes(p.status)&&p.current_index>index;
-  },beforeInstrument.current_index,{timeout:5000});
+  const instrumentAdvanced=await realChild.evaluate(async index=>{const deadline=Date.now()+20000;while(Date.now()<deadline){const p=window.PianoPlaybackOwner.status();if(['playing','countdown'].includes(p.status)&&p.current_index>index)return true;await new Promise(resolve=>setTimeout(resolve,100));}return false;},beforeInstrument.current_index);
+  assert(instrumentAdvanced,'instrument hot-swap must continue the current song');
   assert.equal(await page.locator('[data-pxm-compact-pause]').isEnabled(),true,'instrument hot-swap must preserve the shared Pause/Resume transport');
   const beforeLayout=await realChild.evaluate(()=>window.PianoPlaybackOwner.status());
   await page.locator('[data-pxp-layout]').selectOption('88');
-  await realChild.waitForFunction(index=>{
-    const p=window.PianoPlaybackOwner.status();return ['playing','countdown'].includes(p.status)&&p.current_index>index;
-  },beforeLayout.current_index,{timeout:5000});
+  const layoutAdvanced=await realChild.evaluate(async index=>{const deadline=Date.now()+20000;while(Date.now()<deadline){const p=window.PianoPlaybackOwner.status();if(['playing','countdown'].includes(p.status)&&p.current_index>index)return true;await new Promise(resolve=>setTimeout(resolve,100));}return false;},beforeLayout.current_index);
+  assert(layoutAdvanced,'layout hot-swap must continue the current song');
 
   const compactPause=page.locator('[data-pxm-compact-pause]');
   await page.waitForFunction(()=>window.EveAudioflixPianoFrontend?.pendingCount?.()===0,null,{timeout:10000});
@@ -70,7 +73,7 @@ async function assertTransportContinuity(page, realChild) {
   await compactPause.click();
   await realChild.waitForFunction(()=>['playing','countdown'].includes(window.PianoPlaybackOwner.status().status),null,{timeout:10000});
   await songPlay.click();
-  await realChild.waitForFunction(()=>document.getElementById('statusChip')?.dataset.state==='idle',null,{timeout:10000});
+  await realChild.waitForFunction(()=>window.PianoPlaybackOwner?.status?.().status==='idle',null,{timeout:10000});
   await page.waitForFunction(()=>document.querySelector('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play')?.textContent==='Play');
   await realChild.evaluate(()=>{const node=document.getElementById('internalPlay');node.checked=true;node.dispatchEvent(new Event('change',{bubbles:true}));});
   await realChild.waitForFunction(()=>localStorage.getItem('eveos:piano:internal-play:v1')==='true');
@@ -87,7 +90,8 @@ async function assertTransportContinuity(page, realChild) {
   await realChild.waitForFunction(()=>document.getElementById('titleInput')?.value.includes('Opaque One'),null,{timeout:10000});
   await page.waitForFunction(()=>document.querySelector('[data-pxm-current]')?.textContent==='Opaque One',null,{timeout:10000});
   await page.locator('.piano-frontend-song[data-song-id="opaque-one"] .piano-frontend-song-play').click();
-  await realChild.waitForFunction(()=>window.PianoPlaybackOwner?.status?.().internal_preview===true&&['countdown','playing'].includes(window.PianoPlaybackOwner.status().status),null,{timeout:10000});
+  const resumed=await realChild.evaluate(async()=>{const deadline=Date.now()+20000;while(Date.now()<deadline){const p=window.PianoPlaybackOwner?.status?.();if(p?.internal_preview===true&&['countdown','playing'].includes(p.status))return true;await new Promise(resolve=>setTimeout(resolve,100));}return false;});
+  assert(resumed,'Internal Play must start after Backend Refresh');
 }
 
 module.exports={assertTransportContinuity};

@@ -1,5 +1,4 @@
 'use strict';
-
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -219,6 +218,7 @@ async function main() {
     actionWindow.EveAudioflixAudio = {
         layerPlay: async (item) => { actionLayerItem = item; return true; },
         playItem: async (item) => { actionPlayItem = item; actionPlayCount += 1; return true; },
+        playSound: async (item) => { actionLayerStopped = true; actionVoiceClears.push(String(item.id), `hk:${item.id}`); actionPlayItem = item; actionPlayCount += 1; return true; },
         stopItemLayers: async () => { actionLayerStopped = true; return true; }
     };
     actionWindow.EveAudioflixNative = { clearVoices: (id) => { actionVoiceClears.push(id); return hotkeyClear.promise; } };
@@ -255,7 +255,7 @@ async function main() {
     // Same-item normal Play coalesces; Layer Play forwards each press to its bounded transport owner.
     const playStormGate = deferred();
     let playStormCalls = 0;
-    actionWindow.EveAudioflixAudio.playItem = async () => {
+    actionWindow.EveAudioflixAudio.playSound = async () => {
         playStormCalls += 1;
         await playStormGate.promise;
         return true;
@@ -365,9 +365,10 @@ async function main() {
         'result = p.clear_voices({"deviceId": "sd:1", "voiceId": "clip", "allDevices": True})',
         'assert result["cleared"] == 2 and result["allDevices"] is True',
         'assert a.ids == ["clip"] and b.ids == ["clip"]',
-        'import queue',
+        'import queue, threading',
         'player = p._PcmPlayer.__new__(p._PcmPlayer)',
         'player.q, player.pending, player.flush_pending, player.stream_id = queue.Queue(), None, False, "owned-media"',
+        'player.stream_lanes, player.stream_lanes_lock = {}, threading.Lock()',
         'player.q.put(object())',
         'assert player.clear_stream("other-media") == 0 and player.q.qsize() == 1',
         'assert player.clear_stream("owned-media") == 1 and player.q.empty() and player.flush_pending',
@@ -376,6 +377,7 @@ async function main() {
     assert(backendProbe.status === 0, `native all-device stop failed: ${backendProbe.stderr || backendProbe.stdout}`);
 
     const actions = fs.readFileSync(ACTIONS, 'utf8');
+    const audioOwner = fs.readFileSync(path.join(ROOT, 'js', 'modules', 'features', 'audioflix', 'audioflix.audio.js'), 'utf8');
     const layerUi = fs.readFileSync(path.join(ROOT, 'js', 'modules', 'features', 'audioflix',
         'audioflix.ui.layer-voices.js'), 'utf8');
     const layerCss = fs.readFileSync(path.join(ROOT, 'js', 'modules', 'features', 'audioflix',
@@ -430,7 +432,8 @@ async function main() {
         'the visible Stop button reaches the layer controller');
     assert(!stopBlock.includes('EveAudioflixAudio?.pause'),
         'the layer Stop button cannot pause unrelated continuous playback');
-
+    assert(audioOwner.includes('layerController.layerPlay((await preparePlaybackItem(item))?.item || item)'),
+        'Layer Play must honor the same localized/provider source preparation as normal playback');
     console.log('AUDIOFLIX_LAYER_STOP_SMOKE_OK');
 }
 

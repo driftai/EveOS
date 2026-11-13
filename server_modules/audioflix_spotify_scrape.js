@@ -3,6 +3,7 @@
 
 const { chromium } = require('playwright');
 const fs = require('node:fs');
+const { launchManagedContext } = require('./audioflix_spotify_browser_startup');
 const {
     clean, playlistIdFromUrl, stableId, playlistCount, isEmbedPlaylistUrl, fullPlaylistUrl,
     needsFullPlayerPromotion, assessPlaylistCompleteness, shouldPromoteEmbedAfterScan,
@@ -19,19 +20,12 @@ function writeLaunchStatus(value) {
     try { fs.writeFileSync(statusPath, JSON.stringify(value), 'utf8'); } catch {}
 }
 
-async function launchContext() {
+async function launchContext(browser = chromium, profile = profileDir, headed = mode === 'login') {
     const options = {
-        headless: mode !== 'login', viewport: { width: 1280, height: 900 }, locale: 'en-US',
+        headless: !headed, viewport: { width: 1280, height: 900 }, locale: 'en-US',
         args: ['--disable-blink-features=AutomationControlled', '--disable-dev-shm-usage', '--lang=en-US', '--window-position=80,80', '--window-size=1280,900']
     };
-    if (process.platform === 'win32') {
-        try { return await chromium.launchPersistentContext(profileDir, { ...options, channel: 'msedge' }); }
-        catch (edgeError) {
-            try { return await chromium.launchPersistentContext(profileDir, options); }
-            catch (chromiumError) { throw new Error(`Could not open the saved Spotify browser profile. Edge: ${edgeError.message}. Chromium: ${chromiumError.message}`); }
-        }
-    }
-    return chromium.launchPersistentContext(profileDir, options);
+    return launchManagedContext(browser, profile, options, !headed, {}, () => {});
 }
 
 async function extractRows(page) {
@@ -248,7 +242,7 @@ async function main() {
     if (mode === 'login') {
         writeLaunchStatus({ ok: true, pid: process.pid, openedAt: Date.now(), url: playlistUrl });
         const page = context.pages()[0] || await context.newPage();
-        await page.goto(`https://accounts.spotify.com/login?continue=${encodeURIComponent(playlistUrl)}`, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => page.goto(playlistUrl));
+        await page.goto(playlistUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise((resolve) => context.on('close', resolve)); return;
     }
     try { process.stdout.write(JSON.stringify(await scrape(context))); }
@@ -263,6 +257,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+    launchContext,
     mergeTrack, mergePlaylistRows, scanValue, playlistCount, requestMentionsPlaylist,
     needsFullPlayerPromotion, assessPlaylistCompleteness, shouldPromoteEmbedAfterScan, collectDomRows
 };

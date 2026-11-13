@@ -51,7 +51,7 @@
         if (!companionsReadyPromise) {
             companionsReadyPromise = Promise.all([
                 companionReady(
-                    'js/modules/features/watchfusion/watchfusion.audioflix-link.js?v=4807d48935a4',
+                    'js/modules/features/watchfusion/watchfusion.audioflix-link.js?v=e08f6dd28ed3',
                     'data-eve-watchfusion-audioflix-link',
                     '__eveWatchFusionAudioflixLinkReady'
                 ),

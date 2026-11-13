@@ -92,8 +92,8 @@ function main() {
     // ---- partial rollback: non-empty Soundboard/recent-play data must not mask a lost music graph ----
     const rich = {
         durabilityRevision: 7,
-        soundboard: [{ id: 'sound-a', title: 'Sound A', url: 'sound.wav' }],
-        music: [{ id: 'music-a', title: 'Track A', localPath: 'C:/Music/Port/Track A.mp3', sourceId: 'src-a', playlistId: 'pl-a', folder: 'Port', classifiers: ['Manual'] }],
+        soundboard: [{ id: 'sound-a', title: 'Sound A', url: 'sound.wav', playbackPolicy: { scopeMode: 'global' } }],
+        music: [{ id: 'music-a', title: 'Track A', localPath: 'C:/Music/Port/Track A.mp3', sourceId: 'src-a', playlistId: 'pl-a', folder: 'Port', classifiers: ['Manual'], playbackPolicy: { scopeMode: 'custom', spotifyMethod: 'embed' } }],
         recentPlays: [{ id: 'sound-a' }],
         musicGroups: ['Mood', 'Night'],
         musicGroupParents: { Night: 'Mood' },
@@ -103,6 +103,8 @@ function main() {
         portVolumes: { 'sound-a': 0.4 },
         portHotkeys: { 'sound-a': 'ctrl+1' },
         exposedPortedSounds: { 'sound-a': true },
+        playbackPolicy: { sourcePreference: 'localized', spotifyMethod: 'managed', outputMode: 'global' },
+        playbackScopePolicies: { 'group:night': { sourcePreference: 'original' } },
         scopeBindings: [{ id: 'bind-a', audioId: 'music-a', audioType: 'music', scopeType: 'card', workspaceId: 'main', categoryName: 'Music Card' }],
         musicPortConnections: [{ id: 'port-a', path: 'C:/Music/Port', folder: 'Port', trackCount: 1 }]
     };
@@ -142,7 +144,7 @@ function main() {
         'ported-sound settings and Audioflix scope bindings survive in the structural journal');
     const rebuilt = {
         durabilityRevision: 0,
-        soundboard: [],
+        soundboard: [{ id: 'sound-a', title: 'Sound A', url: 'sound.wav' }],
         music: [{ id: 'reimported-a', title: 'Track A', localPath: 'C:/Music/Port/Track A.mp3', sourceId: 'src-a', playlistId: 'pl-a', folder: '', classifiers: [] }],
         musicGroups: [], musicGroupMap: {}, musicFolders: [], musicClassifiers: [],
         ports: [], browserFolders: [], musicPortConnections: [], musicPlaylists: [], localizeScopeDirs: {}
@@ -157,6 +159,12 @@ function main() {
         'structural recovery preserves nested group ancestry');
     assert(rebuilt.scopeBindings.some((entry) => entry.audioId === 'reimported-a' && entry.categoryName === 'Music Card'),
         'scope bindings follow a structurally matched track onto its new runtime id');
+    assert(rebuilt.playbackPolicy.spotifyMethod === 'managed'
+        && rebuilt.playbackScopePolicies['group:night'].sourcePreference === 'original',
+        'global and scoped playback policy survive structural recovery');
+    assert(rebuilt.music[0].playbackPolicy.spotifyMethod === 'embed'
+        && rebuilt.soundboard[0].playbackPolicy.scopeMode === 'global',
+        'per-item playback policy follows recovered music and sound identity');
     assert(rebuilt.musicPortConnections.some((entry) => entry.id === 'port-a'),
         'source connection metadata returns so the port can be rescanned');
 

@@ -12,6 +12,8 @@ import tempfile
 import threading
 from pathlib import Path
 
+from .eveos_http_headers import is_private_repo_path
+
 ROOT = Path(__file__).resolve().parent.parent
 OVERRIDES = ROOT / "data" / "runtime" / "agent-management" / "documents"
 GUIDE = "config/agents/tlo/NEXUS.md"
@@ -32,7 +34,8 @@ def _tracked() -> list[str]:
     except (OSError, UnicodeError, subprocess.CalledProcessError) as exc:
         raise DocumentError("The tracked Markdown catalog is unavailable.") from exc
     return sorted({name.replace("\\", "/") for name in names
-                   if name.endswith(".md") and not name.startswith("data/")})
+                   if name.endswith(".md") and not name.startswith("data/")
+                   and not is_private_repo_path(name)})
 
 
 def _seed(name: str, known: set[str] | None = None) -> Path:
@@ -44,6 +47,8 @@ def _seed(name: str, known: set[str] | None = None) -> Path:
     resolved = candidate.resolve()
     if not resolved.is_relative_to(ROOT.resolve()):
         raise DocumentError("Document path leaves EveOS.")
+    if is_private_repo_path(resolved.relative_to(ROOT.resolve())):
+        raise DocumentError("This document is outside the public catalog.")
     if candidate.stat().st_size > MAX_CHARS * 4:
         raise DocumentError("This document exceeds the safe reading limit.")
     return candidate

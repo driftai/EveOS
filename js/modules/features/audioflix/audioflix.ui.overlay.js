@@ -16,6 +16,12 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
             pushHotkeysToBridge, hotkeyComboIssue, hotkeyComboFromEvent } = ctx;
         // Shared mutable view state stays in audioflix.ui.js; reach it through the accessor bag.
         const V = ctx.view;
+        const policyCtx = {
+            rerender,
+            rerenderModal: rerender,
+            get playbackStatus() { return V.playbackStatus; },
+            set playbackStatus(value) { V.playbackStatus = value; }
+        };
 
         // Provider-backed players can report their terminal state while EveOS is backgrounded.
         // Register this bridge before audioflix.ui.js installs its generic Ended listener so the
@@ -109,6 +115,10 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                     return;
                 }
                 if (t.hasAttribute && t.hasAttribute('data-af-spotify-search')) {
+                    window.EveAudioflixSpotifyUi?.setSearch?.(
+                        t.closest('[data-af-spotify-inspector]')?.dataset.afSpotifyGroup || '',
+                        t.value
+                    );
                     const query = String(t.value || '').trim().toLowerCase();
                     t.closest('[data-af-spotify-inspector]')?.querySelectorAll('[data-af-spotify-row]').forEach((row) => {
                         row.hidden = !!query && !String(row.dataset.afSearch || '').includes(query);
@@ -152,7 +162,7 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
             }, (value, options) => window.EveAudioflixAudio?.updateItemVolume?.(options.itemId, value, options));
             V.overlay.addEventListener('keydown', e => {
                 const target = e.target;
-                if (!target?.classList?.contains('audioflix-hotkey-input') && !target?.classList?.contains('audioflix-bypass-input')) return;
+                if (!target?.classList?.contains('audioflix-hotkey-input') && !target?.classList?.contains('audioflix-bypass-input') && !target?.classList?.contains('audioflix-transport-input')) return;
                 if (e.key === 'Tab') return;
                 if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
                     e.preventDefault(); target.dataset.afExplicitClear = 'true'; target.value = ''; target.dispatchEvent(new Event('change', { bubbles: true })); return;
@@ -162,6 +172,7 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
             });
             V.overlay.addEventListener('change', async e => {
                 const t = e.target, id = t.dataset.afId, type = t.dataset.afType || 'sound';
+                if (window.EveAudioflixPlaybackPolicyUi?.handleChange?.(t, policyCtx)) return;
                 if (window.EveAudioflixOutputPort?.handleChange?.(t)) return;
                 if (await window.EveAudioflixSoundLabUi?.handleChange?.(t, e)) return;
                 if (t.classList.contains('audioflix-nexus-select')) {
@@ -232,6 +243,10 @@ window.EveAudioflixUiOverlay = window.EveAudioflixUiOverlay || {};
                     const val = t.value.trim().toLowerCase(), issue = hotkeyComboIssue(val);
                     t.title = issue ? issue.msg : 'Press this to suspend/resume all sound hotkeys'; t.classList.toggle('audioflix-input-invalid', !!(issue && issue.invalid));
                     window.EveAudioflixState?.update?.({ hotkeyBypassCombo: val }, 'audioflix-bypass'); pushHotkeysToBridge();
+                } else if (t.classList.contains('audioflix-transport-input')) {
+                    const val = t.value.trim().toLowerCase(), issue = hotkeyComboIssue(val);
+                    t.title = issue ? issue.msg : 'Pause or resume the active Audioflix tab'; t.classList.toggle('audioflix-input-invalid', !!(issue && issue.invalid));
+                    window.EveAudioflixState?.update?.({ hotkeyTransportCombo: val }, 'audioflix-transport-hotkey'); pushHotkeysToBridge();
                 } else {
                     const sel = t.closest('[data-af-control]'); if (!sel) return;
                     const lbl = sel.selectedOptions[0]?.textContent || '', val = sel.value || '', ctrl = sel.dataset.afControl; sel.blur();

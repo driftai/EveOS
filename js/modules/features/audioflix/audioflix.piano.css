@@ -5,6 +5,17 @@
     gap: 12px;
 }
 
+/* Active Piano audio must not inherit display:none from Audioflix tab changes. */
+.audioflix-piano.is-background-playback-host {
+    position: fixed !important;
+    inset: 0 auto auto -200vw !important;
+    width: min(1180px, 100vw) !important;
+    height: min(900px, 100vh) !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    overflow: hidden !important;
+}
+
 .audioflix-piano-header {
     display: flex;
     align-items: center;
@@ -135,3 +146,17 @@
     .audioflix-piano-stage, .audioflix-piano-offline { min-height: 360px; }
     .audioflix-piano-stage iframe { height: 68vh; }
 }
+
+/* Internal Play engine chooser — visually local to Playback Setup, not the global Piano header. */
+.piano-pxp-engine { grid-column:1/-1;min-width:0;margin:4px 0 0;padding:12px;border:1px solid rgba(68,168,177,.36);border-radius:12px;background:linear-gradient(135deg,rgba(9,42,48,.9),rgba(8,27,34,.96)); }
+.piano-pxp-engine legend {padding:0 6px;color:#9ae1e8;font-size:11px;font-weight:750;letter-spacing:.04em}
+.piano-pxp-engine-options {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.piano-pxp-engine-options label {display:flex;gap:10px;align-items:flex-start;cursor:pointer;padding:11px;border:1px solid rgba(110,151,160,.37);border-radius:10px;background:#0c1a20;min-width:0}
+.piano-pxp-engine-options label:has(input:checked) {border-color:#58d2aa;background:rgba(21,69,58,.7)}
+.piano-pxp-engine-options input {flex:0 0 auto;margin-top:2px;accent-color:#63ddc5}
+.piano-pxp-engine-options span {display:grid;gap:5px;min-width:0}
+.piano-pxp-engine-options strong {color:#e6f6f6;font-size:12px}
+.piano-pxp-engine-options small {font-size:11px;line-height:1.45;color:#aec7cd}
+.piano-pxp-engine-options input:disabled+span {opacity:.6}
+.piano-pxp-engine-status {margin:8px 0 0;color:#8cbbc1;font-size:11px;line-height:1.4}
+@media(max-width:640px){.piano-pxp-engine-options{grid-template-columns:1fr}}

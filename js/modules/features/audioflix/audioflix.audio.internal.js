@@ -83,6 +83,7 @@ window.EveAudioflixInternalPlayer = window.EveAudioflixInternalPlayer || {};
         let stage = null;
         let currentItem = null;
         let volumeGesture = null;
+        let userCollapsed = false;
         const queueView = window.EveAudioflixInternalQueue.create(ensureStage);
 
         function ensureStage() {
@@ -139,6 +140,7 @@ window.EveAudioflixInternalPlayer = window.EveAudioflixInternalPlayer || {};
                 else if (['restart', 'repeat-one', 'details'].includes(action)) window.EveAudioflix?.queueConnection?.action?.(action);
                 else if (action === 'collapse') {
                     stage.classList.toggle('is-collapsed');
+                    userCollapsed = stage.classList.contains('is-collapsed');
                     button.textContent = stage.classList.contains('is-collapsed') ? 'Expand' : 'Minimize';
                     queueView.refresh();
                 }
@@ -194,7 +196,7 @@ window.EveAudioflixInternalPlayer = window.EveAudioflixInternalPlayer || {};
             );
             element.classList.remove('has-error');
             element.classList.toggle('is-internal-view', settings.expanded === true);
-            if (settings.expanded) element.classList.remove('is-collapsed');
+            if (settings.expanded) element.classList.toggle('is-collapsed', userCollapsed);
             element.dataset.provider = String(provider || '').toLowerCase();
             element.querySelector('header span').textContent = 'Internal player';
             const source = element.querySelector('header a');
@@ -242,7 +244,7 @@ window.EveAudioflixInternalPlayer = window.EveAudioflixInternalPlayer || {};
             element.hidden = false;
             element.classList.remove('is-transport-only', 'is-transport-hidden');
             element.classList.toggle('is-internal-view', expanded);
-            if (expanded) element.classList.remove('is-collapsed');
+            if (expanded) element.classList.toggle('is-collapsed', userCollapsed);
             queueView.refresh();
         }
 

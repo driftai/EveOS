@@ -88,13 +88,39 @@ def _health_payload() -> dict | None:
 
 def _listener_pids() -> list[int]:
     if os.name == "nt":
-        result = subprocess.run(
-            ["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True, check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        marker = f":{BOOKMARK_INTEL_PORT}"
-        return sorted({int(line.split()[-1]) for line in result.stdout.splitlines()
-                       if marker in line and "LISTENING" in line.upper() and line.split()[-1].isdigit()})
+        endpoint = f"127.0.0.1:{BOOKMARK_INTEL_PORT}"
+
+        def owner_rows():
+            result = subprocess.run(
+                ["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True, check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            rows = []
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if len(parts) != 5 or parts[0].upper() != "TCP" or not parts[4].isdigit():
+                    continue
+                if parts[1] == endpoint and int(parts[4]) > 0:
+                    rows.append((parts[2], parts[3].upper(), int(parts[4])))
+            return rows
+
+        # Prefer the precise listening socket owner when Windows exposes it.
+        owners = sorted({pid for _, state, pid in owner_rows() if state == "LISTENING"})
+        if owners:
+            return owners
+
+        # Some Windows environments expose only ESTABLISHED server-side entries,
+        # even while an HTTP health check proves that the listener is alive.
+        # Keep our own loopback TCP connection open during enumeration and accept
+        # only its exact opposite endpoint; never use unrelated port-9077 traffic.
+        try:
+            with socket.create_connection(("127.0.0.1", BOOKMARK_INTEL_PORT), timeout=0.8) as probe:
+                peer = f"127.0.0.1:{probe.getsockname()[1]}"
+                return sorted({pid for remote, state, pid in owner_rows()
+                               if remote == peer and state == "ESTABLISHED"})
+        except OSError:
+            return []
+
     result = subprocess.run(
         ["lsof", "-nP", f"-iTCP:{BOOKMARK_INTEL_PORT}", "-sTCP:LISTEN", "-t"],
         capture_output=True, text=True, check=False,
@@ -127,6 +153,12 @@ def _status(message: str = "", *, verified_health: dict | None = None) -> dict:
     port_busy = _port_open() and not running
     installed = _entry_point().is_file()
     state = "running" if running else ("starting" if process_alive else ("blocked" if port_busy else "stopped"))
+    pids = _listener_pids() if running else []
+    if running and not pids and process_alive:
+        # Windows can briefly omit the listening PID from netstat even after a
+        # verified health reply. The controller-owned wrapper still provides a
+        # bounded lifecycle identity and its process tree owns the child.
+        pids = [_PROCESS.pid]
     return {
         "ok": installed and not port_busy,
         "controllerAvailable": True,
@@ -137,7 +169,7 @@ def _status(message: str = "", *, verified_health: dict | None = None) -> dict:
         "port": BOOKMARK_INTEL_PORT,
         "url": f"http://127.0.0.1:{BOOKMARK_INTEL_PORT}/",
         "appVersion": health.get("appVersion", "") if health else "",
-        "pids": _listener_pids() if running else [],
+        "pids": pids,
         "message": message or (
             "Bookmark Intel is online." if running
             else "Bookmark Intel port is occupied by another service." if port_busy
@@ -220,12 +252,20 @@ def stop_server(*, persist: bool = True) -> dict:
             for pid in _listener_pids():
                 stopped = _terminate_pid(pid) or stopped
         if _PROCESS and _PROCESS.poll() is None:
-            try:
-                _PROCESS.terminate()
-                _PROCESS.wait(timeout=2)
-                stopped = True
-            except (OSError, subprocess.TimeoutExpired):
-                pass
+            if os.name == "nt":
+                # The managed process is a cmd.exe wrapper. Terminating only
+                # that wrapper can orphan its Uvicorn child and leave 9077
+                # listening, especially when netstat briefly misses the
+                # listener PID. The wrapper identity is owned by this
+                # controller, so taskkill /T remains bounded to its tree.
+                stopped = _terminate_pid(_PROCESS.pid) or stopped
+            else:
+                try:
+                    _PROCESS.terminate()
+                    _PROCESS.wait(timeout=2)
+                    stopped = True
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
         _PROCESS = None
     # Windows may exit the cmd.exe wrapper before the Uvicorn listener
     # releases 9077. A stopped reply requires actual port release.

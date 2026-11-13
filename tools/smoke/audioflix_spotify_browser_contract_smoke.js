@@ -149,10 +149,10 @@ assert(repeatRearm.includes("remote().send('restart'")
     'repeat-one reuses managed Spotify restart only for the ended-to-zero queue transition');
 
 assert(surface.includes('/tools/audioflix/spotify-engine.html?surface=mirror')
-    && surface.includes("remote().send('engine-presentation'")
-    && surface.includes("remote().send('engine-stop'")
+    && surface.includes('EveAudioflixSpotifyManagement?.setPresentation')
+    && surface.includes('EveAudioflixSpotifyManagement?.stopEngine')
     && surface.includes('Hidden (default)') && surface.includes('True headless (silent)'),
-    'Internal Player mirrors the relocated single engine and exposes explicit presentation/subsystem lifecycle controls');
+    'Internal Player mirrors the relocated single engine and delegates lifecycle controls to the shared management owner');
 assert(surface.includes('queueConnection()?.snapshot?.()')
     && surface.includes('view?.setQueue?.(entries, index)')
     && surface.includes('onStep:') && surface.includes('onJump:')

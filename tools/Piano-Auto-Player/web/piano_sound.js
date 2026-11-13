@@ -1,3 +1,5 @@
+import { createPianoOutputRouter, pianoPcmReady } from "./piano_pcm_capture.js";
+
 const SOUNDS = {
   fluid_studio_grand: {
     label: "Studio Grand Piano (FluidR3)",
@@ -57,6 +59,8 @@ const SOUNDS = {
 
 let sharedContext = null;
 let sharedOutput = null;
+let sharedOutputVolume = 1;
+let sharedOutputRoute = { sinkId: "", label: "Default output", applied: true };
 const scriptLoads = new Map();
 const presetLoads = new Map();
 
@@ -75,11 +79,64 @@ function outputNode(ctx) {
   compressor.ratio.value = 7;
   compressor.attack.value = 0.003;
   compressor.release.value = 0.22;
-  master.gain.value = 0.62;
-  master.connect(compressor).connect(ctx.destination);
+  master.gain.value = 0.62 * sharedOutputVolume;
+  master.connect(compressor);
+  createPianoOutputRouter(ctx, compressor);
   sharedOutput = master;
   return sharedOutput;
 }
+
+export function setPianoMasterVolume(percent = 100) {
+  const value = Math.max(0, Math.min(100, Number(percent)));
+  sharedOutputVolume = Number.isFinite(value) ? value / 100 : 1;
+  if (sharedOutput && sharedContext) {
+    sharedOutput.gain.cancelScheduledValues(sharedContext.currentTime);
+    sharedOutput.gain.setTargetAtTime(0.62 * sharedOutputVolume, sharedContext.currentTime, 0.012);
+  }
+  return Math.round(sharedOutputVolume * 100);
+}
+
+export function pianoMasterVolume() { return Math.round(sharedOutputVolume * 100); }
+
+function normalizeDeviceLabel(value) {
+  return String(value || "").toLowerCase().replace(/\([^)]*(wasapi|directsound|mme)[^)]*\)/g, " ")
+    .replace(/windows\s+(wasapi|directsound)|\(mme\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+export async function setPianoOutputRoute(route = {}) {
+  const ctx = audioContext(false);
+  const finish = value => {
+    sharedOutputRoute = value;
+    window.dispatchEvent(new CustomEvent("piano:audio-route", { detail: { ...sharedOutputRoute } }));
+    return { ...sharedOutputRoute };
+  };
+  if (typeof ctx.setSinkId !== "function") {
+    const requestedLabel = String(route.requestedLabel || "Default output");
+    return finish({ sinkId: "", label: requestedLabel, applied: !route.browserSinkId && /^default\b/i.test(requestedLabel), unsupported: true });
+  }
+  let sinkId = String(route.browserSinkId || "").trim();
+  const requestedLabel = String(route.requestedLabel || "Default output").trim();
+  if (!sinkId && requestedLabel && !/^default\b/i.test(requestedLabel) && navigator.mediaDevices?.enumerateDevices) {
+    const wanted = normalizeDeviceLabel(requestedLabel);
+    const outputs = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === "audiooutput");
+    const match = outputs.find(device => normalizeDeviceLabel(device.label) === wanted)
+      || outputs.find(device => wanted && (normalizeDeviceLabel(device.label).includes(wanted) || wanted.includes(normalizeDeviceLabel(device.label))));
+    sinkId = String(match?.deviceId || "");
+  }
+  if (!sinkId && requestedLabel && !/^default\b/i.test(requestedLabel)) {
+    return finish({ sinkId: "", label: requestedLabel, applied: false, unresolved: true });
+  }
+  try {
+    await ctx.setSinkId(sinkId);
+    sharedOutputRoute = { sinkId, label: requestedLabel || "Default output", applied: true };
+  } catch (error) {
+    sharedOutputRoute = { sinkId, label: requestedLabel, applied: false, error: String(error?.message || error) };
+  }
+  return finish(sharedOutputRoute);
+}
+
+export function pianoOutputRoute() { return { ...sharedOutputRoute }; }
+export function preparePianoPcmOutput() { outputNode(audioContext(false)); return pianoPcmReady(); }
 
 function loadScript(meta) {
   if (window[meta.variable]) return Promise.resolve(window[meta.variable]);

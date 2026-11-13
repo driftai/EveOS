@@ -1,17 +1,14 @@
 'use strict';
-
 const fs = require('fs');
 const path = require('path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
-
 const ROOT = path.resolve(__dirname, '..', '..');
 const revision = process.argv.find(arg => arg.startsWith('--revision='))?.slice(11);
 const sourcePath = 'js/modules/features/audioflix/audioflix.spotify.any-browser.js';
 const source = revision ? execFileSync('git', ['show', `${revision}:${sourcePath}`], { cwd: ROOT, encoding: 'utf8' })
     : fs.readFileSync(path.join(ROOT, sourcePath), 'utf8');
-
 const calls = [];
 const windowListeners = new Map();
 const dispatched = [];
@@ -26,7 +23,9 @@ let engineState = {
 };
 let lastState = null;
 let pollRemote = null;
-
+let managedNativeRoute = false;
+let providerCapture = { active: false, source: '', endpoint: '' };
+let coldStartStartingPolls = 0;
 const remote = {
     ready: true,
     subscribe(listener) { remoteSubscribers.add(listener); return () => remoteSubscribers.delete(listener); },
@@ -37,7 +36,12 @@ const remote = {
     waitUntilReady: async () => ({ connected: true }),
     openApproval: () => true,
     async status() {
-        lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true } };
+        if (coldStartStartingPolls > 0) {
+            coldStartStartingPolls -= 1;
+            engineState = { ...engineState, status: coldStartStartingPolls ? 'starting' : 'playing',
+                paused: coldStartStartingPolls > 0 };
+        }
+        lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true, capture: { ...providerCapture } } };
         return lastState;
     },
     async send(action, payload = {}, options = {}) {
@@ -45,7 +49,7 @@ const remote = {
         if (action === 'play' && remote.coldStartTimeouts > 0) {
             // Cold engine start: the broker keeps loading/playing after the reply window closes.
             remote.coldStartTimeouts -= 1;
-            engineState = { ...engineState, status: 'playing', paused: false, spotifyId: payload.spotifyId,
+            engineState = { ...engineState, status: coldStartStartingPolls ? 'starting' : 'playing', paused: coldStartStartingPolls > 0, spotifyId: payload.spotifyId,
                 generation: engineState.generation + 1, completionId: '' };
             return { ok: false, timeout: true, reason: 'Spotify play timed out.' };
         }
@@ -55,11 +59,14 @@ const remote = {
                 spotifyId: payload.spotifyId, duration: payload.duration || 180,
                 generation: engineState.generation + 1
             };
+        } else if (action === 'engine-capture-start') {
+            providerCapture = { active: true, source: 'managed-spotify', endpoint: payload.deviceId,
+                state: 'active', audioTrack: true, nonzeroPcm: true, transport: true, renderer: true };
         } else if (action === 'pause') engineState = { ...engineState, status: 'paused', paused: true };
         else if (action === 'resume') engineState = { ...engineState, status: 'playing', paused: false };
         else if (action === 'seek') engineState = { ...engineState, currentTime: payload.seconds };
         else if (action === 'stop') engineState = { ...engineState, status: 'stopped', paused: true, currentTime: 0 };
-        lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true } };
+        lastState = { ok: true, isOwner: true, engine: { ...engineState }, managed: { helperReachable: true, capture: { ...providerCapture } } };
         return lastState;
     }
 };
@@ -81,6 +88,7 @@ const localPlayback = {
 };
 let originalPlayCount = 0;
 let originalStopCount = 0;
+let originalResumeCount = 0;
 const originalPlayCalls = [];
 const originalVolumeCalls = [];
 const stopItemCalls = [];
@@ -97,6 +105,7 @@ const audio = {
         return true;
     },
     async pause() { return true; },
+    async resume() { originalResumeCount += 1; return true; },
     async seek() { return true; },
     async stopAll() { originalStopCount += 1; return true; },
     async stopItemLayers(itemId, preserveProvider = false) {
@@ -112,6 +121,11 @@ const window = {
     EveAudioflixAudio: audio,
     EveAudioflixLocalPlayback: localPlayback,
     EveAudioflixOutputPort: { effective: (value) => Number(value) * 0.5 },
+    EveAudioflixPlaybackPolicy: { resolve: () => managedNativeRoute
+        ? { spotifyMethod: 'managed', outputKind: 'native', outputId: 'sd:cable', outputLabel: 'CABLE' }
+        : { spotifyMethod: 'managed', outputKind: 'browser', outputId: '' } },
+    EveAudioflixProviderCapture: { getStatus: () => ({ ...providerCapture }) },
+    EveAudioflixProviderCaptureUi: { managedCaptureStatus: () => ({ ...providerCapture }) },
     addEventListener(name, fn) { windowListeners.set(name, fn); },
     dispatchEvent(event) { dispatched.push(event); }
 };
@@ -141,6 +155,7 @@ const createObserver = window.EveAudioflixSpotifyStatusWatch.create;
 window.EveAudioflixSpotifyStatusWatch.create = options => { observerOptions = options; return createObserver(options); };
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/modules/features/audioflix/audioflix.spotify.playback-lifecycle.js'), 'utf8'),
     context, { filename: 'audioflix.spotify.playback-lifecycle.js' });
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/modules/features/audioflix/audioflix.spotify.native-capture.js'), 'utf8'), context);
 vm.runInContext(source, context, { filename: 'audioflix.spotify.any-browser.js' });
 let phase = 'legacy-contracts';
 function evidence(error) {
@@ -153,7 +168,6 @@ function evidence(error) {
 (async () => {
     assert.equal(window.EveAudioflixSpotifyAnyBrowser.ready, true);
     assert.equal(window.EveAudioflixSpotifyAnyBrowser.install(), false, 'ordinary-tab wrapper installs eagerly once and refuses duplicate wrapping');
-
     await window.EveAudioflixAudio.playItem(spotify);
     assert.equal(originalPlayCount, 0, 'managed Spotify path does not create an audible local provider player');
     assert.equal(originalStopCount, 1, 'existing local playback is stopped before managed Spotify starts');
@@ -162,11 +176,23 @@ function evidence(error) {
     assert.equal(play.payload.spotifyId, '4cOdK2wGLETKBW3PvgPWqT');
     assert.equal(play.payload.effectiveVolume, 0.25, 'track 50% x master/output 50% reaches the engine as exactly 25% once');
     assert.equal(play.options.timeout, 45000, 'staged managed Play keeps a reply budget above the old 20s browser timeout race');
+    await require('./helpers/audioflix_any_browser_native_capture')({ window, calls, spotify,
+        setRoute: value => { managedNativeRoute = value; }, setCapture: value => { providerCapture = value; },
+        applyState: observerOptions.applyState, engineState: () => engineState });
+    await require('./helpers/audioflix_any_browser_file_approval')({ window, remote, calls, spotify,
+        setRoute: value => { managedNativeRoute = value; }, setCapture: value => { providerCapture = value; },
+        document: context.document });
+    await window.EveAudioflixAudio.playItem(spotify);
 
     await require('./helpers/audioflix_any_browser_volume_namespace')({ window, calls, originalVolumeCalls, windowListeners });
-
     await window.EveAudioflixAudio.pause();
     assert.equal(calls.at(-1).action, 'pause');
+    const playsBeforeResume = calls.filter(entry => entry.action === 'play').length;
+    assert.equal(await window.EveAudioflixAudio.resume(), true, 'AudioFlix hotkey resume must reach the managed Spotify session');
+    assert.equal(calls.at(-1).action, 'resume', 'second hotkey press targets Spotify Engine instead of a local HTML audio element');
+    assert.equal(engineState.paused, false, 'managed Spotify has resumed');
+    assert.equal(originalResumeCount, 0, 'managed resume must not call the original local resume handler');
+    assert.equal(calls.filter(entry => entry.action === 'play').length, playsBeforeResume, 'same-song resume must not start a duplicate Spotify session');
     await window.EveAudioflixAudio.seek(42);
     assert.equal(calls.at(-1).action, 'seek');
     assert.equal(calls.at(-1).payload.seconds, 42);
@@ -177,6 +203,8 @@ function evidence(error) {
     const playsBeforeTransfer = calls.filter((entry) => entry.action === 'play').length;
     await window.EveAudioflixAudio.playItem(spotify);
     assert.equal(calls.filter((entry) => entry.action === 'play').length, playsBeforeTransfer + 1, 'explicit Play on an observed same item transfers ownership through a fresh play command');
+    await require('./helpers/audioflix_any_browser_restart_rebind')({ window, calls, spotify,
+        setEngineState: value => { engineState = value; }, engineState: () => engineState });
 
     const stopsBeforeCard = calls.filter((entry) => entry.action === 'stop').length;
     await window.EveAudioflixAudio.stopItemLayers('song-1', false);
@@ -204,12 +232,16 @@ function evidence(error) {
     assert.equal(window.EveAudioflixSpotifyAnyBrowser.snapshot().active, false, 'localized playback leaves the managed Spotify route inactive');
     localizedIds.delete('song-1');
 
+    await window.EveAudioflixAudio.playItem(spotify); // active managed Engine before localized Internal View
+    const stopsBeforeInternal = calls.filter((entry) => entry.action === 'stop').length;
     localizedIds.add('song-local-view');
     const internalBefore = originalPlayCount;
     const managedPlaysBeforeInternal = calls.filter((entry) => entry.action === 'play').length;
     await window.EveAudioflixAudio.openInternalView({ ...spotify, id: 'song-local-view', localPath: 'C:\\Audioflix\\song-local-view.mp3' });
     assert.equal(originalPlayCount, internalBefore + 1);
     assert.equal(originalPlayCalls.at(-1).kind, 'internal', 'Internal View also keeps a localized Spotify-linked item on the local path');
+    assert.equal(calls.filter((entry) => entry.action === 'stop').length, stopsBeforeInternal + 1,
+        'Internal View local handoff stops managed Engine before opening the local player');
     assert.equal(calls.filter((entry) => entry.action === 'play').length, managedPlaysBeforeInternal, 'localized Internal View does not wake the managed Spotify engine');
     localizedIds.delete('song-local-view');
 
@@ -226,11 +258,16 @@ function evidence(error) {
     // starting. The client must adopt that playback (active + polled) or #1 never reports Ended.
     await window.EveAudioflixAudio.stopAll();
     remote.coldStartTimeouts = 1;
+    coldStartStartingPolls = 3;
     const coldItem = { ...spotify, id: 'song-cold', url: 'https://open.spotify.com/track/1AbCdEfGhIjKlMnOpQrStU' };
     assert.equal(await window.EveAudioflixAudio.playItem(coldItem), true, 'a timed-out cold-start play is adopted once the engine reports it playing for this client');
     const coldSnapshot = window.EveAudioflixSpotifyAnyBrowser.snapshot();
     assert.equal(coldSnapshot.active, true, 'adopted cold-start playback is the active managed route');
     assert.equal(coldSnapshot.item.id, 'song-cold');
+    const coldPlays = calls.filter(entry => entry.action === 'play' && entry.payload.spotifyId === '1AbCdEfGhIjKlMnOpQrStU');
+    assert.ok(coldPlays.length >= 2, 'a still-starting cold engine re-queries its original exact-once receipt');
+    assert.equal(new Set(coldPlays.map(entry => entry.options.commandId)).size, 1,
+        'cold-start recovery reuses one broker commandId and cannot create duplicate Play intents');
     // Slow status must never accumulate overlapping requests or relabel an old terminal
     // snapshot as the next queue item. The managed browser is a separate async runtime.
     const normalStatus = remote.status;
@@ -334,34 +371,7 @@ function evidence(error) {
     // Stop the managed route, then prove option (b): if no relay/server ever answers, the legacy
     // official embed remains available. Once a relay has answered, an ambiguous failure stays
     // fail-closed so EveOS cannot create a second audible Spotify source.
-    // A remote start still in flight is not active yet, but switching away or pausing must still
-    // reach the broker so it can preempt that start; a preempted start is not a broken track.
-    {
-        await window.EveAudioflixAudio.stopAll();
-        const realSend = remote.send;
-        let releasePlay;
-        remote.send = async (action, payload = {}, options = {}) => {
-            if (action !== 'play') return realSend(action, payload, options);
-            calls.push({ action, payload: { ...payload }, options: { ...options } });
-            return new Promise(resolve => { releasePlay = resolve; });
-        };
-        const slow = window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-slow' });
-        await new Promise(resolve => setTimeout(resolve, 20));
-        const stopsBefore = calls.filter(entry => entry.action === 'stop').length;
-        await window.EveAudioflixAudio.playItem({ id: 'local-switch', url: 'https://example.com/a.mp3', sourceProvider: 'direct' });
-        assert.equal(calls.filter(entry => entry.action === 'stop').length, stopsBefore + 1, 'switching to a local track during a slow Spotify start sends broker stop');
-        releasePlay({ ok: false, lifecycle: 'stopped', superseded: true });
-        assert.equal(await slow, false, 'the stopped start resolves as superseded, not as a failure');
-
-        const paused = window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-slow-2' });
-        await new Promise(resolve => setTimeout(resolve, 20));
-        const pausesBefore = calls.filter(entry => entry.action === 'pause').length;
-        await window.EveAudioflixAudio.pause();
-        assert.equal(calls.filter(entry => entry.action === 'pause').length, pausesBefore + 1, 'Pause during a slow start reaches the broker instead of the idle local player');
-        releasePlay({ ok: false, lifecycle: 'paused', superseded: true });
-        assert.equal(await paused, false, 'a start preempted by Pause is not reported as a skip');
-        remote.send = realSend;
-    }
+    await require('./helpers/audioflix_any_browser_slow_start')({ window, remote, spotify, calls });
 
     // A thrown remote start must not leave the provider stuck in `starting`, and an older run's
     // late failure must never clear a newer run's start.
@@ -404,14 +414,12 @@ function evidence(error) {
         assert.equal(await runB, false);
         remote.send = realSend;
     }
-
     await window.EveAudioflixAudio.stopAll();
     remote.connect = async () => { throw new Error('relay offline'); };
     remote.snapshot = () => ({ connected: false, status: 'unavailable', approvalRequired: false, relayReady: false, lastState: null });
     const fallbackBefore = originalPlayCount;
     await window.EveAudioflixAudio.playItem({ ...spotify, id: 'song-fallback' });
     assert.equal(originalPlayCount, fallbackBefore + 1, 'an absent/unreachable relay falls back to the existing official Spotify embed');
-
     remote.connect = async () => { throw new Error('relay answered, command failed'); };
     remote.snapshot = () => ({ connected: false, status: 'unavailable', approvalRequired: false, relayReady: true, lastState: null });
     const failClosedBefore = originalPlayCount;
@@ -420,12 +428,10 @@ function evidence(error) {
         /relay answered, command failed/
     );
     assert.equal(originalPlayCount, failClosedBefore, 'after a trusted relay handshake an ambiguous failure does not start a second local embed');
-
     const local = { id: 'local-1', url: 'https://example.com/audio.mp3', sourceProvider: 'direct' };
     const localBefore = originalPlayCount;
     await window.EveAudioflixAudio.playItem(local);
     assert.equal(originalPlayCount, localBefore + 1, 'non-Spotify playback remains on the existing local/browser path');
-
     assert.ok(dispatched.some((event) => event.type === 'eve:audioflix-progress'), 'remote Spotify state feeds the existing public Audioflix progress channel');
     phase = 'complete'; evidence(); console.log('AUDIOFLIX_SPOTIFY_ANY_BROWSER_SMOKE_OK');
 })().catch((error) => {

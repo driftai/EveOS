@@ -26,6 +26,9 @@ const { parseMedia, fromPayload, normalizeTrackId, isSpotifyEmbedUrl,
     spotifyFrameTrackId, playingTrackIds } = require('./audioflix_spotify_media_identity.js');
 const { cancelLeases } = require('./audioflix_spotify_playback_lease.js');
 const { handleInterrupt } = require('./audioflix_spotify_playback_preemption.js');
+const providerCapture = require('./audioflix_spotify_browser_capture.js');
+const engineOutputHost = require('./audioflix_spotify_engine_output_host.js');
+const { ownerAlive } = require('./audioflix_spotify_browser_owner.js');
 const {
     EDGE_LAUNCH_TIMEOUT_MS, CHROMIUM_LAUNCH_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS,
     launchManagedContext, prepareManagedPage
@@ -82,6 +85,7 @@ async function main() {
     const pageUrl = String(args.page || 'http://127.0.0.1:8765/tools/audioflix/spotify-engine.html');
     const headlessRequested = headlessRequestedFromPageUrl(pageUrl);
     const sessionId = String(args.session || '');
+    const ownerPid = Number(args['owner-pid'] || process.ppid || 0);
     const token = String(process.env.EVEOS_SPOTIFY_BROWSER_TOKEN || '');
     if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('A valid helper --port is required.');
     if (!profileDir || profileDir === path.parse(profileDir).root) throw new Error('A dedicated Spotify --profile directory is required.');
@@ -120,6 +124,7 @@ async function main() {
             '--disable-blink-features=AutomationControlled', '--disable-dev-shm-usage', '--lang=en-US',
             '--autoplay-policy=no-user-gesture-required', '--disable-background-timer-throttling',
             '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding',
+            ...providerCapture.LAUNCH_ARGS,
             '--hide-crash-restore-bubble',
             '--disable-features=CalculateNativeWinOcclusion', '--window-position=80,80', '--window-size=1280,900'
         ]
@@ -135,6 +140,10 @@ async function main() {
     });
 
     let page = await prepareManagedPage(context, pageUrl, runtime, note);
+    const captureController = providerCapture.create({ getPage: () => page, sameSession });
+    const outputHost = await engineOutputHost.create({ page, profileDir, sessionId, captureController, note,
+        betaExecutable: process.platform === 'win32' ?
+            require('./audioflix_spotify_browser_startup.js').edgeBetaExecutable() : '' });
     runtime.state = 'ready';
     runtime.phase = 'ready';
     const livenessUrl = new URL('/EveOS.html', pageUrl).href;
@@ -143,6 +152,7 @@ async function main() {
 
     async function checkServerLiveness() {
         if (runtime.closing) return;
+        if (!ownerAlive(ownerPid)) { note('owner-exited', `Python owner PID ${ownerPid} disappeared`); await shutdown(0); return; }
         if (await probeServer(livenessUrl)) {
             if (serverOfflineSince) note('server-liveness-restored', livenessUrl);
             serverOfflineSince = 0;
@@ -236,6 +246,7 @@ async function main() {
             lastPlaybackKickAt: runtime.lastPlaybackKickAt,
             serverOfflineForMs: serverOfflineSince ? Date.now() - serverOfflineSince : 0,
             profileOpen: true, importing: runtime.importing, transport,
+            providerCapture: await outputHost.status(), outputMode: outputHost.activeMode(),
             diagnostics: diagnostics.slice(-8)
         };
     }
@@ -357,6 +368,9 @@ async function main() {
         if (livenessTimer) clearInterval(livenessTimer);
         livenessTimer = 0;
         try { server?.close(); } catch {}
+        try { await outputHost.shutdown(); } catch (error) {
+            note('native-output-cleanup', String(error.message || error).slice(0,160));
+        }
         try { await context.close(); } catch {}
         process.exitCode = code;
         setTimeout(() => process.exit(code), 20).unref();
@@ -370,6 +384,8 @@ async function main() {
             if (req.method !== 'POST') return send(res, 404, { ok: false, reason: 'Not found.' });
             const body = await readBody(req);
             if (requestUrl.pathname === '/volume') return send(res, 200, await applyVolume(body));
+            if (requestUrl.pathname === '/provider-capture/start') return send(res, 200, await outputHost.start(body));
+            if (requestUrl.pathname === '/provider-capture/stop') return send(res, 200, await outputHost.stop(body));
             const playback = { page, spotifySnapshots, isSpotifyEmbedUrl, normalizeTrackId, note, runtime };
             if (requestUrl.pathname === '/transport') return send(res, 200, await handleTransportWithActivation(playback, body));
             if (requestUrl.pathname === '/transport-interrupt') return send(res, 200, await handleInterrupt(playback, body));

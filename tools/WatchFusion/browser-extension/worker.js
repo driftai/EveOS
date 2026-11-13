@@ -58,7 +58,7 @@ function combinedSample(frameId, message, pageUrl = '') {
   const top=fresh.find(value=>value.topFrame);
   if(media)controlFrameId=media.frameId;
   const metadata=media?.metadata||top?.metadata||{};
-  lastCombinedSample={metadata:{...metadata,pageUrl:String(pageUrl||metadata.pageUrl||''),
+  lastCombinedSample={metadata:{...metadata,pageUrl:String(pageUrl||metadata.pageUrl||''),publisherReceivedAt:Date.now(),
     status:media?(metadata.status||''):'Waiting for playable media · enable Setup & embedded players access for embedded video.'}};
   return lastCombinedSample;
 }
@@ -169,7 +169,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
       const sample=combinedSample(sender.frameId||0,message,sender.tab?.url||'');
       if(!statePeer)await restorePublisherIfNeeded();
       if(!publisherReady)return {ok:true,pending:true};
-      statePeer?.metadata(sample.metadata);return {ok:true};
+      statePeer?.metadata({...sample.metadata,publisherSentAt:Date.now()});return {ok:true};
     }
     return {error:'No selected media tab.'};
   })().then(reply,error=>reply({error:error.message,code:error.code}));

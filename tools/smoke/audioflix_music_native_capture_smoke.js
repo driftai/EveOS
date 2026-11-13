@@ -42,6 +42,8 @@ const FILE_URL = 'file:///' + path.join(path.resolve(__dirname, '..', '..'), 'Ev
         let inFlight = 0;
         window.EveAudioflixNative.warm = async () => { out.warmed += 1; return true; };
         window.EveAudioflixNative.stopStream = async () => true;
+        // The mocked bridge is live; do not let the real offline probe (no native server here) veto sends.
+        window.EveAudioflixNative.isBridgeOffline = () => false;
         window.EveAudioflixNative.sendGeminiChunk = async (payload, detail) => {
             // Two concurrent sends would mean chunks can hit the device out of order.
             inFlight += 1;

@@ -62,6 +62,21 @@ if (!fs.existsSync(venvPython)) {
     }
     const pipCheck = spawnSync(venvPython, ['-m', 'pip', 'check'], { cwd: ROOT, encoding: 'utf8', windowsHide: true });
     need(pipCheck.status === 0, `Python dependencies are internally consistent${pipCheck.status ? `: ${(pipCheck.stdout || pipCheck.stderr || '').trim()}` : ''}`);
+    const nativeAudio = spawnSync(venvPython,
+        ['-B', path.join(ROOT, 'tools', 'health', 'eveos_venv_audio_health.py'), '--json'],
+        { cwd: ROOT, encoding: 'utf8', windowsHide: true, timeout: 15000 });
+    let nativeAudioResult;
+    try { nativeAudioResult = JSON.parse(String(nativeAudio.stdout || '').trim()); }
+    catch { nativeAudioResult = { reason: 'health-probe-not-readable' }; }
+    if (nativeAudio.status === 0 && nativeAudioResult.status === 'PASS') {
+        pass(`AudioFlix native Python/CFFI/PortAudio ready (${nativeAudioResult.playableOutputs} outputs)`);
+    } else if (nativeAudioResult.status === 'WARN' &&
+               nativeAudioResult.reason === 'no-windows-playable-outputs') {
+        warnings.push('AudioFlix Python imports passed; this Windows host has no playable outputs.');
+    } else {
+        errors.push(`AudioFlix native Python environment unhealthy: ${nativeAudioResult.reason || 'probe-failed'}. ` +
+            'Run tools\\health\\Repair-EveOS-VenvAudio.ps1 (read-only by default).');
+    }
     if (!runtimeOnly) {
         const pytest = spawnSync(venvPython, ['-m', 'pytest', '--version'], { cwd: ROOT, encoding: 'utf8', windowsHide: true });
         need(pytest.status === 0, `pytest is installed in the EveOS virtualenv${pytest.status ? `: ${(pytest.stdout || pytest.stderr || '').trim()}` : ''}`);

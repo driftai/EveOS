@@ -207,6 +207,12 @@ server_modules/audioflix_allowed_dirs.json
 # Audioflix Spotify probe artifacts contain machine-local browser/session state; never commit.
 /.spotify-probe-profile/
 /spotify-volume-probe.mjs
+# Private browser state if a profile or auth export is accidentally placed in the checkout.
+spotify-browser-edge-beta-profile/
+SpotifyEmbedEdgeBetaProfile/
+**/playwright/.auth/
+**/Network/Cookies
+**/Network/Cookies-journal
 
 # World Book: application code is public; every runtime/user-data artifact stays local.
 extension/modules/
@@ -227,3 +233,33 @@ tools/Piano-Auto-Player/youtube_session.txt
 tools/Piano-Auto-Player/tmp/
 tools/Piano-Auto-Player/.youtube-piano-venv/
 tools/Piano-Auto-Player/.piano-hifi-venv/
+
+# Generated private EveOS local modular packs; never publish saved workspace data.
+data/modular-packs/
+
+# Private developer-agent harness state: never publish local instructions, memory, sessions or approvals.
+**/AGENTS.override.md
+**/AGENTS.local.md
+**/CLAUDE.local.md
+**/GEMINI.local.md
+/data/agent-management.json
+**/.codex/
+**/.gemini/
+**/.agents-private/
+**/.cursor/
+**/.openclaw/
+**/.hermes/
+**/.claude/*
+!/.claude/launch.json
+**/SOUL.md
+**/MEMORY.md
+**/USER.md
+**/IDENTITY.md
+/config/agents/*
+!/config/agents/tlo/
+!/config/agents/capabilities/
+/config/agents/tlo/*
+!/config/agents/tlo/AGENT.md
+!/config/agents/tlo/NEXUS.md
+!/config/agents/tlo/ORIGIN.md
+!/config/agents/tlo/RUNTIME.json

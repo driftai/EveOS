@@ -112,6 +112,10 @@ exit /b %ERRORLEVEL%
 set "_EVE_START_PORT=%~1"
 set "_EVE_START_TITLE=%~2"
 if not defined EVEOS_PYTHON call "%PROJECT_ROOT%\tools\batch\eveos-python.bat"
+if defined EVEOS_PYTHON if exist "%PROJECT_ROOT%\tools\health\eveos_venv_audio_health.py" (
+    "%EVEOS_PYTHON%" -B "%PROJECT_ROOT%\tools\health\eveos_venv_audio_health.py" --compact
+    if errorlevel 1 echo [WARN] AudioFlix native .venv failed health scan; run tools\health\Repair-EveOS-VenvAudio.ps1
+)
 if not exist "%PROJECT_ROOT%\bin" mkdir "%PROJECT_ROOT%\bin" >nul 2>nul
 set "_EVE_START_LOG=%PROJECT_ROOT%\bin\eveos-server-%_EVE_START_PORT%.log"
 set "_EVE_BIND_HOST=127.0.0.1"

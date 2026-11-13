@@ -20,6 +20,21 @@
     color: #fbbf24;
 }
 
+.audioflix-provider-unavailable-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: rgba(185, 28, 28, 0.24);
+    border: 1px solid rgba(248, 113, 113, 0.62);
+    color: #fecaca;
+    cursor: default !important; /* No question-mark help cursor over failure status. */
+}
+
+.audioflix-queue-excluded-badge { display:inline-flex;align-items:center;padding:1px 6px;border:1px solid rgba(251,191,36,.45);border-radius:4px;background:rgba(161,98,7,.16);color:#fde68a;font-size:.69rem;font-weight:700;cursor:default; }
+
 .audioflix-local-badge {
     display: inline-flex;
     align-items: center;

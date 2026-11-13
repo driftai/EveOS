@@ -1,0 +1,13 @@
+.audioflix-policy-panel{margin:8px 0;border:1px solid rgba(56,189,248,.28);border-radius:10px;background:rgba(8,47,73,.18);overflow:hidden}.audioflix-policy-panel>summary{display:flex;gap:8px;align-items:center;padding:8px 10px;cursor:pointer;color:#7dd3fc;font-size:.78rem;font-weight:800}.audioflix-policy-panel>summary span{margin-left:auto;color:#94a3b8;font-size:.68rem;font-weight:500}.audioflix-policy-panel section{padding:8px 10px;border-top:1px solid rgba(148,163,184,.14)}.audioflix-policy-panel h5{margin:0 0 6px;color:#dbeafe;font-size:.75rem}.audioflix-policy-grid{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:7px}.audioflix-policy-grid label,.audioflix-policy-scope{display:grid;gap:3px;min-width:0;color:#94a3b8;font-size:.68rem}.audioflix-policy-grid select,.audioflix-policy-scope select{min-width:0;width:100%;padding:6px;border:1px solid rgba(148,163,184,.3);border-radius:8px;background:#08111f;color:#e2e8f0}.audioflix-policy-scope{margin-bottom:7px}.audioflix-policy-empty,.audioflix-policy-effective{margin:6px 0;color:#94a3b8;font-size:.72rem}.audioflix-policy-effective span{color:#38bdf8}.audioflix-song-policy button,.audioflix-policy-panel button{margin-top:7px;padding:5px 9px;border:1px solid rgba(148,163,184,.28);border-radius:8px;background:rgba(30,41,59,.7);color:#cbd5e1}@media(max-width:680px){.audioflix-policy-grid{grid-template-columns:1fr}.audioflix-policy-panel>summary span{display:none}}
+
+.audioflix-policy-check{font-size:.72rem;color:#94a3b8}
+.audioflix-policy-check button{margin-top:0}
+.audioflix-policy-check-report{margin-top:8px;padding:8px 10px;border:1px solid rgba(148,163,184,.18);border-radius:8px;background:rgba(2,6,23,.4)}
+.audioflix-policy-check-title{margin:0 0 7px;color:#dbeafe;font-weight:700}
+.audioflix-policy-check-row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid rgba(148,163,184,.09)}
+.audioflix-policy-check-row span:last-child{text-align:right;color:#94a3b8}
+.audioflix-policy-check-row [data-check="ready"]{color:#86efac}
+.audioflix-policy-check-row [data-check="attention"]{color:#fbbf24}
+.audioflix-policy-check-report p{margin:7px 0 0;line-height:1.5;color:#94a3b8}
+.audioflix-policy-check-report code{word-break:break-word;color:#7dd3fc}
+@media(max-width:520px){.audioflix-policy-check-row{flex-direction:column;gap:1px}}

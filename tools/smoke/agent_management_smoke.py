@@ -116,8 +116,8 @@ def run():
                     "Definition source/revision/metadata contract was not projected")
             require("FILE_BACKED_SENTINEL" in prompt and "Identity for TLO" not in prompt,
                     "File-backed definition did not become sole active TLO identity")
-            require("I am no longer just a chat box" in tlo_definition.load(tlo)["origin"] and
-                    "I am no longer just a chat box" not in prompt,
+            origin_heading = tlo_definition.load(tlo)["origin"].splitlines()[0]
+            require(origin_heading == "# TLO — public creation context" and origin_heading not in prompt,
                     "Origin metadata was lost or injected into the boot prompt")
             require("TLO_PRIVATE_SENTINEL" not in prompt, "Private notes leaked into boot context")
             require("Machine Spaces" not in prompt,

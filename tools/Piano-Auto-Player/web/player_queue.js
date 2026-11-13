@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { createNativeQueueBridge } from "./player_queue_native_bridge.js";
 import {
   MODES, TRANSITIONS, restoreQueueState, queueSnapshot, currentIndex, nextIndex, normalizeQueueState,
   activateQueueId, activateNext, activateRandomNext, stepQueue, completeCurrent, removeQueueIds, removeSongIds, removeLatestSongIds,
@@ -57,7 +58,7 @@ function buildQueue(host) {
         <label><span>Transition pause</span><select data-queue-transition aria-label="Queue transition pause">
           <option value="250">0.25 s</option><option value="500">0.50 s</option><option value="750">0.75 s</option><option value="1000">1.00 s</option><option value="1500">1.50 s</option>
         </select></label>
-        <div class="player-queue-actions"><button type="button" class="primary" data-queue-play>Play queue</button><button type="button" data-queue-play-all>Play all library</button><button type="button" data-queue-shuffle>Shuffle future</button><button type="button" class="ghost" data-queue-clear>Clear queue</button></div>
+        <div class="player-queue-actions"><button type="button" class="primary" data-queue-play>Play queue</button><button type="button" data-queue-play-all>Play all library</button><button type="button" data-queue-shuffle>Shuffle future</button><button type="button" data-queue-loop aria-pressed="false">Loop off</button><button type="button" class="ghost" data-queue-clear>Clear queue</button></div>
       </div>
       <div class="player-queue-list" data-queue-list></div>
     </div>`;
@@ -79,6 +80,7 @@ function installPlayerQueue() {
     const play = section.querySelector("[data-queue-play]");
     const playAll = section.querySelector("[data-queue-play-all]");
     const shuffleButton = section.querySelector("[data-queue-shuffle]");
+    const loopButton = section.querySelector("[data-queue-loop]");
     const clear = section.querySelector("[data-queue-clear]");
     const library = document.getElementById("libraryList");
     const titleInput = document.getElementById("titleInput");
@@ -90,6 +92,16 @@ function installPlayerQueue() {
     let syncTimer = null;
     let busy = false;
     let lastStatus = "";
+    const nativeQueue = createNativeQueueBridge({
+      snapshot: () => queueSnapshot(state), toast, wait,
+      reconcile: report => {
+        const old = new Map(state.items.map(item => [item.queueId, item]));
+        state.items = report.items.map(item => ({ ...old.get(item.queueId), ...item }));
+        state.cursor = report.cursor; state.currentId = report.currentQueueId || null;
+        state.active = !!report.active; state.mode = report.mode;
+        state.loop = !!report.loop; render();
+      }
+    });
 
     function toast(message, status = "idle") {
       const text = document.getElementById("statusText"), chip = document.getElementById("statusChip");
@@ -111,6 +123,7 @@ function installPlayerQueue() {
       next.textContent = state.mode === "shuffle" && nextAt < state.items.length ? "Random unplayed song" : nextAt < state.items.length ? state.items[nextAt].label : "Nothing next";
       play.textContent = state.active ? "Stop queue" : "Play queue";
       play.dataset.action = state.active ? "stop" : "play";
+      loopButton.textContent = state.loop ? "Loop on" : "Loop off"; loopButton.setAttribute("aria-pressed", String(!!state.loop));
       list.replaceChildren();
       if (!state.items.length) {
         const empty = document.createElement("div"); empty.className = "player-queue-empty"; empty.textContent = "Send songs from My Songs to build a playback timeline."; list.append(empty);
@@ -131,7 +144,7 @@ function installPlayerQueue() {
         actions.append(now, up, down, remove); row.append(meta, actions); list.append(row);
       });
       persist(state);
-      emitUpdate();
+      emitUpdate(); nativeQueue.update();
     }
 
     function makeItem(song) {
@@ -148,7 +161,7 @@ function installPlayerQueue() {
     async function addSongs(songs, { replace = false, play: start = false, shuffle = false, announce = true } = {}) {
       const valid = Array.isArray(songs) ? songs.filter(song => song?.id) : [];
       if (!valid.length) return 0;
-      if (replace) state = restoreQueueState({ mode: state.mode, transitionMs: state.transitionMs });
+      if (replace) state = restoreQueueState({ mode: state.mode, transitionMs: state.transitionMs, loop: !!state.loop });
       valid.forEach(song => state.items.push(makeItem(song)));
       if (shuffle) shuffleQueueRemainder(state);
       render();
@@ -157,7 +170,7 @@ function installPlayerQueue() {
       return valid.length;
     }
 
-    function clearQueue() { state = restoreQueueState({ mode: state.mode, transitionMs: state.transitionMs }); render(); toast("Player Queue cleared.", "idle"); }
+    function clearQueue() { void nativeQueue.stop(); state = restoreQueueState({ mode: state.mode, transitionMs: state.transitionMs, loop: !!state.loop }); render(); toast("Player Queue cleared.", "idle"); }
     function removeItem(queueId) { removeQueueIds(state, [queueId]); render(); }
     function removeSongs(songIds) { const removed = removeLatestSongIds(state, songIds); render(); return removed; }
     function removeAllSongs(songIds) { const removed = removeSongIds(state, songIds); render(); return removed; }
@@ -171,7 +184,7 @@ function installPlayerQueue() {
     function shuffleRemaining() { const changed = shuffleQueueRemainder(state); if (changed) render(); return changed; }
     function shuffleSelectedSongs(songIds) { const changed = shuffleSelected(state, songIds); if (changed) render(); return changed; }
 
-    function releaseQueue(reason = "") { state.active = false; render(); if (reason) toast(reason, "idle"); }
+    function releaseQueue(reason = "") { void nativeQueue.stop(); state.active = false; render(); if (reason) toast(reason, "idle"); }
     async function librarySongs() { const songs = await fetchSongs(); syncLibraryCards(songs); return songs; }
 
     function syncLibraryCards(songs = []) {
@@ -254,8 +267,12 @@ function installPlayerQueue() {
 
     async function playNow(queueId) {
       if (busy) return false;
+      await nativeQueue.stop();
+      const previous = await nativeQueue.pending();
       const wasCurrent = state.currentId === queueId;
-      return playActivated(activateQueueId(state, queueId, { discardSkipped: true }), { resume: wasCurrent });
+      const success = await playActivated(activateQueueId(state, queueId, { discardSkipped: false }), { resume: wasCurrent });
+      if (success) void nativeQueue.arm(wasCurrent ? '' : (previous?.sessionId || ''));
+      return success;
     }
 
     async function playQueue() {
@@ -264,10 +281,14 @@ function installPlayerQueue() {
       const item = state.currentId ? state.items[currentIndex(state)] : state.mode === "shuffle" ? activateRandomNext(state) : activateNext(state);
       if (!item) return false;
       state.active = true;
-      return playActivated(item, { resume: true });
+      const previous = await nativeQueue.pending();
+      const success = await playActivated(item, { resume: true });
+      if (success) void nativeQueue.arm(state.currentId && previous?.state === 'paused' ? '' : (previous?.sessionId || ''));
+      return success;
     }
 
     async function stopQueue() {
+      await nativeQueue.stop();
       state.active = false; render();
       if (state.currentId) {
         suppressCancel = true;
@@ -282,26 +303,43 @@ function installPlayerQueue() {
     function toggleQueue() { return state.active ? stopQueue() : playQueue(); }
 
     async function playAllLibrary() {
+      await nativeQueue.stop();
       if (busy) return;
       try {
         const songs = await librarySongs(); if (!songs.length) return toast("Local Library has no saved songs to play.", "error");
-        state = restoreQueueState({ items: songs.map(makeItem), mode: "ordered", transitionMs: state.transitionMs });
+        state = restoreQueueState({ items: songs.map(makeItem), mode: "ordered", transitionMs: state.transitionMs, loop: !!state.loop });
         render(); await playQueue();
       } catch (error) { toast(error.message, "error"); }
     }
 
     async function step(delta) {
       if (busy) return false;
+      await nativeQueue.stop();
+      const previous = await nativeQueue.pending();
       const item = state.mode === "shuffle" && delta > 0 ? activateRandomNext(state) : stepQueue(state, delta);
       if (!item) { toast(delta < 0 ? "No earlier queue song." : "End of Player Queue.", "idle"); return false; }
-      return playActivated(item);
+      const success = await playActivated(item);
+      if (success) void nativeQueue.arm(previous?.sessionId || '');
+      return success;
     }
 
     async function advanceAfterComplete() {
+      if (nativeQueue.active()) return false;
       if (!state.active || !state.currentId || busy) return false;
       const item = state.items[currentIndex(state)];
       if (item && !titleMatches(item)) { releaseQueue("Player Queue released to manual playback."); return false; }
+      const lastQueueId = item?.queueId;
       completeCurrent(state);
+      if (state.loop && state.mode !== "manual" && state.items.length && state.cursor >= state.items.length) {
+        if (state.mode === "shuffle" && state.items.length > 1) {
+          for (let i = state.items.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [state.items[i], state.items[j]] = [state.items[j], state.items[i]];
+          }
+          if (state.items[0].queueId === lastQueueId) [state.items[0], state.items[1]] = [state.items[1], state.items[0]];
+        }
+        state.cursor = 0; state.currentId = null;
+      }
       if (state.cursor >= state.items.length) { state.active = false; render(); toast("Player Queue finished.", "complete"); return true; }
       if (state.mode === "manual") { state.active = false; render(); toast("Song finished — Player Queue is waiting for Play Queue.", "complete"); return false; }
       const itemNext = state.mode === "shuffle" ? activateRandomNext(state) : activateNext(state);
@@ -326,6 +364,7 @@ function installPlayerQueue() {
       play.addEventListener("click", () => void toggleQueue());
       playAll.addEventListener("click", () => void playAllLibrary());
       shuffleButton.addEventListener("click", shuffleRemaining);
+      loopButton.addEventListener("click", () => { state.loop = !state.loop; render(); });
       clear.addEventListener("click", clearQueue);
       stopButton?.addEventListener("click", () => { if (!suppressCancel && state.active) releaseQueue("Player Queue stopped."); });
       playButton?.addEventListener("click", () => { if (!suppressCancel && state.active) releaseQueue("Player Queue released to manual playback."); });
@@ -337,7 +376,7 @@ function installPlayerQueue() {
     if (statusChip) {
       const statusObserver = new MutationObserver(() => {
         const value = statusChip.dataset.state || "";
-        if (value === "complete" && lastStatus !== "complete") { lastStatus = "complete"; void advanceAfterComplete(); }
+        if (value === "complete" && lastStatus !== "complete") { lastStatus = "complete"; if (!nativeQueue.active() && window.PianoPlaybackOwner?.status?.()?.status === "complete") void advanceAfterComplete(); }
         else if (value !== "complete") lastStatus = value;
       });
       statusObserver.observe(statusChip, { attributes: true, attributeFilter: ["data-state"] });
@@ -354,7 +393,8 @@ function installPlayerQueue() {
       removeSong: songId => removeSongs([songId]),
       moveSong: (songId, delta) => { const entry = entriesForSong(state, songId).find(item => item.status === "next" || item.status === "queued"); if (entry) move(entry.queueId, delta); },
       playSongNow,
-      setMode: value => { if (MODES.has(value)) { state.mode = value; render(); } }
+      setMode: value => { if (MODES.has(value)) { state.mode = value; render(); } },
+      setLoop: value => { state.loop = value === true; render(); return true; }
     });
     window.PianoPlayerQueue = publicApi;
     window.dispatchEvent(new CustomEvent("piano:player-queue-ready", { detail: publicApi }));

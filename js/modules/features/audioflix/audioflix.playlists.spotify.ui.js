@@ -8,8 +8,15 @@ window.EveAudioflixSpotifyUi = window.EveAudioflixSpotifyUi || {};
     const ns = window.EveAudioflixSpotifyUi;
     if (ns.ready) return;
 
+    const searchQueries = new Map();
+    function setSearch(groupName, value) {
+        searchQueries.set(String(groupName || ''), String(value || ''));
+    }
+
     function renderLinkForm(groupName, connection, ctx) {
         const { esc, state } = ctx;
+        const query = searchQueries.get(String(groupName || '')) || '';
+        const normalizedQuery = query.trim().toLowerCase();
         const extraction = String(connection.scrapeSource || '').startsWith('embed')
             ? 'Spotify embed extraction' : 'Spotify saved-session extraction';
         const tracks = (state().music || [])
@@ -17,14 +24,14 @@ window.EveAudioflixSpotifyUi = window.EveAudioflixSpotifyUi || {};
             .sort((a, b) => Number(a.playlistPosition || 0) - Number(b.playlistPosition || 0));
         const rows = tracks.map((track, index) => {
             const search = [track.title, track.artist, track.album].join(' ').toLowerCase();
-            return `<div class="audioflix-spotify-row" data-af-spotify-row data-af-search="${esc(search)}">
+            return `<div class="audioflix-spotify-row"${normalizedQuery && !search.includes(normalizedQuery) ? " hidden" : ""} data-af-spotify-row data-af-search="${esc(search)}">
                 <span class="audioflix-spotify-index">${index + 1}</span>
                 ${track.image ? `<img src="${esc(track.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="audioflix-spotify-art">&#9834;</span>'}
                 <span><strong>${esc(track.title)}</strong><small>${esc([track.artist, track.album].filter(Boolean).join(' / ') || 'Spotify track')}</small></span>
                 <time>${track.duration ? formatDuration(track.duration) : ''}</time>
             </div>`;
         }).join('');
-        return `<section class="audioflix-spotify-inspector" data-af-spotify-inspector>
+        return `<section class="audioflix-spotify-inspector" data-af-spotify-inspector data-af-spotify-group="${esc(groupName)}">
             <header>
                 ${connection.image ? `<img src="${esc(connection.image)}" alt="" referrerpolicy="no-referrer">` : '<span class="audioflix-spotify-cover">&#9835;</span>'}
                 <div><span class="audioflix-spotify-kicker">${extraction}</span>
@@ -42,7 +49,7 @@ window.EveAudioflixSpotifyUi = window.EveAudioflixSpotifyUi || {};
                 <button type="button" data-af-action="spotify-open" data-af-url="${esc(connection.url)}">Open Spotify</button>
                 <button type="button" data-af-action="toggle-playlist-link-form" data-af-group="${esc(groupName)}">Close</button>
             </form>
-            <label class="audioflix-spotify-search"><span>Search imported songs</span><input type="search" data-af-spotify-search placeholder="Title, artist, or album"></label>
+            <label class="audioflix-spotify-search"><span>Search imported songs</span><input type="search" data-af-spotify-search placeholder="Title, artist, or album" value="${esc(query)}"></label>
             <div class="audioflix-spotify-list">${rows || '<div class="audioflix-empty">No imported Spotify tracks yet.</div>'}</div>
         </section>`;
     }
@@ -105,5 +112,5 @@ window.EveAudioflixSpotifyUi = window.EveAudioflixSpotifyUi || {};
         };
     }
 
-    Object.assign(ns, { ready: true, renderLinkForm, createActions });
+    Object.assign(ns, { ready: true, renderLinkForm, createActions, setSearch });
 })();

@@ -17,6 +17,7 @@ import threading
 import time
 
 from eveos_qualification_manifest import gate_specs, source_fingerprint, validate_manifest
+from eveos_affected_selection import build_affected_plan, validate_affected_selection
 
 ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE = ROOT / 'data/runtime/smoke-results/timed-qualification'
@@ -57,38 +58,12 @@ def changed_files(base):
     return sorted(names)
 
 
+def affected_plan_for_files(files, base):
+    return build_affected_plan(files, base, gate, npm)
+
+
 def affected_plan(base):
-    files, selected = changed_files(base), []
-    paths, classes = '\n'.join(files).lower(), set()
-    selected.append(gate('guardrails', npm('run', '--silent', 'test:guardrails'), ('build-output',), category='build-dependent'))
-    if 'audioflix' in paths:
-        if 'spotify' in paths:
-            selected.extend([
-                gate('audioflix-spotify-managed', npm('run', '--silent', 'smoke:audioflix-spotify-managed'),
-                     ('audioflix-runtime', 'playwright'), ('guardrails',), 'browser-owned'),
-                gate('audioflix-spotify-playback', npm('run', '--silent', 'smoke:audioflix-spotify-playback'),
-                     ('audioflix-runtime', 'playwright'), ('guardrails',), 'browser-owned')])
-            classes.add('audioflix-spotify')
-        selected.append(gate('audioflix-playback', npm('run', '--silent', 'smoke:audioflix-playback'),
-                             ('audioflix-runtime', 'playwright'), ('guardrails',), 'browser-owned'))
-        classes.add('audioflix')
-    if 'tools/nexus-browser/' in paths or '/nexus/' in paths or 'machine_spaces' in paths:
-        selected.append(gate('ai-control', npm('run', '--silent', 'test:ai-control'),
-                             ('nexus-runtime', 'playwright', 'ports'), ('guardrails',), 'integration'))
-        classes.add('nexus')
-    if any(token in paths for token in ('server_modules/', 'server/', 'js/modules/core/', 'state-sync')):
-        selected.append(gate('deep', npm('run', '--silent', 'test:deep'),
-                             ('services', 'ports', 'playwright'), ('guardrails',), 'integration'))
-        classes.add('shared-runtime')
-    if not classes:
-        selected.append(gate('fast', npm('run', '--silent', 'test:smoke'),
-                             ('build-output',), ('guardrails',), 'integration'))
-        classes.add('fast-fallback')
-    unique, seen = [], set()
-    for item in selected:
-        key = tuple(item['argv'])
-        if key not in seen: seen.add(key); unique.append(item)
-    return unique, {'base': base, 'changedFiles': files, 'affectedClasses': sorted(classes)}
+    return affected_plan_for_files(changed_files(base), base)
 
 
 def gate_plan(profile, base='origin/main'):
@@ -404,6 +379,7 @@ def self_test():
     validated = validate_manifest()
     assert validated['legacyObligations'] == validated['optimizedObligations'] == 41
     assert validated['optimizedDuplicates'] == [] and validated['deduplications']
+    validate_affected_selection(gate, npm)
     partial = make_report('verify', evidence, [sleeper('bad', code=7), sleeper('blocked', depends=('bad',))],
                           failed, skipped, time.monotonic(),
                           datetime.datetime.now(datetime.timezone.utc).isoformat(), 2,
@@ -414,7 +390,7 @@ def self_test():
     assert partial['status'] == 'FAIL' and not partial['releaseEligible']
     assert interrupted['status'] == 'INTERRUPTED' and not interrupted['releaseEligible']
     print('EVEOS_TIMED_QUALIFICATION_CONTRACT_OK manifestParity=true dag=true concurrency=true '
-          'resourceLocks=true failClosed=true partialRejected=true')
+          'resourceLocks=true failClosed=true partialRejected=true affectedSelection=true')
     return 0
 
 

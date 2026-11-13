@@ -41,7 +41,7 @@ async function main() {
   assert(scrollRestore.includes('piano:preserve-playback-scroll') && scrollRestore.includes('status !== "playing"'), 'queue viewport restoration must be bounded to a real playing transition');
   assert(bridge.includes('piano:eveos-reattach-request') && bridge.includes("eveosDetached") && ui.includes("event.source === detachedWindow"), 'detached Piano must offer an exact-window reattach path back into EveOS');
   assert(bridge.includes('MODULE_RETRY_DELAYS') && bridge.includes("addEventListener('piano:eveos-context', loadWorkspaceModules)"), 'preserved Piano frames must retry missing queue/progress modules after a transient service interruption');
-  assert(ui.includes("await refresh({ reloadWorkspace: true })") && ui.includes("target.postMessage({ type: 'eveos:piano-refresh' }"), 'EveOS Piano Refresh must reload the active embedded or detached workspace');
+  assert(ui.includes("await refresh({ reloadWorkspace: true") && ui.includes("target.postMessage({ type: 'eveos:piano-refresh' }"), 'EveOS Piano Refresh must reload the active embedded or detached workspace');
   assert(ui.includes("EveAudioflixPianoFrontend?.invalidate?.()") && ui.includes("EveAudioflixPianoFrontendPorts?.invalidate?.()"), 'Backend Refresh must invalidate every shared Frontend projection before reloading the one Piano workspace');
   assert(bridge.includes("payload.type === 'eveos:piano-refresh'") && bridge.includes('event.source !== eveHost') && bridge.includes('window.location.reload()'), 'Piano refresh messages must come from the exact EveOS host window before reloading');
 
@@ -67,7 +67,11 @@ async function main() {
       window.EveOSLocalControl = { baseUrl: () => 'http://127.0.0.1:9082' };
       window.__pianoOnline = true;
       window.fetch = async (url) => {
+        window.__pianoRequests = [...(window.__pianoRequests || []), String(url)];
         if (!window.__pianoOnline) throw new TypeError('synthetic disconnect');
+        if (String(url).includes(':9082/api/status')) return new Response(JSON.stringify({
+          ok: true, service: 'eveos-control-plane'
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         if (String(url).includes('/api/piano-player/status')) return new Response(JSON.stringify({
           running: true, state: 'running', url: 'http://127.0.0.1:8771/', localUrl: 'http://127.0.0.1:8771/', appVersion: 'test'
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -80,6 +84,8 @@ async function main() {
     await page.addScriptTag({ content: client });
     const online = await page.evaluate(() => window.EveAudioflixPiano.refresh());
     assert(online.running === true && online.phase === 'running', 'online fixture must establish the running baseline');
+    assert(await page.evaluate(() => !window.__pianoRequests.some(url => url.includes(':8765/api/piano-player/status'))),
+      'a web server origin must not receive lifecycle-controller requests');
     const transient = await page.evaluate(async () => {
       window.__pianoOnline = false;
       return window.EveAudioflixPiano.refresh();

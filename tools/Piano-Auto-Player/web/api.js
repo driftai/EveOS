@@ -12,6 +12,7 @@ async function request(path, options = {}) {
 let songsSnapshot = null;
 let songsRequest = null;
 let songsGeneration = 0;
+let songsNetworkRequests = 0;
 
 function invalidateSongs() {
   songsGeneration += 1;
@@ -22,6 +23,7 @@ function loadSongs({ fresh = false } = {}) {
   if (songsRequest) return songsRequest;
   if (!fresh && songsSnapshot) return Promise.resolve(songsSnapshot);
   const generation = songsGeneration;
+  songsNetworkRequests += 1;
   songsRequest = request("/api/songs")
     .then(body => {
       if (generation === songsGeneration) songsSnapshot = body;
@@ -72,6 +74,7 @@ export const api = {
   alternateSources: (query) => request(`/api/alternate-sources?q=${encodeURIComponent(query)}`),
   youtubeStatus: (job) => request(`/api/youtube/status?job=${encodeURIComponent(job)}`),
   songs: (options) => loadSongs(options),
+  songsDiagnostics: () => ({ networkRequests: songsNetworkRequests, cached: Boolean(songsSnapshot), inFlight: Boolean(songsRequest) }),
   saveSong: (payload) => mutateSongs("/api/songs", { method: "POST", body: JSON.stringify(payload) }),
   updateSongIdentifiers: (id, identifiers) => mutateSongs("/api/songs/identifiers", { method: "POST", body: JSON.stringify({ id, identifiers }) }),
   deleteSong: (id) => mutateSongs(`/api/songs/${encodeURIComponent(id)}`, { method: "DELETE" }),

@@ -7,20 +7,13 @@
 window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
 (function () {
     'use strict';
-
     const ns = window.EveAudioflixStateRecovery;
     if (ns.ready) return;
-
-    const QUARANTINE_SUFFIX = '.corrupt';
-    const STRUCTURE_SUFFIX = '.structure-v2';
-    const STRUCTURE_VERSION = 3;
-    const revisionFloors = new Map();
-    const trackStructures = new Map();
-    const text = (value) => String(value ?? '').trim();
-    const clone = (value, fallback) => {
+    const QUARANTINE_SUFFIX = '.corrupt', STRUCTURE_SUFFIX = '.structure-v2', STRUCTURE_VERSION = 3;
+    const revisionFloors = new Map(), trackStructures = new Map();
+    const text = (value) => String(value ?? '').trim(), clone = (value, fallback) => {
         try { return JSON.parse(JSON.stringify(value)); } catch { return fallback; }
-    };
-    const uniq = (values) => [...new Set((values || []).map(text).filter(Boolean))];
+    }, uniq = (values) => [...new Set((values || []).map(text).filter(Boolean))];
 
     function countEntries(state) {
         if (!state || typeof state !== 'object') return 0;
@@ -91,9 +84,13 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             folder,
             classifiers: uniq(item?.classifiers),
             groups: uniq(state?.musicGroupMap?.[item?.id] || []),
-            musicPortGroup: text(item?.musicPortGroup)
+            musicPortGroup: text(item?.musicPortGroup), playbackPolicy: item?.playbackPolicy && typeof item.playbackPolicy === 'object' ? clone(item.playbackPolicy, {}) : undefined
         };
     }
+
+    const REF_FIELDS = ['id', 'title', 'localPath', 'playlistId', 'sourceId', 'portConnectionId', 'sourceKind', 'folder', 'classifiers', 'groups', 'musicPortGroup', 'playbackPolicy'];
+    const packStructure = value => ({ ...value, packedMusicRefs: 1, musicRefs: (value.musicRefs || []).map(ref => REF_FIELDS.map(field => ref[field] ?? null)) });
+    const unpackStructure = value => !value || value.packedMusicRefs !== 1 ? value : ({ ...value, musicRefs: (value.musicRefs || []).map(row => Object.fromEntries(REF_FIELDS.map((field, i) => [field, Array.isArray(row) ? row[i] : null]).filter(([,v]) => v !== null))) });
 
     function captureStructure(state) {
         const source = state && typeof state === 'object' ? state : {};
@@ -121,10 +118,11 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
                 return map; })(),
             exposedPortedSounds: clone(source.exposedPortedSounds || {}, {}),
             scopeBindings: clone(source.scopeBindings || [], []),
+            playbackPolicy: clone(source.playbackPolicy || {}, {}), playbackScopePolicies: clone(source.playbackScopePolicies || {}, {}),
             soundGroupMap: clone(source.soundGroupMap || {}, {}),
+            soundPlaybackPolicies: Object.fromEntries((source.soundboard || []).filter((item) => text(item?.id) && item?.playbackPolicy && typeof item.playbackPolicy === 'object').map((item) => [text(item.id), clone(item.playbackPolicy, {})])),
             musicRefs: (source.music || []).map((item) => musicRef(item, source))
-                .filter((ref) => ref.id && (ref.localPath || ref.sourceId || ref.folder
-                    || ref.groups.length || ref.classifiers.length || ref.musicPortGroup))
+                .filter((ref) => ref.id && (ref.localPath || ref.sourceId || ref.folder || ref.groups.length || ref.classifiers.length || ref.musicPortGroup || ref.playbackPolicy))
         };
     }
 
@@ -132,10 +130,10 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         const slot = `${key}${STRUCTURE_SUFFIX}`;
         const structure = captureStructure(state);
         try {
-            localStorage.setItem(slot, JSON.stringify(structure));
+            localStorage.setItem(slot, JSON.stringify(packStructure(structure)));
             return { written: true, slot, structure };
         } catch (error) {
-            console.warn('[Audioflix] structural recovery write failed:', error);
+            console.warn('[Audioflix] compact structural journal unavailable; the IndexedDB recovery mirror remains the fallback:', error);
             return { written: false, slot, structure, reason: String(error?.message || error) };
         }
     }
@@ -153,15 +151,14 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         try {
             const raw = localStorage.getItem(slot);
             if (!raw) return durable ? clone(durable, null) : null;
-            const parsed = JSON.parse(raw);
+            const parsed = unpackStructure(JSON.parse(raw));
             return clone(preferredStructure(parsed && typeof parsed === 'object' ? parsed : null, durable), null);
         } catch {
             return durable ? clone(durable, null) : null;
         }
     }
 
-    // Only the private single-add path caches parsed refs. Public readStructure stays caller-owned.
-    // Compare actual storage on every lookup: cross-tab writes, imports and deletion retire the cache.
+    // Track only the current per-key structure; detect cross-tab changes.
     function trackStructure(key) {
         const slot = `${key}${STRUCTURE_SUFFIX}`;
         const durable = window.EveAudioflixRecoveryMirror?.peek(key)?.structure;
@@ -172,7 +169,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         if (cached?.raw === raw && cached.durable === durable) return cached;
         trackStructures.delete(slot);
         let structure = null;
-        try { structure = JSON.parse(raw); } catch { /* Damaged data never reuses stale topology. */ }
+        try { structure = unpackStructure(JSON.parse(raw)); } catch { /* Damaged data never reuses stale topology. */ }
         structure = preferredStructure(structure, durable);
         const cache = { raw, durable, structure, ids: new Map(), paths: new Map(), sources: new Map() };
         const refs = Array.isArray(structure?.musicRefs) ? structure.musicRefs : [];
@@ -185,7 +182,6 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             const source = ref.playlistId && ref.sourceId ? JSON.stringify([ref.playlistId, ref.sourceId]) : '';
             if (source && !cache.sources.has(source)) cache.sources.set(source, entry);
         });
-        // One canonical library is usual; bound alternate/test pack keys without retaining old journals.
         if (trackStructures.size >= 8) trackStructures.delete(trackStructures.keys().next().value);
         trackStructures.set(slot, cache);
         return cache;
@@ -243,8 +239,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         state.musicClassifiers = uniq([...(state.musicClassifiers || []), ...(structure.musicClassifiers || [])]);
         state.localizeScopeDirs = { ...(structure.localizeScopeDirs || {}), ...(state.localizeScopeDirs || {}) };
         state.portVolumes = { ...(structure.portVolumes || {}), ...(state.portVolumes || {}) };
-        // Null is an explicit clear; missing/blank transient catalogs cannot erase a saved key.
-        const restoredKeys = { ...(state.portHotkeys || {}) }, journalKeys = structure.portHotkeys || {}, journalNewer = Number(structure.savedAt || 0) >= Number(state.durabilityUpdatedAt || 0);
+            const restoredKeys = { ...(state.portHotkeys || {}) }, journalKeys = structure.portHotkeys || {}, journalNewer = Number(structure.savedAt || 0) >= Number(state.durabilityUpdatedAt || 0);
         for (const [id, value] of Object.entries(journalKeys))
             if ((value === null || text(value)) && (journalNewer || !text(restoredKeys[id]))) restoredKeys[id] = value;
         state.portHotkeys = restoredKeys; if (['soundboard', 'music', 'piano', 'soundlab', 'router'].includes(structure.lastAudioflixTab) && journalNewer) state.lastAudioflixTab = structure.lastAudioflixTab;
@@ -256,7 +251,11 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             else if (text(item.hotkey)) restoredKeys[key] = text(item.hotkey);
         }
         state.exposedPortedSounds = { ...(structure.exposedPortedSounds || {}), ...(state.exposedPortedSounds || {}) };
+        state.playbackPolicy = { ...(structure.playbackPolicy || {}), ...(state.playbackPolicy || {}) }; state.playbackScopePolicies = { ...(structure.playbackScopePolicies || {}), ...(state.playbackScopePolicies || {}) };
         state.soundGroupMap = { ...(structure.soundGroupMap || {}), ...(state.soundGroupMap || {}) };
+        for (const item of state.soundboard || []) {
+            const restored = structure.soundPlaybackPolicies?.[text(item?.id)];
+            if (restored && typeof restored === 'object' && !item.playbackPolicy) item.playbackPolicy = clone(restored, {}); }
         state.musicGroupMap = state.musicGroupMap || {};
 
         const music = Array.isArray(state.music) ? state.music : [];
@@ -272,6 +271,7 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
             state.musicClassifiers = uniq([...(state.musicClassifiers || []), ...(ref.classifiers || [])]);
             if (!text(match.folder || match.card) && ref.folder) match.folder = match.card = ref.folder;
             if (!text(match.musicPortGroup) && ref.musicPortGroup) match.musicPortGroup = ref.musicPortGroup;
+            if (ref.playbackPolicy && typeof ref.playbackPolicy === 'object' && !match.playbackPolicy) match.playbackPolicy = clone(ref.playbackPolicy, {});
         });
 
         state.scopeBindings = (state.scopeBindings || []).map((binding) => {
@@ -305,10 +305,12 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         if (!structure) return false;
         if (type === 'sound') {
             const groups = structure.soundGroupMap?.[item.id] || [];
-            if (!groups.length) return false;
+            const playbackPolicy = structure.soundPlaybackPolicies?.[item.id];
+            if (!groups.length && !playbackPolicy) return false;
             state.soundGroupMap = state.soundGroupMap || {};
-            state.soundGroupMap[item.id] = uniq([...(state.soundGroupMap[item.id] || []), ...groups]);
+            if (groups.length) state.soundGroupMap[item.id] = uniq([...(state.soundGroupMap[item.id] || []), ...groups]);
             state.soundboardGroups = uniq([...(state.soundboardGroups || []), ...groups]);
+            if (playbackPolicy && typeof playbackPolicy === 'object' && !item.playbackPolicy) item.playbackPolicy = clone(playbackPolicy, {});
             return true;
         }
         const source = text(item.playlistId) && text(item.sourceId) ? JSON.stringify([text(item.playlistId), text(item.sourceId)]) : '';
@@ -401,7 +403,6 @@ window.EveAudioflixStateRecovery = window.EveAudioflixStateRecovery || {};
         const rejected = validateWrite(state, read(key), options);
         if (rejected) return rejected;
 
-        // The small journal is written first so topology can survive even if the large state hits quota.
         writeStructure(key, state);
         try {
             localStorage.setItem(key, JSON.stringify(state));

@@ -31,6 +31,11 @@ fi
 
 patterns='AIza[0-9A-Za-z_-]{35}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC )?PRIVATE KEY-----|[0-9]+-[0-9a-z]{32}\.apps\.googleusercontent\.com'
 
+if ! node tools/audit/eveos_repo_hygiene_guard.mjs >/dev/null; then
+    echo "COMMIT BLOCKED: repository privacy or runtime hygiene check failed." >&2
+    exit 1
+fi
+
 # Only scan added/changed lines of staged text; skip binary and deletions.
 hits=$(git diff --cached --no-color -U0 --diff-filter=ACM \
     | grep -E '^\+' \

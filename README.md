@@ -18,6 +18,8 @@ It is Windows-oriented, browser-first, and intentionally modular. Many core work
 
 ## Start here
 
+For public documentation, development guides, agent roles and the public/private boundary, begin with the [EveOS documentation index](docs/README.md). Contributor agents share repository rules without publishing their personal instructions or sessions.
+
 - [What's new in 0.7.0: Nexus Browser and Agent-Only Mode](#nexus-browser-update--eveos-070)
 - [Workspace overview](#the-workspace-at-a-glance) and [Unidex / Smart Views / Nebula](#unidex-smart-views-and-nebula)
 - [Getting started](#getting-started) and [Nexus Browser setup](#nexus-browser-quick-start)

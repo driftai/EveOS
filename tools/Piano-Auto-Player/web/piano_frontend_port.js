@@ -41,6 +41,7 @@ export function setupPianoFrontendPort({ api, play, pause, stop, status, workspa
       if (data.action === 'list') {
         const body = await api.songs({ fresh: true });
         result.songs = (Array.isArray(body.songs) ? body.songs : []).map(summarizeFrontendSong);
+        result.authoritative = true;
       } else if (data.action === 'status') result.status = String(status()?.status || 'idle');
       else {
         if (inFlight) throw new Error('Piano is processing another command.');

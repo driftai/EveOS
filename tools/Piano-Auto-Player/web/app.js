@@ -8,6 +8,7 @@ import { setupLibraryTransfer } from "./library_transfer.js";
 import { setupSheetWorkspace } from "./sheet_workspace.js";
 import { setupBulkConversion } from "./bulk_conversion.js";
 import { setupPlaybackScrollRestore } from "./playback_scroll_restore.js";
+import { setupPianoPlaybackOverrides } from "./piano_playback_overrides.js"; import { setupNativeQueuePresentation } from "./piano_queue_presentation.js";
 const $ = (id) => document.getElementById(id);
 const els = {
   title: $("titleInput"), sheet: $("sheetInput"), stats: $("sheetStats"),
@@ -121,12 +122,12 @@ async function internalTimeline(performance = null) {
 }
 async function startPlayback(options = {}) {
   try {
-    if (internalMode()) { await internalPreview.unlock(); await pianoControls.prepareSound(); }
-    const resumeEvent = Number(options.resumeEvent || 0);
+    if (internalMode() && !internalPreview.native.enabled()) { await internalPreview.unlock(); await pianoControls.prepareSound(); }
+    const resumeEvent = Number(options.resumeEvent || 0); if (options.startEvent === 1) setSeekTarget(1, false, currentSeekTotal());
     if (resumeEvent > 0) setSeekTarget(resumeEvent, false, currentSeekTotal());
     else if (playShouldRestart) setSeekTarget(1, false, currentSeekTotal());
     toast(resumeEvent ? `Resuming from event ${seekTarget}…` : isTimedPerformance() ? "Starting timed performance…" : "Starting sheet…", "countdown");
-    if (internalMode()) { await api.stop().catch(() => {}); internalPreview.start(await internalTimeline(), seekTarget, Number(els.countdown.value)); }
+    if (internalMode()) { await api.stop().catch(() => {}); internalPreview.start(await internalTimeline(), options.startEvent === 1 ? 1 : seekTarget, Number(els.countdown.value)); }
     else {
       internalPreview.reset();
       if (isTimedPerformance()) await api.playPerformance({ ...playbackPayload(), performance: activePerformance }); else await api.play({ ...playbackPayload(), sheet: els.sheet.value });
@@ -140,7 +141,7 @@ async function replayRecording() {
   const performance = recorder.snapshot().events.length ? recorder.snapshot().events : activePerformance;
   if (!performance.length) return toast("Record or load a performance first", "error");
   try {
-    if (internalMode()) { await internalPreview.unlock(); await pianoControls.prepareSound(); }
+    if (internalMode() && !internalPreview.native.enabled()) { await internalPreview.unlock(); await pianoControls.prepareSound(); }
     toast("Starting recorded performance…", "countdown");
     if (internalMode()) { await api.stop().catch(() => {}); internalPreview.start(await internalTimeline(performance), seekTarget, Number(els.countdown.value)); }
     else { internalPreview.reset(); await api.playPerformance({ ...playbackPayload(), performance }); }
@@ -261,7 +262,7 @@ async function refreshWindows() {
       option.value = String(item.hwnd || 0); option.textContent = item.title; option.dataset.title = item.title;
       els.window.append(option);
     }
-    const match = [...els.window.options].find(option => option.value === current) || [...els.window.options].find(option => /roblox/i.test(option.textContent));
+    const match = frontendBridge?.restoreTargetWindow?.(current) || [...els.window.options].find(option => /roblox/i.test(option.textContent));
     if (match) els.window.value = match.value;
   } catch (error) { toast(error.message, "error"); }
 }
@@ -318,7 +319,6 @@ function applyPlaybackOverrides(song) {
   if (c.override_black_lead) els.blackLead.value = String(c.override_black_lead);
   updateSliderLabels();
 }
-
 async function applyImportedSong(song, result = {}) {
   internalPreview.reset();
   activeSongId = song._activeSongId || null; activeTranscriptionDiagnostics = song.transcription_diagnostics || null; activePerformance = Array.isArray(song.performance) ? song.performance : []; if (activePerformance.length) recorder.load(activePerformance); else recorder.clear(); seekTarget = 1; stoppedResumeEvent = 0; playShouldRestart = false;
@@ -336,12 +336,10 @@ async function applyImportedSong(song, result = {}) {
   toast(`${activePerformance.length ? "Timed performance imported" : "Sheet imported"}${sourceNotes}${chordInfo}${timing}${profile}`, "complete");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
-
 async function importResult(result) {
   toast(`Importing from ${result.provider_name || "source"}…`, "countdown");
   try { sheetWorkspace.stage(await api.importSheet(result.url, result.provider || ""), result); } catch (error) { toast(error.message, "error"); }
 }
-
 async function saveCurrentSong() {
   if (!els.sheet.value.trim() && !activePerformance.length) return toast("Nothing to save yet", "error");
   try {
@@ -352,7 +350,6 @@ async function saveCurrentSong() {
     await refreshLibrary();
   } catch (error) { toast(error.message, "error"); }
 }
-
 async function saveRecording() {
   const snapshot = recorder.snapshot();
   if (!snapshot.events.length) return toast("Record something first", "error");
@@ -379,11 +376,16 @@ async function refreshLibrary({ fresh = false } = {}) {
 function loadSong(song) {
   return sheetWorkspace.load({ ...song, _activeSongId: song.id }, { provider_name: song.source || "Local library", url: song.source_url || "" });
 }
+setupNativeQueuePresentation({
+  api, native: internalPreview.native, els, recorder, youtubePiano, internalMode, internalTimeline,
+  adoptSong: song => { activeSongId = song.id; activeTranscriptionDiagnostics = song.transcription_diagnostics || null; activePerformance = Array.isArray(song.performance) ? song.performance : []; seekTarget = 1; stoppedResumeEvent = 0; playShouldRestart = false; return activePerformance; },
+  applyPlaybackOverrides, refreshStats, getSheetEventTotal: () => sheetEventTotal,
+  updateStatus: status => { lastStatus = status; }
+});
 async function deleteSong(song) {
   if (!confirm(`Delete “${song.title}” from the local library?`)) return;
   try { await api.deleteSong(song.id); if (activeSongId === song.id) activeSongId = null; await refreshLibrary(); } catch (error) { toast(error.message, "error"); }
 }
-
 function updateRecordingUI(snapshot) {
   activePerformance = snapshot.events;
   els.recordState.textContent = snapshot.recording ? "● Recording — play the piano" : snapshot.events.length ? "Recording captured" : "Ready to record";
@@ -391,7 +393,6 @@ function updateRecordingUI(snapshot) {
   els.recordStats.textContent = `${snapshot.events.length} notes · ${formatTime(snapshot.duration_ms)}`;
   els.record.textContent = snapshot.recording ? "● Recording…" : "● Record";
 }
-
 function startRecording() { activeSongId = null; activeTranscriptionDiagnostics = null; youtubePiano.showDiagnostics(null); recorder.start(); toast("Recording local piano timing", "countdown"); }
 function finishRecording() { const snap = recorder.stop(); toast(snap.events.length ? "Recording captured" : "No notes recorded", snap.events.length ? "complete" : "idle"); }
 function clearRecording() { activeSongId = null; activeTranscriptionDiagnostics = null; youtubePiano.showDiagnostics(null); activePerformance = []; recorder.clear(); seekTarget = 1; setSeekTarget(1); toast("Recording cleared", "idle"); }
@@ -402,13 +403,11 @@ function updateInputModeUI() {
   els.autoFocus.disabled = internal || els.inputMode.value !== "foreground";
 }
 
-async function changeInternalMode() {
-  const internal = internalMode();
-  frontendBridge?.persistInternalMode();
-  const data = internal ? await api.stop().catch(() => ({ resume_event: 0 })) : internalPreview.stop();
-  if (data.resume_event) { if (!internal) stoppedResumeEvent = data.resume_event; setSeekTarget(data.resume_event, false, currentSeekTotal()); }
-  toast(internal ? "Internal play enabled — output stays inside this tool" : "External playback route restored", "idle"); updateInputModeUI();
-}
+const playbackOverrides = setupPianoPlaybackOverrides({
+  els, api, preview: internalPreview, controls: pianoControls, internalMode, refreshWindows,
+  currentSeekTotal, setSeekTarget, toast, updateInputModeUI, bridge: () => frontendBridge,
+  onResumeEvent: value => { stoppedResumeEvent = Number(value) || 0; }
+});
 
 function setGlobalSpeed(value) {
   els.globalSpeed.value = String(Math.max(0.25, Math.min(3, Number(value) || 1)));
@@ -429,12 +428,12 @@ function bind() {
   els.seekEnd.addEventListener("click", () => applySeek(currentSeekTotal()));
   document.querySelectorAll("[data-seek-delta]").forEach(button => button.addEventListener("click", () => nudgeSeek(button.dataset.seekDelta)));
   [els.interval, els.hold, els.gate, els.blackLead, els.chordSpread, els.countdown, els.globalSpeed].forEach(element => element.addEventListener("input", updateSliderLabels));
-  els.inputMode.addEventListener("change", updateInputModeUI); els.internalPlay.addEventListener("change", changeInternalMode);
+  els.inputMode.addEventListener("change", updateInputModeUI); els.internalPlay.addEventListener("change", playbackOverrides.changeInternalMode); els.window.addEventListener("change", () => frontendBridge?.persistTargetWindow?.());
   document.querySelectorAll("[data-speed]").forEach(button => button.addEventListener("click", () => setGlobalSpeed(button.dataset.speed)));
   els.record.addEventListener("click", startRecording); els.recordStop.addEventListener("click", finishRecording); els.replay.addEventListener("click", replayRecording);
   els.clearRecording.addEventListener("click", clearRecording); els.saveRecording.addEventListener("click", saveRecording);
   window.addEventListener("keydown", event => { if (event.key === "F7" && internalMode()) { event.preventDefault(); stopPlayback(); } });
 }
 frontendBridge = setupPianoFrontendAppBridge({
-  api, els, internalMode, play: async (song, { resume = false } = {}) => { if (resume && activeSongId === song.id && lastStatus.status === "paused") return togglePause(); if (resume && activeSongId === song.id && lastStatus.status === "idle" && stoppedResumeEvent > 0) return startPlayback({ resumeEvent: stoppedResumeEvent }); await loadSong(song); if (activeSongId !== song.id) throw new Error("Piano could not load that song."); await startPlayback(); if (els.statusChip.dataset.state === "error") throw new Error(els.statusText.textContent || "Playback failed."); }, pause: togglePause, stop: stopPlayback, status: () => internalMode() ? internalPreview.status() : lastStatus, current: currentSheetSnapshot, activeSongId: () => activeSongId, progress: () => ({ index: Math.max(0, Number(lastStatus.current_index || seekTarget || 0)), total: currentSeekTotal() }), speed: () => Number(els.globalSpeed.value || 1), setSpeed: setGlobalSpeed, workspace: sheetWorkspace, seek: applySeek, importSongs: () => $("importLibraryBtn")?.click(), loadSong
+  api, els, internalMode, applySongSettings: playbackOverrides.applySongSettings, play: async (song, { resume = false } = {}) => { if (resume && activeSongId === song.id && lastStatus.status === "paused") return togglePause(); if (resume && activeSongId === song.id && lastStatus.status === "idle" && stoppedResumeEvent > 0) return startPlayback({ resumeEvent: stoppedResumeEvent }); await loadSong(song); if (activeSongId !== song.id) throw new Error("Piano could not load that song."); await startPlayback({ startEvent: 1 }); if (els.statusChip.dataset.state === "error") throw new Error(els.statusText.textContent || "Playback failed."); }, pause: togglePause, stop: stopPlayback, status: () => internalMode() ? internalPreview.status() : lastStatus, current: currentSheetSnapshot, activeSongId: () => activeSongId, progress: () => ({ index: Math.max(0, Number(lastStatus.current_index || seekTarget || 0)), total: currentSeekTotal() }), speed: () => Number(els.globalSpeed.value || 1), setSpeed: setGlobalSpeed, workspace: sheetWorkspace, seek: applySeek, importSongs: () => $("importLibraryBtn")?.click(), loadSong
 }); bind(); updateInputModeUI(); updateSliderLabels(); refreshStats(); refreshLibrary(); refreshWindows(); loadProviders(); pollStatus();

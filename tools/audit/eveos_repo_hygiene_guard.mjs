@@ -18,8 +18,17 @@ const forbiddenRoots = [
 const forbiddenExact = new Set([
     '.env', 'server_modules/audioflix_allowed_dirs.json', 'spotify-volume-probe.mjs'
 ]);
+const privateBrowserPath = /(?:^|\/)(?:spotify-browser-edge-beta-profile\/|SpotifyEmbedEdgeBetaProfile\/|playwright\/\.auth\/|Network\/Cookies-journal$)/i;
+const privateDeveloperAgentPath = file => /(?:^|\/)(?:\.codex|\.gemini|\.cursor|\.agents-private|\.openclaw|\.hermes)\//i.test(file)
+    || (/(?:^|\/)\.claude\//i.test(file) && file !== '.claude/launch.json')
+    || /(?:^|\/)(?:AGENTS\.override|AGENTS\.local|CLAUDE\.local|GEMINI\.local|SOUL|MEMORY|USER|IDENTITY)\.md$/i.test(file)
+    || /^data\/agent-management\.json$/i.test(file);
+const publicAgentConfig = /^config\/agents\/(?:tlo\/(?:AGENT\.md|NEXUS\.md|ORIGIN\.md|RUNTIME\.json)|capabilities\/(?:[a-z0-9-]+\.md|registry\.json))$/;
+
 const forbiddenPath = file => forbiddenExact.has(file)
     || forbiddenRoots.some(root => file.startsWith(root))
+    || privateBrowserPath.test(file)
+    || privateDeveloperAgentPath(file)
     || file.split('/').includes('__pycache__')
     || /\.log$/i.test(file)
     || /(^|\/)\.env\.(?!example$)/.test(file)
@@ -27,11 +36,25 @@ const forbiddenPath = file => forbiddenExact.has(file)
     || /(^|\/)(?:cookies?|credentials?|secrets?|tokens?)(?:\.[^/]+)?$/i.test(file);
 
 for (const file of tracked) if (forbiddenPath(file)) fail.push(`private/runtime path is tracked: ${file}`);
+for (const file of tracked) {
+    if (/^config\/agents\//i.test(file) && !publicAgentConfig.test(file))
+        fail.push(`unreviewed agent configuration is tracked: ${file}`);
+}
+
 
 const ignoreContract = [
     'data/runtime/.eveos-ignore-probe', 'data/modular-state/.eveos-ignore-probe', 'logs/.eveos-ignore-probe',
     'output/.eveos-ignore-probe', 'test-results/.eveos-ignore-probe', 'playwright-report/.eveos-ignore-probe',
-    '.pytest_cache/.eveos-ignore-probe', '.claude/settings.local.json', '.spotify-probe-profile/.eveos-ignore-probe'
+    '.pytest_cache/.eveos-ignore-probe', '.claude/settings.local.json', '.spotify-probe-profile/.eveos-ignore-probe',
+    'spotify-browser-edge-beta-profile/Default/Preferences', 'SpotifyEmbedEdgeBetaProfile/Default/Preferences',
+    'tools/example/playwright/.auth/state.json', 'tools/example/Default/Network/Cookies',
+    'tools/example/Default/Network/Cookies-journal',
+    '.codex/AGENTS.override.md', '.gemini/settings.json', '.cursor/private.json',
+    '.agents-private/context.md', 'AGENTS.override.md',
+    'config/agents/private/AGENT.md', 'data/agent-management.json',
+    'nested/.codex/sessions/example.jsonl', '.claude/projects/example.jsonl',
+    '.openclaw/workspace/AGENTS.md', '.hermes/state.json', 'nested/SOUL.md',
+    'config/agents/iris/RUNTIME.json', 'config/agents/tlo/session.json'
 ];
 for (const probe of ignoreContract) {
     try { runGit(['check-ignore', '-q', '--', probe]); }
@@ -94,6 +117,17 @@ for (const file of tracked.filter(file => executableRoot(file) && !isFixtureSour
     try { source = fs.readFileSync(full, 'utf8'); } catch { continue; }
     const hits = (source.match(absoluteMachinePath) || []).filter(value => !isExplicitExamplePath(value));
     if (hits.length) fail.push(`machine-specific absolute path in tracked executable source: ${file} (${hits[0]})`);
+}
+
+
+const markdown = file => /\.md$/i.test(file);
+const stagedDocs = new Set(runGit(['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR']).split('\0').filter(markdown));
+for (const file of tracked.filter(markdown)) {
+    const full = path.join(ROOT, ...file.split('/'));
+    const staged = stagedDocs.has(file) ? runGit(['show', `:${file}`]) : '';
+    const current = fs.existsSync(full) ? fs.readFileSync(full, 'utf8') : '';
+    if ([staged, current].some(source => (source.match(absoluteMachinePath) || []).some(value => !isExplicitExamplePath(value))))
+        fail.push(`personal home-directory path in public documentation: ${file}`);
 }
 
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));

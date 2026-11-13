@@ -1,4 +1,5 @@
 // Additional EveOS ports. The existing Piano DOM and PlayerQueue remain authoritative.
+import { performScopedQueue } from "./piano_scope_port_v9b.js";
 const byId = id => document.getElementById(id);
 const selected = node => ({ value: String(node.value), label: node.selectedOptions?.[0]?.textContent?.trim() || '' });
 const options = node => node ? [...node.options].map(o => ({ value: String(o.value), label: o.textContent.trim() })) : [];
@@ -20,8 +21,16 @@ function firstFinite(...values) {
 function validOption(node, value) { return !!node && [...node.options].some(option => String(option.value) === String(value)); }
 function emitChange(node) { node.dispatchEvent(new Event('change', { bubbles: true })); }
 const cleanText = (value, limit = 180) => String(value || '').trim().slice(0, limit);
-const cleanList = value => (Array.isArray(value) ? value : String(value || '').split(','))
-  .map(item => cleanText(item, 60)).filter(Boolean).slice(0, 30);
+function cleanListValue(value, limit, count, depth = 0) {
+  if (depth > 3) return [];
+  if (Array.isArray(value)) return [...new Set(value.flatMap(item => cleanListValue(item, limit, count, depth + 1)))].slice(0, count);
+  const raw = String(value || '').trim(); if (!raw) return [];
+  if (/^\[.*\]$/.test(raw)) for (const candidate of [raw, raw.includes('"') ? '' : raw.replace(/'/g, '"')]) {
+    try { const parsed = JSON.parse(candidate); if (Array.isArray(parsed)) return cleanListValue(parsed, limit, count, depth + 1); } catch (_) {}
+  }
+  return [...new Set(raw.split(',').map(item => cleanText(item, limit)).filter(Boolean))].slice(0, count);
+}
+const cleanList = (value, limit = 60, count = 80) => cleanListValue(value, limit, count);
 
 async function setControl(data) {
   const field = data.field, value = data.value;
@@ -45,7 +54,9 @@ async function performQueue(data, api) {
   const queue = window.PianoPlayerQueue;
   if (!queue?.getState) throw new Error('The Player Queue is still initializing.');
   const action = data.action;
-  if (action === 'queue:add') {
+  if (['queue:scope-play', 'queue:play-eligible', 'queue:loop'].includes(action)) {
+    await performScopedQueue(queue, api, data);
+  } else if (action === 'queue:add') {
     if (typeof data.songId !== 'string' || !data.songId || data.songId.length > 180) throw new Error('Invalid song ID.');
     let songs = (await api.songs()).songs || [];
     let song = songs.find(item => String(item.id) === data.songId);
@@ -55,6 +66,13 @@ async function performQueue(data, api) {
     }
     if (!song) throw new Error('Song not found in your Piano library. Refresh.');
     queue.addSong(song, false);
+  } else if (action === 'queue:add-many') {
+    const ids = Array.isArray(data.songIds) ? [...new Set(data.songIds.map(cleanText).filter(Boolean))].slice(0, 500) : [];
+    if (!ids.length) throw new Error('Choose at least one Piano song.');
+    const songs = (await api.songs({ fresh: true })).songs || [];
+    const chosen = ids.map(id => songs.find(song => String(song.id) === id)).filter(Boolean);
+    if (chosen.length !== ids.length) throw new Error('One or more Piano songs are no longer available. Refresh.');
+    await queue.addSongs(chosen, { announce: false });
   } else if (action === 'queue:remove') {
     if (typeof data.queueId !== 'string' || !data.queueId) throw new Error('Invalid queue entry.');
     queue.removeQueueId(data.queueId);
@@ -157,15 +175,28 @@ async function performMedia(data, api, deps) {
     if (!song) throw new Error('That Piano song is no longer available.');
     const previous = song.identifiers && typeof song.identifiers === 'object' ? song.identifiers : {};
     const previousCustom = previous.custom && typeof previous.custom === 'object' ? previous.custom : {};
-    const rating = data.rating === '' || data.rating == null ? null : Number(data.rating);
+    const rating = data.rating === undefined ? (previous.personal_rating ?? null)
+      : data.rating === '' || data.rating == null ? null : Number(data.rating);
     if (rating != null && (!Number.isFinite(rating) || rating < 0 || rating > 5)) throw new Error('Rating must be from 0 to 5.');
+    if (data.playback !== undefined && (!data.playback || typeof data.playback !== 'object' || Array.isArray(data.playback)))
+      throw new Error('Piano playback settings must be an object.');
     const identifiers = {
       ...previous,
       author: cleanText(data.artist ?? previous.author ?? song.artist, 90),
       genre: cleanList(data.genre ?? previous.genre),
       tags: cleanList(data.tags ?? previous.tags),
       personal_rating: rating,
-      custom: { ...previousCustom, favorite: data.favorite === true ? 'true' : data.favorite === false ? 'false' : String(previousCustom.favorite || 'false') }
+      custom: {
+        ...previousCustom,
+        favorite: data.favorite === true ? 'true' : data.favorite === false ? 'false' : String(previousCustom.favorite || 'false'),
+        piano_tab: cleanText(data.tab ?? previousCustom.piano_tab, 80),
+        piano_folder: data.folders === undefined ? cleanText(data.folder ?? previousCustom.piano_folder, 80) : '',
+        piano_group: data.groups === undefined ? cleanText(data.group ?? previousCustom.piano_group, 80) : '',
+        piano_folders_v1: cleanList(data.folders ?? previousCustom.piano_folders_v1 ?? previousCustom.piano_folder, 80, 80),
+        piano_groups_v1: cleanList(data.groups ?? previousCustom.piano_groups_v1 ?? previousCustom.piano_group, 80, 80),
+        piano_duplicate_keep_v1: cleanList(data.duplicateKeep ?? previousCustom.piano_duplicate_keep_v1, 180, 20),
+        piano_playback_v1: data.playback === undefined ? (previousCustom.piano_playback_v1 || {}) : data.playback
+      }
     };
     await api.saveSong({ ...song, title: cleanText(data.title ?? song.title) || 'Untitled', artist: identifiers.author, identifiers });
     window.dispatchEvent(new CustomEvent('piano:unified-refresh-requested'));
@@ -187,10 +218,11 @@ export function setupExtendedPianoFrontendPort({ api, parent, parentOrigin, repl
       sheetEvents: preview.events || [] };
   };
   const supported = new Set(['controls:get', 'controls:set', 'controls:refresh', 'queue:get',
-    'queue:add', 'queue:remove', 'queue:reorder', 'queue:duplicate', 'queue:play-item', 'queue:mode', 'queue:play', 'queue:stop',
+    'queue:add', 'queue:add-many', 'queue:remove', 'queue:reorder', 'queue:duplicate', 'queue:play-item', 'queue:mode', 'queue:play', 'queue:stop',
     'queue:next', 'queue:previous', 'queue:shuffle', 'queue:clear', 'queue:play-all', 'progress:get', 'progress:seek',
     'media:get', 'playback:preset', 'workspace:history-load', 'workspace:inbox-load', 'workspace:inbox-discard',
     'library:import', 'song:load', 'song:update']);
+  for (const action of ['queue:scope-play', 'queue:play-eligible', 'queue:loop']) supported.add(action);
   let mutating = false;
   window.addEventListener('message', async event => {
     const data = event.data;
@@ -238,10 +270,20 @@ export function summarizeFrontendSong(song) {
   const identifiers = song?.identifiers || {}, auto = song?.automatic_identifiers || {};
   return {
     id: String(song.id || ''), title: String(song.title || 'Untitled'), artist: String(song.artist || ''),
-    kind: song.performance?.length ? 'recording' : 'song', source: String(song.source || ''),
+    kind: song.performance?.length ? 'recording' : 'song', source: String(song.source || ''), source_url: String(song.source_url || ''),
     updated_at: Number(song.updated_at || 0), duration_ms: Number(auto.duration_ms || song.duration_ms || 0),
     identifiers: { author: String(identifiers.author || ''), genre: identifiers.genre || [], tags: identifiers.tags || [],
-      personal_rating: identifiers.personal_rating ?? null, custom: { favorite: String(identifiers.custom?.favorite || '') } },
+      personal_rating: identifiers.personal_rating ?? null, custom: {
+        favorite: String(identifiers.custom?.favorite || ''),
+        piano_tab: String(identifiers.custom?.piano_tab || ''),
+        piano_folder: String(identifiers.custom?.piano_folder || ''),
+        piano_group: String(identifiers.custom?.piano_group || ''),
+        piano_folders_v1: cleanList(identifiers.custom?.piano_folders_v1, 80, 80),
+        piano_groups_v1: cleanList(identifiers.custom?.piano_groups_v1, 80, 80),
+        piano_duplicate_keep_v1: cleanList(identifiers.custom?.piano_duplicate_keep_v1, 180, 20),
+        piano_playback_v1: identifiers.custom?.piano_playback_v1 && typeof identifiers.custom.piano_playback_v1 === 'object'
+          ? identifiers.custom.piano_playback_v1 : {}
+      } },
     automatic_identifiers: { kind: String(auto.kind || ''), source_host: String(auto.source_host || ''),
       event_count: Number(auto.event_count || 0), duration_ms: Number(auto.duration_ms || 0),
       conversion_rating: auto.conversion_rating ?? null, tags: auto.tags || [] }

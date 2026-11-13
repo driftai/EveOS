@@ -90,9 +90,13 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
         return function complete(detail = {}) {
             const queue = snapshot();
             const entry = queue?.entries?.[queue.currentIndex];
-            if (detail.status !== 'Ended' || !queue?.isPlaying || !entry) return false;
+            // Only definitive transport errors may skip a track. Transient provider warnings,
+            // buffering, user Pause and ambiguous Engine failures remain under their owners.
+            const terminalFailure = detail.error === true && detail.terminal === true;
+            if ((detail.status !== 'Ended' && !terminalFailure) || !queue?.isPlaying || !entry) return false;
             const id = String(entry.id ?? '');
             if (detail.item?.id != null && String(detail.item.id) !== id) return false;
+            if (detail.edgeEmbed && window.EveAudioflixSpotifyEdgeQueue?.isDelegated?.()) return false;
             const run = queue.playbackRunId;
             const key = `${id}:${run}`;
             if (consumed === key || isStaleDelivery(detail, run)) return false;
@@ -102,7 +106,8 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
                 const latest = snapshot();
                 if (!latest?.isPlaying || latest.playbackRunId !== run
                     || String(latest.entries?.[latest.currentIndex]?.id ?? '') !== id) return;
-                await (latest.repeatOne ? restart() : advance());
+                // A broken item must advance even when repeat-one is enabled, or it would loop forever.
+                await (terminalFailure ? advance() : latest.repeatOne ? restart() : advance());
                 syncTerminalView(snapshot);
             }).catch(error => {
                 window.EveAudioflixDiagnostics?.record?.('queue:completion-error', 0, { error: true });
@@ -150,10 +155,13 @@ window.EveAudioflixQueueCompletion = window.EveAudioflixQueueCompletion || {};
             const track = bridge.trackAt(active.currentIndex) || window.EveAudioflixAudio?.getPlaybackState?.()?.item;
             if (!track) return false;
             const run = invalidateRun();
-            await window.EveAudioflixAudio?.seek?.(0);
-            if (run !== getRun()) return false;
-            if (window.EveAudioflixAudio?.isInternalViewOpen?.()) await window.EveAudioflixAudio?.openInternalView?.(track);
-            else await window.EveAudioflixAudio?.playItem?.(track);
+            const owned = await window.EveAudioflixAudio?.restartCurrent?.(track);
+            if (owned !== true) {
+                await window.EveAudioflixAudio?.seek?.(0);
+                if (run !== getRun()) return false;
+                if (window.EveAudioflixAudio?.isInternalViewOpen?.()) await window.EveAudioflixAudio?.openInternalView?.(track);
+                else await window.EveAudioflixAudio?.playItem?.(track);
+            }
             if (run !== getRun()) return false;
             window.EveAudioflixAudio?.syncQueueView?.();
             return true;

@@ -45,8 +45,7 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
         window.EveAudioflixState?.update?.({
             preferredSinkId: sinkId,
             preferredSinkLabel: isDefault ? '' : (label || 'Selected output device'),
-            nativeBridgeEnabled: false,
-            nativeSuppressBrowserPlayback: false,
+            ...(isDefault ? { nativeBridgeEnabled: false, nativeSuppressBrowserPlayback: false } : {}),
             nativeRouteDefaultV2Applied: true,
             routeMode: isDefault ? 'browser' : 'browser-selective'
         }, 'audioflix-output-device');
@@ -167,23 +166,30 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
         return shorter.length >= 6 && longer.startsWith(shorter);
     }
 
-    async function resolvePlaybackSink() {
+    async function resolvePlaybackSink(force = false, item = null) {
         const current = state();
-        if (current.preferredSinkId) {
+        const policy = item ? window.EveAudioflixPlaybackPolicy?.policyOf?.(item) : null;
+        if (policy?.outputMode === 'custom' && policy.outputKind === 'browser' && policy.outputId) {
+            return { deviceId: policy.outputId, label: policy.outputLabel || 'custom browser output', source: 'song-custom' };
+        }
+        const customNative = policy?.outputMode === 'custom' && policy.outputKind === 'native' && policy.outputId;
+        const nativeLabel = policy?.outputMode === 'custom' && policy.outputKind === 'native'
+            ? policy.outputLabel : current.nativeOutputLabel;
+        if (!customNative && current.preferredSinkId) {
             return {
                 deviceId: current.preferredSinkId,
                 label: current.preferredSinkLabel || 'selected output',
                 source: 'browser-selective'
             };
         }
-        if (current.nativeBridgeEnabled !== true || !current.nativeOutputId || !current.nativeOutputLabel) return null;
-        if (nativeSinkMatch.key !== current.nativeOutputLabel || Date.now() - nativeSinkMatch.at >= 15000) {
+        if (!customNative && (current.nativeBridgeEnabled !== true || !current.nativeOutputId || !nativeLabel)) return null;
+        if (force || nativeSinkMatch.key !== nativeLabel || Date.now() - nativeSinkMatch.at >= 15000) {
             const outputs = await listOutputs();
             const match = (outputs || []).find(
-                (device) => device && !device.anonymous && deviceLabelsMatch(device.label, current.nativeOutputLabel)
+                (device) => device && !device.anonymous && deviceLabelsMatch(device.label, nativeLabel)
             );
             nativeSinkMatch = {
-                key: current.nativeOutputLabel,
+                key: nativeLabel,
                 deviceId: match?.deviceId || '',
                 label: match?.label || '',
                 at: Date.now()
@@ -191,7 +197,7 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
         }
         return nativeSinkMatch.deviceId
             ? { deviceId: nativeSinkMatch.deviceId, label: nativeSinkMatch.label, source: 'native-label-match' }
-            : { deviceId: '', label: current.nativeOutputLabel, source: 'native-unmatched' };
+            : { deviceId: '', label: nativeLabel, source: 'native-unmatched' };
     }
 
     // Route the browser <audio> player (used for continuous music) onto the resolved sink and
@@ -200,7 +206,7 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
     let nativeSinkNoticeShown = false;
     async function routeBrowserStream(item) {
         let routed = null;
-        try { routed = await resolvePlaybackSink(); } catch { routed = null; }
+        try { routed = await resolvePlaybackSink(false, item); } catch { routed = null; }
         if (routed?.deviceId) {
             try {
                 await applySink(routed.deviceId);
@@ -218,18 +224,21 @@ window.EveAudioflixAudioOutput = window.EveAudioflixAudioOutput || {};
 
     async function tryNativePlayback(safeItem) {
         if (safeItem.type === 'sound') return false; // Force soundboard sounds to use voice playback path for layering/volume support!
-        if (!window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()) return false;
+        const policy = window.EveAudioflixPlaybackPolicy?.policyOf?.(safeItem);
+        const customDeviceId = policy?.outputMode === 'custom' && policy.outputKind === 'native'
+            ? policy.outputId : '';
+        if (!customDeviceId && !window.EveAudioflixNative?.shouldSuppressBrowserPlayback?.()) return false;
         const isWav = String(safeItem.url || '').toLowerCase().split('?')[0].split('#')[0].endsWith('.wav');
         if (!isWav) return false;
         const payload = await window.EveAudioflixNative?.playMediaItem?.({
             ...safeItem,
             volume: window.EveAudioflixOutputPort?.effective?.(safeItem.volume) ?? safeItem.volume
-        });
+        }, { deviceId: customDeviceId });
         if (payload?.ok !== true) {
             return false;
         }
         runtime.currentItem = safeItem;
-        runtime.lastStatus = `Native route playing ${safeItem.title || 'audio'} -> ${state().nativeOutputLabel || 'selected output'}`;
+        runtime.lastStatus = `Native route playing ${safeItem.title || 'audio'} -> ${policy?.outputLabel || state().nativeOutputLabel || 'selected output'}`;
         dispatch('eve:audioflix-playback', { status: runtime.lastStatus, item: safeItem, native: true, payload });
         window.EveAudioflixState?.recordPlay?.(safeItem);
         return true;

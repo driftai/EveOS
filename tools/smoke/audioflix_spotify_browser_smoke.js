@@ -205,7 +205,10 @@ const assert = (condition, message) => {
     await page.waitForSelector('.audioflix-provider-stage.is-internal-view');
     await page.evaluate(() => window.EveAudioflixAudio.pause());
     const controllerBeforeClose = await page.evaluate(() => ({ ...window.__spotifyUiTotals }));
-    await page.click('[data-url-player-action="stop"]');
+    // There are multiple Stop/Close buttons in the DOM; only the active Internal Player owns this action.
+    const expandedStop = page.locator('.audioflix-provider-stage.is-internal-view [data-url-player-action="stop"]:visible');
+    assert(await expandedStop.count() === 1, 'expanded Spotify player has exactly one visible Close control');
+    await expandedStop.click();
     await page.waitForSelector('.audioflix-provider-stage.is-transport-only');
     assert(
         await page.evaluate((before) => window.__spotifyUiTotals.created === before.created
@@ -306,6 +309,13 @@ const assert = (condition, message) => {
         })})`
     );
     await page.evaluate(() => window.EveAudioflixAudio.stopAll());
+    const expandedPlayer = page.locator('.audioflix-provider-stage.is-internal-view');
+    if (await expandedPlayer.isVisible()) {
+        const activeClose = expandedPlayer.locator('[data-url-player-action="stop"]:visible');
+        assert(await activeClose.count() === 1, 'expanded Spotify player exposes one visible Close control');
+        await activeClose.click();
+        await expandedPlayer.waitFor({ state: 'hidden' });
+    }
     await page.click('[data-af-action="toggle-view-mode"][data-af-type="music"]');
 
     await page.click('[data-af-action="toggle-import-form"]');
@@ -328,6 +338,20 @@ const assert = (condition, message) => {
     await page.fill('[data-af-spotify-search]', 'Mobius');
     const visibility = await page.$$eval('[data-af-spotify-row]', (rows) => rows.map((row) => !row.hidden));
     assert(visibility.filter(Boolean).length === 1 && visibility[1] === true, 'inspector search filters all large-playlist rows by title, artist, or album');
+    await page.evaluate(() => window.EveAudioflix.render());
+    const afterRerender = await page.evaluate(() => {
+        const input = document.querySelector('[data-af-spotify-search]');
+        const rows = [...document.querySelectorAll('[data-af-spotify-row]')];
+        return {
+            query: input?.value || '',
+            total: rows.length,
+            visible: rows.filter(row => !row.hidden).length,
+            secondVisible: rows[1] ? !rows[1].hidden : false
+        };
+    });
+    assert(afterRerender.query === 'Mobius' && afterRerender.total === 135
+        && afterRerender.visible === 1 && afterRerender.secondVisible,
+        `inspector search must survive full panel rerender: ${JSON.stringify(afterRerender)}`);
     await page.click('[data-af-action="toggle-localize-form"][data-af-scope="group"][data-af-key="Gilded age Music"]');
     const fallbackOptions = page.locator('.audioflix-group-manager-entry + .audioflix-form details').last();
     await fallbackOptions.waitFor({ state: 'visible' });

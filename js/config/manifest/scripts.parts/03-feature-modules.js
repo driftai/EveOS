@@ -5,7 +5,7 @@ window.EveModuleManifestScriptChunks = window.EveModuleManifestScriptChunks || [
 window.EveModuleManifestScriptChunks.push([
     // Feature Modules (Consolidated)
     "js/modules/features/audioflix/audioflix.audio.internal.queue.js?v=e8ab78e1f282",
-    "js/modules/features/audioflix/audioflix.ui.panel.js?v=cfa130b4b5b4",
+    "js/modules/features/audioflix/audioflix.ui.panel.js?v=6d8e1697d8b7",
     "js/modules/features/audioflix/audioflix.library.index.js?v=3b3a5843b8f8",
     "js/modules/features/audioflix/audioflix.audio.volume-target.js?v=463e7e2937f9",
     "js/modules/features/audioflix/audioflix.ui.volume-gesture.js?v=90ff34c71fe0",
@@ -27,16 +27,17 @@ window.EveModuleManifestScriptChunks.push([
     "js/modules/features/audioflix/audioflix.spotify.media.js?v=0d6e349a74c3",
     "js/modules/features/audioflix/audioflix.library.health-view.js?v=063678b9490d",
     "js/modules/features/audioflix/audioflix.transport.resilience.js?v=b3470ebe5523",
-    "js/modules/features/audioflix/audioflix.spotify.remote.js?v=adb7739fbeb8",
+    "js/modules/features/audioflix/audioflix.spotify.remote.js?v=3986b1f4fdc3",
     "js/modules/features/audioflix/audioflix.spotify.status-watch.js?v=832b2f4fca48",
     "js/modules/features/audioflix/audioflix.spotify.playback-lifecycle.js?v=205029a9b32f",
-    "js/modules/features/audioflix/audioflix.spotify.any-browser.js?v=716de44401b4",
-    "js/modules/features/audioflix/audioflix.spotify.queue-handoff.js?v=dcf3e029d8f1",
+    "js/modules/features/audioflix/audioflix.spotify.native-capture.js?v=4a7c8f76c235",
+    "js/modules/features/audioflix/audioflix.spotify.any-browser.js?v=b6f291ecd9bf",
+    "js/modules/features/audioflix/audioflix.spotify.queue-handoff.js?v=964348fd5ef2",
     "js/modules/features/audioflix/audioflix.spotify.repeat-rearm.js?v=70e844de7bf5",
-    "js/modules/features/audioflix/audioflix.spotify.engine-surface.js?v=d52c283daf57",
-    "js/modules/features/watchfusion/watchfusion.bootstrap.js?v=276b11f79777",
+    "js/modules/features/audioflix/audioflix.spotify.engine-surface.js?v=d334adb9d1a2",
+    "js/modules/features/watchfusion/watchfusion.bootstrap.js?v=3d3dd1996754",
     "js/modules/features/watchfusion/watchfusion.runtime-sensing.js?v=06bb78645e6e",
-    "js/modules/features/watchfusion/watchfusion.js?v=a457ebe2a0e2",
+    "js/modules/features/watchfusion/watchfusion.js?v=06d82e53a083",
     "js/modules/features/watchfusion/watchfusion.reload.js?v=6912254eaf51",
     "js/modules/features/watchfusion/watchfusion.resilience.js?v=13f7a84e15a5"
 ]);

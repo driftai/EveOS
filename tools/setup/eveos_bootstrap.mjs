@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { inspectVenv } from './eveos_venv_guard.mjs';
 
 const ROOT = fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'));
 const require = createRequire(import.meta.url);
@@ -38,13 +39,19 @@ function findPython() {
 try {
     const major = Number(process.versions.node.split('.')[0]);
     if (major < 20) throw new Error(`Node.js >=20 required; found ${process.versions.node}`);
+    // Verify any existing virtualenv BEFORE npm ci or any dependency modification.
+    // Never recreate an occupied, incomplete or foreign .venv automatically.
+    const venvPlan = inspectVenv({ root: ROOT });
+    console.log(`EVEOS_VENV_${venvPlan.action.toUpperCase()} ${venvPlan.reason}`);
     npmCommand(['ci'], 'Install locked Node dependencies');
-    const python = findPython();
-    console.log(`Using Python ${python.version}`);
-    run(python.command, [...python.prefix, '-m', 'venv', '.venv'], 'Create isolated EveOS Python environment');
-    const venvPython = process.platform === 'win32'
-        ? path.join(ROOT, '.venv', 'Scripts', 'python.exe')
-        : path.join(ROOT, '.venv', 'bin', 'python');
+    if (venvPlan.action === 'create') {
+        const python = findPython();
+        console.log(`Using Python ${python.version}`);
+        run(python.command, [...python.prefix, '-m', 'venv', '.venv'], 'Create isolated EveOS Python environment');
+    } else {
+        console.log(`Reusing verified Python ${venvPlan.version} virtualenv; no recreation.`);
+    }
+    const venvPython = venvPlan.python;
     const requirementsFile = runtimeOnly ? 'requirements.txt' : 'requirements-dev.txt';
     run(venvPython, ['-m', 'pip', 'install', '--disable-pip-version-check', '-r', requirementsFile],
         `Install EveOS ${runtimeOnly ? 'runtime' : 'runtime + test'} Python dependencies`);
@@ -55,6 +62,10 @@ try {
     if (skipBrowser) doctorArgs.push('--skip-browser');
     if (runtimeOnly) doctorArgs.push('--runtime-only');
     run(process.execPath, doctorArgs, 'Verify fresh installation');
+    const firstRunMode = process.argv.includes('--with-spotify') ? '--install-edge-beta' : '--check';
+    run(process.execPath, [path.join(ROOT, 'tools', 'setup', 'eveos_first_run.mjs'), firstRunMode],
+        'Check optional Spotify Edge Beta availability');
+    console.log('Optional Spotify Direct setup: node tools/setup/eveos_first_run.mjs --install-edge-beta');
     console.log('\nEVEOS_SETUP_OK');
     if (!runtimeOnly) console.log('Run deterministic repository verification with: node tools/setup/eveos_verify.mjs');
 } catch (error) {

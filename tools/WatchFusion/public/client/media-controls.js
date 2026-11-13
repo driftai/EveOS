@@ -41,8 +41,8 @@ function youtubeId(input){try{return window.parseYoutubeInput?.(input)||null;}ca
 function directKind(input){const value=String(input||'');if(/\.m3u8(?:$|[?#])/i.test(value))return'hls';if(/\.(?:mp4|webm|m4v|mkv|ogg|mov)(?:$|[?#])/i.test(value))return'file';return'';}
 async function loadYoutubeInput(input) {
   const videoId=youtubeId(input);if(!videoId)return false;
-  if(!roomId){applySoloSource({type:'youtube',kind:'youtube',videoId,originalUrl:input});ensurePlayer(videoId);setStatus('Video ready · solo mode');return true;}
-  const ok=await command('source',{input});if(ok){sourceInputDirty=false;setStatus('Video ready');}return ok;
+  if(!roomId){applySoloSource({type:'youtube',kind:'youtube',videoId,originalUrl:input});ensurePlayer(videoId);if($('findMediaPanel'))$('findMediaPanel').hidden=true;setStatus('Video ready · solo mode');return true;}
+  const ok=await command('source',{input});if(ok){sourceInputDirty=false;if($('findMediaPanel'))$('findMediaPanel').hidden=true;setStatus('Video ready');}return ok;
 }
 async function loadMediaCandidate(candidate,originalUrl=resolvedMediaPageUrl) {
   if(!candidate)return false;

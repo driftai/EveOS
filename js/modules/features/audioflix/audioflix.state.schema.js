@@ -101,6 +101,54 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
         const normalizeVolume = deps.normalizeVolume;
         const id = deps.id;
 
+        const POLICY_SOURCE = new Set(['inherit', 'localized', 'original']);
+        const POLICY_SPOTIFY = new Set(['inherit', 'managed', 'embed']);
+        const POLICY_SCOPE = new Set(['nexus', 'global', 'custom']);
+        const POLICY_OUTPUT = new Set(['inherit', 'global', 'custom']);
+        const POLICY_OUTPUT_KIND = new Set(['browser', 'native']);
+
+        function cleanPlaybackPolicy(policy, options = {}) {
+            const source = policy && typeof policy === 'object' && !Array.isArray(policy) ? policy : {};
+            const global = options.global === true;
+            const partial = options.partial === true;
+            const fallbackSource = global ? 'localized' : 'inherit';
+            const fallbackSpotify = global ? 'managed' : 'inherit';
+            const fallbackOutput = global ? 'global' : 'inherit';
+            const value = {
+                sourcePreference: POLICY_SOURCE.has(source.sourcePreference) ? source.sourcePreference : fallbackSource,
+                spotifyMethod: source.spotifyMethod === 'electron' ? 'embed'
+                    : POLICY_SPOTIFY.has(source.spotifyMethod) ? source.spotifyMethod : fallbackSpotify,
+                outputMode: POLICY_OUTPUT.has(source.outputMode) ? source.outputMode : fallbackOutput,
+                outputKind: POLICY_OUTPUT_KIND.has(source.outputKind) ? source.outputKind : 'native',
+                outputId: text(source.outputId, ''),
+                outputLabel: text(source.outputLabel, ''),
+                priority: Math.max(-1000, Math.min(1000, Number(source.priority || 0) || 0))
+            };
+            if (!global) value.scopeMode = POLICY_SCOPE.has(source.scopeMode) ? source.scopeMode : 'nexus';
+            if (value.outputMode !== 'custom' || !value.outputId) {
+                value.outputId = '';
+                value.outputLabel = '';
+            }
+            if (partial) {
+                if (!Object.prototype.hasOwnProperty.call(source, 'sourcePreference')) delete value.sourcePreference;
+                if (!Object.prototype.hasOwnProperty.call(source, 'spotifyMethod')) delete value.spotifyMethod;
+                if (!Object.prototype.hasOwnProperty.call(source, 'outputMode')) {
+                    delete value.outputMode; delete value.outputKind; delete value.outputId; delete value.outputLabel;
+                }
+                if (!Object.prototype.hasOwnProperty.call(source, 'priority')) delete value.priority;
+                delete value.scopeMode;
+            }
+            return value;
+        }
+
+        function cleanScopePolicies(policies) {
+            if (!policies || typeof policies !== 'object' || Array.isArray(policies)) return {};
+            return Object.fromEntries(Object.entries(policies)
+                .map(([key, policy]) => [text(key, '').toLowerCase(), cleanPlaybackPolicy(policy, { partial: true })])
+                .filter(([key, policy]) => key && Object.keys(policy).length)
+                .slice(0, 512));
+        }
+
         function cleanItem(item, type) {
             const source = item && typeof item === 'object' ? item : {};
             const identity = mediaIdentity(source);
@@ -146,11 +194,15 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
                 audioKind: text(source.audioKind, ''),
                 caption: text(source.caption, ''),
                 permalink: text(source.permalink, ''),
+                ...(source.playbackPolicy && typeof source.playbackPolicy === 'object'
+                    && Object.keys(source.playbackPolicy).length
+                    ? { playbackPolicy: cleanPlaybackPolicy(source.playbackPolicy) } : {}),
                 volume: normalizeVolume(source.volume, 1),
                 // Track length in seconds (0 = not yet known). Persisted so duration facets/smart
                 // folders work without replaying every track to re-measure it.
                 duration: Number(source.duration) > 0 ? Number(source.duration) : 0,
                 exposed: source.exposed === true,
+                excludeFromQueue: type === 'music' && source.excludeFromQueue === true,
                 // Provider playback may need a mounted iframe, but its compact panel is opt-in.
                 showProviderTransport: source.showProviderTransport === true,
                 hotkey: text(source.hotkey, ''),
@@ -161,6 +213,10 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
                 sourceId: text(source.sourceId, ''),
                 upstreamMissing: source.upstreamMissing === true,
                 missingLocal: source.missingLocal === true,
+                spotifyAvailability: ['unavailable', 'failed'].includes(source.spotifyAvailability)
+                    ? source.spotifyAvailability : '',
+                spotifyAvailabilityReason: text(source.spotifyAvailabilityReason, '').slice(0, 180),
+                spotifyAvailabilityCheckedAt: Math.max(0, Number(source.spotifyAvailabilityCheckedAt || 0) || 0),
                 isPorted: source.isPorted === true,
                 isMusicPort: source.isMusicPort === true,
                 musicPortGroup: text(source.musicPortGroup, ''),
@@ -233,7 +289,10 @@ window.EveAudioflixStateSchema = window.EveAudioflixStateSchema || {};
                 .slice(-max);
         }
 
-        return { cleanItem, cleanPort, cleanScopeBinding, boundedItems, boundedBindings, isRetained };
+        return {
+            cleanItem, cleanPort, cleanScopeBinding, boundedItems, boundedBindings, isRetained,
+            cleanPlaybackPolicy, cleanScopePolicies
+        };
     };
 
     ns.ready = true;

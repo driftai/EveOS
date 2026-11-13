@@ -123,15 +123,18 @@ window.EveOS.SearchAdvanced.Modules = window.EveOS.SearchAdvanced.Modules || {};
                 });
             }
 
-            // Wire Audioflix Link button — opens Audioflix backend panel.
+            // Return to the existing Audioflix tab and Nexus scope if one is already open.
+            // Calling openNexus() first resets the search/facet and switches Soundboard to Music.
             const audioflixBtn = fields.byId?.('nxAudioflixLinkBtn');
             if (audioflixBtn) {
                 audioflixBtn.addEventListener('click', function () {
                     if (typeof window.closeModals === 'function') window.closeModals();
-                    if (window.EveAudioflix?.openNexus) {
-                        window.EveAudioflix.openNexus('music');
-                    } else if (window.EveAudioflix?.open) {
-                        window.EveAudioflix.open();
+                    // Reopening the retained Audioflix view preserves its active tab, groups,
+                    // selected Nexus facet, search text and saved per-scope policy controls.
+                    window.EveAudioflix?.open?.();
+                    if (!document.querySelector('#audioflix-overlay .audioflix-nexus-panel')) {
+                        // Nexus Search may also be opened directly, without an Audioflix caller.
+                        window.EveAudioflix?.openNexus?.('music', true);
                     }
                 });
             }

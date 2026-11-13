@@ -6,6 +6,7 @@ objects that actually own playback, so Local Control never creates a second Spot
 from __future__ import annotations
 
 from server_modules import audioflix_spotify_broker as broker
+from server_modules import audioflix_spotify_broker_capture as capture_control
 from server_modules import audioflix_spotify_browser_rpc as engine
 
 
@@ -28,7 +29,25 @@ def prepare_restart(payload: dict | None = None) -> dict:
         presentation = str(before.get("presentation") or "hidden")
         transition = {"ok": True, "skipped": True, "reason": "Managed Spotify helper was not reachable."}
 
-        if helper_reachable:
+        # A reachable helper can outlive its Playwright page/context. In that exact terminal
+        # state no playback or PCM source remains to stop. Do not forge a transport ACK: record
+        # that the transition was skipped, retire broker ownership, and close the helper.
+        # Any unknown/active media state must still attempt the normal stop and fail closed.
+        capture_state = before.get("providerCapture")
+        page_closed_idle = (
+            helper_reachable and before.get("state") == "page-closed"
+            and before.get("pageAttached") is False
+            and before.get("playingCount") == 0
+            and before.get("transport") is None
+            and isinstance(capture_state, dict)
+            and capture_state.get("active") is False
+        )
+        if page_closed_idle:
+            transition = {
+                "ok": False, "skipped": True, "lifecycle": "page-closed",
+                "reason": "Closed Engine page has no transport to acknowledge stop.",
+            }
+        elif helper_reachable:
             # `stop` is a transport reset, not Ended. It leaves the queue scheduler with the
             # controller and provides one explicit terminal transition before helper teardown.
             transition = engine.transport({"action": "stop"})
@@ -43,6 +62,11 @@ def prepare_restart(payload: dict | None = None) -> dict:
                     "authState": auth_state,
                     "presentation": presentation,
                 }
+
+        # Retire managed PCM capture while the owner can still release it; a transport stop resets
+        # playback only, and a stranded capture lease would block Direct Embed after the restart.
+        capture_stop = (capture_control.retire_for_engine_stop() if helper_reachable
+                        else {"ok": True, "skipped": True, "reason": "Managed Spotify helper was not reachable."})
 
         with owned._lock:
             previous_owner = owned._owner_client_id
@@ -62,6 +86,7 @@ def prepare_restart(payload: dict | None = None) -> dict:
                 "presentation": presentation,
                 "previousOwner": bool(previous_owner),
                 "stopTransition": transition,
+                "captureStop": capture_stop,
             }
 
         return {
@@ -75,6 +100,7 @@ def prepare_restart(payload: dict | None = None) -> dict:
             "desiredVolume": desired_volume,
             "previousOwner": bool(previous_owner),
             "stopTransition": transition,
+            "captureStop": capture_stop,
             "helperStop": stopped,
             "autoplayRequested": False,
             "endedManufactured": False,

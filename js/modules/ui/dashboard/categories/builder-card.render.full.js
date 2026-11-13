@@ -312,7 +312,7 @@ function renderCardFull(catInput, catLinks, gridContainer, configOptions) {
             nonFocusButtons.push('<button class="card-header-icon-btn" data-ws="' + escapeCardHtml(activeWorkspaceId) + '" data-cat="' + safeCatHtml + '" onclick="openCategorySettings(this.dataset.cat, undefined, this.dataset.ws)" title="Settings">&#9881;</button>');
         }
         if (!isDetachedParkingCard && visibleHeaderButtons.has('launch')) {
-            nonFocusButtons.push('<button class="card-header-icon-btn launch-btn" data-cat="' + safeCatHtml + '" onclick="launchCategory(this.dataset.cat)" title="Launch">&#128640;</button>');
+            nonFocusButtons.push('<button class="card-header-icon-btn launch-btn" data-ws="' + escapeCardHtml(activeWorkspaceId) + '" data-cat="' + safeCatHtml + '" onclick="launchCategory(this.dataset.cat, this.dataset.ws)" title="Launch">&#128640;</button>');
         }
 
         var headerButtonsHtml = isFocusMode
@@ -356,7 +356,7 @@ function renderCardFull(catInput, catLinks, gridContainer, configOptions) {
                 ? '<button class="category-action-btn" data-ws="' + escapeCardHtml(activeWorkspaceId) + '" data-cat="' + safeCatHtml + '" onclick="openCategorySettings(this.dataset.cat, undefined, this.dataset.ws)" title="Settings">&#9881; <span>Settings</span></button>'
                 : '')
             + (!isDetachedParkingCard && visibleHeaderButtons.has('launch')
-                ? '<button class="category-action-btn" data-cat="' + safeCatHtml + '" onclick="launchCategory(this.dataset.cat)" title="Launch">&#128640; <span>Launch</span></button>'
+                ? '<button class="category-action-btn" data-ws="' + escapeCardHtml(activeWorkspaceId) + '" data-cat="' + safeCatHtml + '" onclick="launchCategory(this.dataset.cat, this.dataset.ws)" title="Launch">&#128640; <span>Launch</span></button>'
                 : '')
             + '</div>'
             : ''

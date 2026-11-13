@@ -82,7 +82,10 @@ async function waitForPlayable(frame, timeoutMs, log) {
   let snapshot=null;
   while(Date.now()-started<timeoutMs){
     snapshot=await playbackSnapshot(frame);
-    if(snapshot.ready)return snapshot;
+    // A created YouTube iframe can report ready while still UNSTARTED with no
+    // media duration. Keep waiting so provider fallback/direct media can settle
+    // before diagnostics attempt the single playback start.
+    if(snapshot.ready&&(snapshot.mode==='direct'||snapshot.duration>0||snapshot.state===1||snapshot.state===2||snapshot.state===5))return snapshot;
     const elapsed=Date.now()-started;
     if(elapsed-lastLog>=10000){
       lastLog=elapsed;

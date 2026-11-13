@@ -56,12 +56,10 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
                 signal: controller.signal,
                 headers: Object.assign({ 'Content-Type': 'application/json' }, options.headers || {})
             }));
-            if (!response.ok) {
-                return { ok: false, base, status: response.status, message: response.status === 404
-                    ? `Audioflix API is missing on ${base}. Restart that EveOS port so the endpoint loads.`
-                    : `Native bridge request failed on ${base} (${response.status}).` };
-            }
-            const payload = await response.json();
+            // Verified bridge HTTP rejections are final; never fan out to unrelated localhost ports.
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) return { ok: false, base, bridgeReached: true, status: response.status,
+                message: String(payload?.reason || payload?.message || `EveOS API rejected ${path} (${response.status}).`).slice(0, 240) };
             return Object.assign({ base, bridgeReached: true }, payload || {});
         } finally {
             clearTimeout(timer);
@@ -120,10 +118,10 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         if (options.realtime === true) BACKOFF()?.noteRealtimeResult?.(false);
         if (options.realtime !== true && !attempts.some((item) => item.status)) {
             bridgeMissStreak = Math.min(bridgeMissStreak + 1, 5);
-            bridgeDownUntil = Date.now() + Math.min(120000, 10000 * Math.pow(2, bridgeMissStreak - 1));
+            bridgeDownUntil = Date.now() + Math.min(location.protocol === 'file:' ? 12000 : 120000, 10000 * Math.pow(2, bridgeMissStreak - 1));
             if (!bridgeOfflineNoticeShown) {
                 bridgeOfflineNoticeShown = true;
-                console.info('[Audioflix] No EveOS server found — browser-only mode. Start one with start-server.bat, then "Refresh System Outputs" for CABLE routing, hotkeys and path ports.');
+                console.info('[Audioflix] No verified EveOS bridge responded yet; native features will retry. Check the server or use Refresh System Outputs.');
             }
         }
         lastStatus = Object.assign({}, lastStatus, {
@@ -165,13 +163,14 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         }
     }
 
-    async function warm(sampleRate) {
+    async function warm(sampleRate, deviceId = '') {
         if (isBridgeOffline()) return false;
         const current = state();
-        if (current.nativeBridgeEnabled !== true || !current.nativeOutputId) return false;
+        const target = String(deviceId || current.nativeOutputId || '');
+        if (!target || (!deviceId && current.nativeBridgeEnabled !== true)) return false;
         const payload = await fetchJson('/api/audioflix/warm', {
             method: 'POST',
-            body: JSON.stringify({ deviceId: current.nativeOutputId, sampleRate: sampleRate || 24000 }),
+            body: JSON.stringify({ deviceId: target, sampleRate: sampleRate || 24000 }),
             timeout: DEFAULT_TIMEOUT_MS
         });
         return payload?.ok === true;
@@ -193,12 +192,13 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
     async function sendGeminiChunk(audio, detail = {}) {
         if (isBridgeOffline()) return false;
         const current = state();
-        if (current.nativeBridgeEnabled !== true || !current.nativeOutputId || !audio) return false;
+        const target = String(detail.deviceId || current.nativeOutputId || '');
+        if (!target || (!detail.deviceId && current.nativeBridgeEnabled !== true) || !audio) return false;
         const payload = await fetchJson('/api/audioflix/play-pcm', {
             method: 'POST',
             body: JSON.stringify({
                 audio,
-                deviceId: current.nativeOutputId,
+                deviceId: target,
                 sampleRate: detail.sampleRate || 24000,
                 channels: detail.channels || 1,
                 streamId: detail.streamId || null,
@@ -218,12 +218,13 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
     async function playVoice(audio, detail = {}) {
         if (isBridgeOffline()) return false;
         const current = state();
-        if (current.nativeBridgeEnabled !== true || !current.nativeOutputId || !audio) return false;
+        const target = String(detail.deviceId || current.nativeOutputId || '');
+        if (!target || (!detail.deviceId && current.nativeBridgeEnabled !== true) || !audio) return false;
         const payload = await fetchJson('/api/audioflix/play-voice', {
             method: 'POST',
             body: JSON.stringify({
                 audio,
-                deviceId: current.nativeOutputId,
+                deviceId: target,
                 sampleRate: detail.sampleRate || 24000,
                 channels: detail.channels || 1,
                 volume: detail.volume ?? 1,
@@ -281,11 +282,12 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
     async function playMediaItem(item, detail = {}) {
         const current = state();
         const safeItem = item && typeof item === 'object' ? item : {};
-        if (current.nativeBridgeEnabled !== true || !current.nativeOutputId || !safeItem.url) return false;
+        const target = String(detail.deviceId || current.nativeOutputId || '');
+        if (!target || (!detail.deviceId && current.nativeBridgeEnabled !== true) || !safeItem.url) return false;
         const payload = await fetchJson('/api/audioflix/play-media', {
             method: 'POST',
             body: JSON.stringify({
-                deviceId: current.nativeOutputId,
+                deviceId: target,
                 itemId: safeItem.id || safeItem.url,
                 url: safeItem.url,
                 title: safeItem.title || '',
@@ -382,6 +384,13 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         });
     }
 
+    async function setVoicesPaused(paused, options = {}) {
+        return fetchJson('/api/audioflix/pause-voices', {
+            method: 'POST', body: JSON.stringify({ paused: Boolean(paused), allDevices: options.allDevices !== false,
+                deviceId: options.deviceId || state().nativeOutputId || '' }), timeout: DEFAULT_TIMEOUT_MS
+        });
+    }
+
     // Localization transport (probe / download / link / scan) lives in a sibling module.
     const { probeLocalFile, localizeTrack, linkLocalFile, scanLocalized, readWplFile } =
         window.EveAudioflixNativeLocalize.create({ fetchJson, DEVICE_SCAN_TIMEOUT_MS, isBridgeOffline });
@@ -420,7 +429,9 @@ window.EveAudioflixNative = window.EveAudioflixNative || {};
         clearHotkeys,
         hotkeyStatus,
         setHotkeyBypassed,
+        setVoicesPaused,
         warm,
+        request: fetchJson,
         getStatus: function () { return lastStatus; }
     });
 })();

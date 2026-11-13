@@ -8,6 +8,8 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const AUDIOFLIX = path.join(ROOT, 'js', 'modules', 'features', 'audioflix');
 const read = (name) => fs.readFileSync(path.join(AUDIOFLIX, name), 'utf8');
 const assert = (condition, message) => { if (!condition) throw new Error(`ASSERT FAILED: ${message}`); };
+const outputCss = read('audioflix.routing.status.css');
+assert(outputCss.includes('linear-gradient(90deg, #ffd166 0 var(--vol)') && outputCss.includes('::-webkit-slider-thumb'), 'output slider must render exact fill endpoints with its own bounded track and thumb');
 
 const updates = [];
 const events = [];
@@ -94,10 +96,12 @@ const spotifyPrepare = spotifyNative.slice(
 );
 assert(spotifyNative.includes("PLAYBACK_POLICY_REVISION = 'official-embed-v3'"),
     'Spotify normal playback policy is the official embed');
-assert(spotifyPrepare.includes("spotifyPlaybackMode: 'official-embed'")
+assert(spotifyPrepare.includes("['embed', 'electron'].includes(effectivePolicy.spotifyMethod)")
+    && spotifyPrepare.includes("spotifyMethod === 'managed' ? 'managed-engine'")
+    && !spotifyPrepare.includes('electron-direct-embed')
     && spotifyPrepare.includes('eveOwnedPlaybackSource: false')
     && spotifyPrepare.includes('preferEveDirectAudio: false'),
-    'Spotify preparation keeps the official Spotify provider authoritative');
+    'Spotify preparation migrates retired Electron policies to Official Embed');
 assert(spotifyNative.includes("'spotifyPlaybackUrl'") && spotifyNative.includes("'rawAudioUrl'")
     && spotifyNative.includes("'youtubeUrl'") && spotifyNative.includes('delete clean[key]'),
     'Spotify preparation strips stale alternate-media resolver residue');

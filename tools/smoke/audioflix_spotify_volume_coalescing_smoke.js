@@ -8,7 +8,8 @@ const { performance } = require('node:perf_hooks');
 const ROOT = path.resolve(__dirname, '..', '..');
 const OUT = path.join(ROOT, 'data/runtime/smoke-results/audioflix-spotify-volume');
 const phase = process.argv.includes('--baseline') ? 'baseline' : 'candidate';
-const sources = ['audioflix.spotify.media.js', 'audioflix.spotify.volume.js', 'audioflix.spotify.playback-lifecycle.js', 'audioflix.spotify.any-browser.js']
+const sources = ['audioflix.spotify.media.js', 'audioflix.spotify.volume.js', 'audioflix.spotify.playback-lifecycle.js',
+    'audioflix.spotify.native-capture.js', 'audioflix.spotify.any-browser.js']
     .map(name => [name, fs.readFileSync(path.join(ROOT, 'js/modules/features/audioflix', name), 'utf8')]);
 const turn = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 const track = (id, uri = '1111111111111111111111') => ({
@@ -51,7 +52,7 @@ function fixture({ delayMs = 0 } = {}) {
     };
     const audio = {
         ready: true, playItem: async () => true, openInternalView: async () => true,
-        pause: async () => true, seek: async () => true, stopAll: async () => true,
+        pause: async () => true, resume: async () => true, seek: async () => true, stopAll: async () => true,
         stopItemLayers: async () => true, updateItemVolume() {},
         getPlaybackState: () => ({ item: null }), getStatus: () => ({})
     };

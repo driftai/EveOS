@@ -11,6 +11,10 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+if exist "%PROJECT_ROOT%\tools\health\eveos_venv_audio_health.py" (
+    "%EVEOS_PYTHON%" -B "%PROJECT_ROOT%\tools\health\eveos_venv_audio_health.py" --compact
+    if errorlevel 1 echo [WARN] AudioFlix native .venv failed health scan; run tools\health\Repair-EveOS-VenvAudio.ps1
+)
 if not defined EVEOS_EXPOSURE_MODE (
     call "%PROJECT_ROOT%\tools\batch\select-exposure-mode.bat" "EveOS main web surface"
     if errorlevel 2 exit /b 0

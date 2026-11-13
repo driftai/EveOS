@@ -125,6 +125,7 @@ function sourceContract() {
     const roomStore = read('tools/WatchFusion/src/server/room-store.js');
     const roomRoutes = read('tools/WatchFusion/src/server/room-routes.js');
     const liveStreams = read('tools/WatchFusion/src/server/live-streams.js');
+    const localLauncher = read('tools/WatchFusion/scripts/START-WATCHFUSION-LOCAL.bat');
     const lanLauncher = read('tools/WatchFusion/scripts/START-WATCHFUSION-LAN.bat');
     const remoteTunnel = read('tools/WatchFusion/scripts/REMOTE-TUNNEL.ps1');
 
@@ -174,6 +175,11 @@ function sourceContract() {
     check(control.includes('setupAvailable') && control.includes('npmReady'), 'WF-CORE-STATUS', 'outer UI cannot distinguish repairable dependency state');
     check(control.includes('"onDemand": True') && control.includes('is never restored at EveOS boot'), 'WF-ON-DEMAND-LIFECYCLE', 'WatchFusion can still auto-restore a prior runtime session');
     check(control.includes('def start_server(*, persist: bool = False, host: str = "127.0.0.1")') && control.includes('def stop_server(*, persist: bool = False)'), 'WF-NO-PERSIST-DEFAULT', 'ordinary WatchFusion start/stop still persists surprise boot state');
+    check(ui.includes('timeoutMs: enabled ? 12_000 : 20_000'), 'WF-STOP-SETTLEMENT-BUDGET', 'WatchFusion Stop still aborts before bounded owned-helper cleanup can settle');
+    check(control.includes('["cmd.exe", "/d", "/c", str(launcher)]')
+      && !localLauncher.includes('cmd /k') && !lanLauncher.includes('cmd /k')
+      && remoteTunnel.includes('-ArgumentList "/d /c'),
+      'WF-RUNTIME-CONSOLES-EXIT', 'WatchFusion runtime launchers can strand cmd /k terminals after an owned stop');
     check(control.includes('"components": components'), 'WF-OFFLINE-SETUP-STATUS', 'outer workspace cannot inspect components while WatchFusion is stopped');
     check(!sourceWorker.includes('tabCapture.getMediaStreamId') && !sourceWorker.includes("to:'offscreen'") && !offscreenRelay.includes('getUserMedia') && sourceWorker.includes('publisher:true') && sourceWorker.includes("relayVideoMode:'state-only'") && !companionManifest.includes('tabCapture'), 'WF-TAB-STATE-ONLY', 'linked tabs still request/capture/encode pixels instead of publishing URL/state directly from the service worker');
     check(sourceWorker.includes("importScripts('live-peer.js')") && !sourceWorker.includes("importScripts(asset('live-peer.js'))") && livePeer.includes('this.heartbeat = setInterval') && sourceWorker.includes('sourceLinkConfig'), 'WF-TAB-STATE-LIFETIME', 'state-only source links cannot survive service-worker lifecycle/reconnect using their WebSocket heartbeat and session config');
@@ -307,7 +313,7 @@ function sourceContract() {
     check(youtubeImport.includes('preferredByHeight') && youtubeImport.includes("strategy: 'adaptive-hls'") && voxelRoutes.includes('stream.variants') && voxelRoutes.includes('#EXT-X-INDEPENDENT-SEGMENTS'), 'WF-YOUTUBE-ADAPTIVE-HLS', 'direct YouTube playback is still pinned to one fixed HLS rendition instead of an adaptive ladder');
     check(mediaPlayer.includes('capLevelToPlayerSize: true') && mediaPlayer.includes('capLevelOnFPSDrop: true') && mediaPlayer.includes('startLevel: -1') && mediaPlayer.includes('abrBandWidthFactor: 0.80') && mediaDiagnostics.includes('watchFusionMediaDiagnostics') && staticFiles.includes("'client/media-diagnostics.js'"), 'WF-YOUTUBE-HLS-ABR', 'YouTube-direct HLS does not expose conservative ABR/player diagnostics');
     check(videoStreamSmoke.includes('requestVideoFrameCallback') && mediaDiagnostics.includes('bufferedAheadSec') && videoStreamSmoke.includes('droppedFrameRatio') && videoStreamSmoke.includes('WATCHFUSION_VIDEO_STREAM_SMOKE_') && videoStreamSmoke.includes("--embedded"), 'WF-VIDEO-STREAM-DIAGNOSTIC', 'WatchFusion lacks a reusable playback/frame/buffer diagnostic smoke');
-    check(eveosVideoSmoke.includes('window.EveWatchFusion.open()') && eveosVideoHelpers.includes('requestVideoFrameCallback') && eveosVideoHelpers.includes('PerformanceObserver') && eveosVideoSmoke.includes('WATCHFUSION_EVEOS_VIDEO_PRESENT_'), 'WF-EVEOS-VIDEO-PRESENT-DIAGNOSTIC', 'WatchFusion lacks an actual outer-EveOS presentation diagnostic for compositor/frame pacing');
+    check(eveosVideoSmoke.includes('window.EveWatchFusion.open()') && eveosVideoSmoke.includes('window.EveWatchFusion.start()') && eveosVideoSmoke.includes('data-wf-action="stop"') && eveosVideoHelpers.includes("snapshot.mode==='direct'||snapshot.duration>0") && eveosVideoHelpers.includes('requestVideoFrameCallback') && eveosVideoHelpers.includes('PerformanceObserver') && eveosVideoSmoke.includes('WATCHFUSION_EVEOS_VIDEO_PRESENT_') && eveosVideoSmoke.includes("result.health === 'error'"), 'WF-EVEOS-VIDEO-PRESENT-DIAGNOSTIC', 'WatchFusion lacks fail-closed owned-lifecycle and settled-media presentation diagnostics');
     check(depthSession.includes('voxelvision.model-ready-v1') && depthSession.includes('readyAt'), 'WF-DEPTH-MODEL-STATUS', 'depth model readiness is not persisted for Setup Health');
     check(maskAssist.includes("current['anime-mask']") && maskAssist.includes('readyAt'), 'WF-MASK-MODEL-STATUS', 'anime mask readiness is not persisted for Setup Health');
 }

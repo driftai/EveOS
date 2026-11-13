@@ -232,6 +232,10 @@ export async function runFastSmoke() {
     assert.deepEqual({...sync.youtubePlan({currentTime:10,paused:false,rate:1,sampledAt:9600},1,10.1,{now})},{target:10.4,drift:0.3000000000000007,seek:false,pause:false,play:false});
     assert.equal(sync.youtubePlan({currentTime:10,paused:false,rate:1,sampledAt:9600},3,10.1,{now}).play,false,'buffering must be allowed to recover without another play command');
     assert.equal(sync.youtubePlan({currentTime:10,paused:false,rate:1,sampledAt:9600},1,8,{now}).seek,true,'meaningful linked-player drift still corrects');
+    assert.deepEqual({...sync.transportTiming({sampledAt:1000,publisherReceivedAt:1040,publisherSentAt:1045,relayReceivedAt:1070,relaySentAt:1072,viewerReceivedAt:1120},1120)}, {
+      sourceToPublisherMs:40,publisherQueueMs:5,publisherToRelayMs:25,relayToViewerMs:48,sourceToViewerMs:120,sampleAgeMs:120
+    });
+    assert.equal(sync.transportTiming({sampledAt:2000,viewerReceivedAt:1000},1000).sourceToViewerMs,null,'clock reversal is never reported as transport latency');
     assert.equal(sync.positionJumped(10.2,{position:10,at:4800,playing:true,rate:1},5000),false,'ordinary buffering is not a source seek');
     assert.equal(sync.positionJumped(30,{position:10,at:4800,playing:true,rate:1},5000),true,'a genuine local scrub remains relayable');
     const commands=fs.readFileSync(path.join(PROJECT_ROOT,'public','client','commands.js'),'utf8');

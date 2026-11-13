@@ -3,6 +3,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
+const { execFileSync, spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 
@@ -19,7 +21,28 @@ test('pre-commit executes size and growth checks before admitting commits', () =
     const hook = read('tools/hooks/pre-commit');
     assert.match(hook, /node tools\/smoke\/first_party_file_size_smoke\.js/);
     assert.match(hook, /node tools\/smoke\/first_party_file_growth_guard\.js/);
+    assert.match(hook, /node tools\/audit\/eveos_repo_hygiene_guard\.mjs/);
     assert.match(hook, /exit 1/);
+});
+
+test('privacy guard rejects private paths and partially staged personal Markdown', (t) => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'eveos-privacy-index-'));
+    t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+    const env = { ...process.env, GIT_INDEX_FILE: path.join(scratch, 'index') };
+    const git = (args, options = {}) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', ...options }).trim();
+    git(['read-tree', 'HEAD']);
+    const blob = git(['hash-object', '-w', '--stdin'], { input: 'Synthetic path: C:/Users/PrivateFixture/notes.md\n' });
+    for (const file of ['nested/.claude/sessions/example.jsonl', 'config/agents/iris/RUNTIME.json',
+        'config/agents/tlo/session.json', 'tools/Nexus-Browser/APP-ORIGIN.md']) {
+        git(['update-index', '--add', '--cacheinfo', `100644,${blob},${file}`]);
+    }
+    const result = spawnSync(process.execPath, ['tools/audit/eveos_repo_hygiene_guard.mjs'], { cwd: root, env, encoding: 'utf8' });
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /private\/runtime path is tracked: nested\/\.claude\/sessions\/example\.jsonl/);
+    assert.match(result.stderr, /unreviewed agent configuration is tracked: config\/agents\/iris\/RUNTIME\.json/);
+    assert.match(result.stderr, /unreviewed agent configuration is tracked: config\/agents\/tlo\/session\.json/);
+    assert.match(result.stderr, /personal home-directory path in public documentation: tools\/Nexus-Browser\/APP-ORIGIN\.md/);
+    assert.doesNotMatch(result.stderr, /PrivateFixture/);
 });
 test('pre-push enforces exact lane, origin SHA, clean tree and all guardrails', () => {
     const hook = read('tools/hooks/pre-push');
