@@ -19,9 +19,15 @@ const forbiddenExact = new Set([
     '.env', 'server_modules/audioflix_allowed_dirs.json', 'spotify-volume-probe.mjs'
 ]);
 const privateBrowserPath = /(?:^|\/)(?:spotify-browser-edge-beta-profile\/|SpotifyEmbedEdgeBetaProfile\/|playwright\/\.auth\/|Network\/Cookies-journal$)/i;
+const privateDeveloperAgentPath = file => /^(?:\.codex|\.gemini|\.cursor|\.agents-private)\//i.test(file)
+    || /(?:^|\/)(?:AGENTS\.override|AGENTS\.local|CLAUDE\.local|GEMINI\.local)\.md$/i.test(file)
+    || /^config\/agents\/(?:private|local)\//i.test(file)
+    || /^data\/agent-management\.json$/i.test(file);
+
 const forbiddenPath = file => forbiddenExact.has(file)
     || forbiddenRoots.some(root => file.startsWith(root))
     || privateBrowserPath.test(file)
+    || privateDeveloperAgentPath(file)
     || file.split('/').includes('__pycache__')
     || /\.log$/i.test(file)
     || /(^|\/)\.env\.(?!example$)/.test(file)
@@ -29,6 +35,11 @@ const forbiddenPath = file => forbiddenExact.has(file)
     || /(^|\/)(?:cookies?|credentials?|secrets?|tokens?)(?:\.[^/]+)?$/i.test(file);
 
 for (const file of tracked) if (forbiddenPath(file)) fail.push(`private/runtime path is tracked: ${file}`);
+for (const file of tracked) {
+    if (/^config\/agents\/[^/]+\/AGENT\.md$/i.test(file) && !file.startsWith('config/agents/tlo/'))
+        fail.push(`only TLO's reviewed resident agent definition may be tracked: ${file}`);
+}
+
 
 const ignoreContract = [
     'data/runtime/.eveos-ignore-probe', 'data/modular-state/.eveos-ignore-probe', 'logs/.eveos-ignore-probe',
@@ -36,7 +47,10 @@ const ignoreContract = [
     '.pytest_cache/.eveos-ignore-probe', '.claude/settings.local.json', '.spotify-probe-profile/.eveos-ignore-probe',
     'spotify-browser-edge-beta-profile/Default/Preferences', 'SpotifyEmbedEdgeBetaProfile/Default/Preferences',
     'tools/example/playwright/.auth/state.json', 'tools/example/Default/Network/Cookies',
-    'tools/example/Default/Network/Cookies-journal'
+    'tools/example/Default/Network/Cookies-journal',
+    '.codex/AGENTS.override.md', '.gemini/settings.json', '.cursor/private.json',
+    '.agents-private/context.md', 'AGENTS.override.md',
+    'config/agents/private/AGENT.md', 'data/agent-management.json'
 ];
 for (const probe of ignoreContract) {
     try { runGit(['check-ignore', '-q', '--', probe]); }
@@ -99,6 +113,17 @@ for (const file of tracked.filter(file => executableRoot(file) && !isFixtureSour
     try { source = fs.readFileSync(full, 'utf8'); } catch { continue; }
     const hits = (source.match(absoluteMachinePath) || []).filter(value => !isExplicitExamplePath(value));
     if (hits.length) fail.push(`machine-specific absolute path in tracked executable source: ${file} (${hits[0]})`);
+}
+
+
+const publicDocRoots = file => file.startsWith('docs/') || file === 'README.md'
+    || file === 'AGENTS.md' || file === 'CLAUDE.md' || file === 'GEMINI.md'
+    || file.startsWith('config/agents/tlo/');
+const personalHomePath = /(?:[A-Za-z]:[\\/]Users[\\/](?!ExampleUser[\\/]|TestUser[\\/]|User[\\/])[^\\/\s`'"]+|\/(?:home|Users)\/(?!you\/|user\/|example\/)[^\/\s`'"]+)/gi;
+for (const file of tracked.filter(f => publicDocRoots(f) && /\.md$/i.test(f))) {
+    const source = fs.readFileSync(path.join(ROOT, ...file.split('/')), 'utf8');
+    const match = source.match(personalHomePath);
+    if (match) fail.push(`personal home-directory path in public documentation: ${file}`);
 }
 
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
