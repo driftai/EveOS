@@ -101,12 +101,7 @@
     }
     if (action === 'shuffle') return run('queue:shuffle');
     if (action === 'loop') return run('queue:loop', { enabled: !queue?.loop });
-    if (action === 'view') {
-      const trigger = $('[data-pfiv-open]');
-      if (trigger) { trigger.click(); return true; }
-      const player = $('[data-pfo-action="player"]');
-      player?.click(); return !!player;
-    }
+    if (action === 'view') return window.EveAudioflixPianoFrontendInternal?.open?.() === true;
     if (action === 'play-all') {
       const songIds = excludedIds();
       if (!songIds.length || songIds.length > 500) {

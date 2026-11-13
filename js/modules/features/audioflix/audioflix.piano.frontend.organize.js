@@ -45,10 +45,7 @@
     buttonNode.setAttribute('aria-pressed', String(yes));
   }
   function cycleFocus(kind, value) {
-    const all = $('[data-pxp-scope="all"]');
-    // Leaving Favorites/Queued restores the common All scope only once.
-    // Do not click All again while it is active: that clears the focus maps.
-    if (all && !all.classList.contains('active')) all.click();
+    // View and scope selections compose: Favorites and Queued never force All.
     const bucket = focus[kind]; if (!bucket) return;
     const current = bucket.get(value) || 0;
     const next = current === 0 ? 1 : current === 1 ? -1 : 0;
@@ -96,10 +93,13 @@
       if (JSON.stringify(rawFoldersOf(song)) === JSON.stringify(pending.folders) && JSON.stringify(rawAssignedGroupsOf(song)) === JSON.stringify(pending.groups)
           && JSON.stringify(tax.list(song?.identifiers?.tags)) === JSON.stringify(pending.tags)) optimisticAssignments.delete(String(song.id));
     }
-    const folders = unique(songs.flatMap(foldersOf));
-    const groups = unique(songs.flatMap(groupsOf));
-    const tags = unique(songs.flatMap(tagsOf));
-    const labels = unique(songs.flatMap(classifiers)).slice(0, 30);
+    // Faceted choices use the active View, search, Smart filter, route and other scopes.
+    const pinned = (kind, catalog) => [...(focus[kind] || [])].filter(([v,s]) => s && catalog.has(v)).map(([v]) => v);
+    const allTags = new Set(songs.flatMap(tagsOf));
+    const folders = unique([...songs.filter(s=>eligible(s,'folder')).flatMap(foldersOf), ...pinned('folder',new Set(songs.flatMap(foldersOf)))]);
+    const groups = unique([...songs.filter(s=>eligible(s,'group')).flatMap(groupsOf), ...pinned('group',new Set(songs.flatMap(groupsOf)))]);
+    const tags = unique([...songs.filter(s=>eligible(s,'tags')).flatMap(tagsOf), ...pinned('classifier',allTags)]);
+    const labels = unique(songs.filter(s=>eligible(s,'classifier')).flatMap(classifiers)).slice(0, 30);
     const next = JSON.stringify({ songs: songs.map(song => [song.id, song.title, foldersOf(song), groupsOf(song), tagsOf(song)]), folders, groups, tags, labels });
     if (next === signature) { updateActive(); updateQueuePreview(); return; }
     signature = next;
@@ -275,8 +275,8 @@
     if (!advanced) return false;
     if (!nexus.contains(advanced)) nexus.append(advanced);
     advanced.querySelector('[data-pxp-tags]')?.setAttribute('data-piano-suggest', 'tag');
-    const editor = c.querySelector('.piano-pxm-editor');
-    if (editor && !nexus.contains(editor)) nexus.append(editor);
+    // Song details stay under Player Controls; Nexus only owns advanced filters.
+    parkEditor();
     const orphan = c.querySelector('.piano-pxp-filters');
     if (orphan && !orphan.querySelector('.piano-pxp-advanced,.piano-pxp-pills')) orphan.remove();
     return nexus.contains(advanced);
@@ -340,10 +340,7 @@
     const scopes = document.createElement('div'); scopes.className = 'piano-pfo-library-scopes';
     scopes.innerHTML = '<div><strong>Folders:</strong><span data-pfo-library-folders></span></div><div><strong>Groups:</strong><span data-pfo-library-groups></span></div><div><strong>Tags:</strong><span data-pfo-library-tags></span></div>';
     pills?.after(scopes);
-    pills?.addEventListener('click', event => {
-      if (!event.target.closest('[data-pxp-scope]')) return;
-      Object.values(focus).forEach(bucket => bucket.clear()); saveFocus(); updateActive(); front.repaint?.();
-    });
+    // Changing the view preserves folder/group/tag/classifier includes and excludes.
     toolbar.addEventListener('click', event => {
       const action = event.target.closest('[data-pfo-action]')?.dataset.pfoAction;
       if (action === 'player') togglePanel('player');
@@ -364,25 +361,40 @@
       saveFocus(); front.repaint?.();
     });
     if (toolbar.querySelector('[data-pfo-route-filter]')) toolbar.querySelector('[data-pfo-route-filter]').value = routeFilter;
-    // Card Details must reveal the panel that now owns the existing editor.
-    c.addEventListener('click', event => {
-      if (!event.target.closest?.('[data-af-action="piano-frontend-media-details"]')) return;
-      if ($('[data-pfo-search-panel]')?.hidden) togglePanel('nexus');
-    }, true);
+    // Song Settings handles card-level editing without opening Nexus Piano Link.
     toolbar.querySelector('[data-pfo-song]')?.addEventListener('change', fillEditor);
+    const list=c.querySelector('[data-pf-songs]');
+    if(list&&!list.dataset.pfoAdaptiveObserver){list.dataset.pfoAdaptiveObserver='yes';
+      new MutationObserver(()=>{refreshNavigation(front.getSongs?.()||[]);
+        window.EveAudioflixPianoV9DFolders?.refreshClassifiers?.();}).observe(list,{childList:true});}
     refreshNavigation(front.getSongs?.() || []);
   }
   const oldMount = front.mount, oldMatches = ports.matches, oldDecorate = ports.decorateSongs;
   front.mount = nextHost => { oldMount(nextHost); mount(nextHost); };
-  function matches(song) {
+  function matches(song, omit='') {
     if (routeFilter !== 'all' && routeOf(song) !== routeFilter) return false;
     const values = { group: groupsOf(song), folder: foldersOf(song), classifier: classifiers(song) };
+    const ignored = new Set(!['tags','auto','custom'].includes(omit) ? [] :
+      (front.getSongs?.()||[]).flatMap(item=>omit==='tags'?tagsOf(item):omit==='auto'?tax.list(item?.automatic_identifiers?.tags):tax.list(item?.identifiers?.genre)));
     for (const [kind, bucket] of Object.entries(focus)) {
-      const mine = values[kind].filter(Boolean), included = [...bucket].filter(([,state]) => state === 1).map(([value]) => value);
-      if (mine.some(value => bucket.get(value) === -1)) return false;
+      if(kind===omit)continue;
+      const relevant=[...bucket].filter(([v])=>kind!=='classifier'||!ignored.has(v));
+      const mine = values[kind].filter(Boolean), included = relevant.filter(([,state]) => state === 1).map(([value]) => value);
+      if (mine.some(value => relevant.some(([v,state])=>v===value&&state===-1))) return false;
       if (included.length && !mine.some(value => bucket.get(value) === 1)) return false;
     }
     return true;
+  }
+  function eligible(song,omit='') {return oldMatches(song,$('[data-pf-search]')?.value||'') &&
+    (window.EveAudioflixPianoFrontendV3Cards?.smartMatches?.(song) ?? true) && matches(song,omit);}
+  function adaptiveClassifierSets(items=front.getSongs?.()||[]) {
+    const authored=new Set(items.flatMap(s=>tax.list(s?.identifiers?.genre)));
+    const automatic=new Set(items.flatMap(s=>tax.list(s?.automatic_identifiers?.tags)));
+    const pinned=kind=>[...focus.classifier].filter(([v,state])=>state&&
+      (kind==='custom'?authored.has(v):automatic.has(v)&&!authored.has(v))).map(([v])=>v);
+    return {auto:unique([...items.filter(s=>eligible(s,'auto')).flatMap(s=>tax.list(s?.automatic_identifiers?.tags))
+      .filter(v=>!authored.has(v)),...pinned('auto')]),
+      custom:unique([...items.filter(s=>eligible(s,'custom')).flatMap(s=>tax.list(s?.identifiers?.genre)),...pinned('custom')])};
   }
   ports.matches = (song, searchText) => oldMatches(song, searchText) && matches(song);
   ports.decorateSongs = (target, visible, all) => {
@@ -396,5 +408,7 @@
       }
     }
   };
-  Object.assign(ns, { ready: true, mount, matches, refresh: () => refreshNavigation(front.getSongs?.() || []) });
+  Object.assign(ns, { ready: true, mount, matches, cycleFocus,
+    eligible, adaptiveClassifierSets, focusState: (kind, value) => focus[kind]?.get(value) || 0,
+    refresh: () => refreshNavigation(front.getSongs?.() || []) });
 })(window.EveAudioflixPianoFrontendOrganize = window.EveAudioflixPianoFrontendOrganize || {}, window.EveAudioflixPianoFrontend, window.EveAudioflixPianoFrontendPorts, window.EveAudioflixPianoTaxonomy);

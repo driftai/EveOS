@@ -183,7 +183,7 @@
       const song=visible[index];if(!song||row.querySelector('.piano-pxm-song-actions'))return;
       const actions=document.createElement('div');actions.className='piano-pxm-song-actions';
       const fav=button(isFavorite(song)?'★':'☆','piano-frontend-media-favorite',{songId:song.id});fav.title=isFavorite(song)?'Remove favorite':'Add favorite';
-      actions.append(fav,button('Details','piano-frontend-media-details',{songId:song.id}));
+      actions.append(fav); // Per-card metadata opens through the existing Settings gear.
       const queue=row.querySelector('.piano-pxp-queue-actions');row.insertBefore(actions,queue||null);
     });
   }

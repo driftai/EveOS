@@ -21,6 +21,17 @@
     opener?.setAttribute('aria-expanded', 'false');
     if (restoreFocus) opener?.focus();
   }
+  function scopedMatches(term) {
+    // Includes Smart scopes, folders/groups/tags/classifiers, exclusions,
+    // current library view, advanced filters and library search.
+    if (!term) return [];
+    return (front.getVisibleSongs?.() || []).filter(song => {
+      const metadata = [song.title, song.artist, song.source,
+        ...(taxonomy?.folders?.(song) || []), ...(taxonomy?.groups?.(song) || []),
+        ...(taxonomy?.classifiers?.(song) || []), song.identifiers?.tags || '', song.identifiers?.genre || ''];
+      return metadata.some(value => String(value || '').toLowerCase().includes(term));
+    });
+  }
   function render() {
     if (!pane || pane.hidden) return;
     const results = pane.querySelector('[data-pft-results]');
@@ -28,16 +39,11 @@
     const term = String(search?.value || '').trim().toLowerCase();
     results.replaceChildren(); matchingIds.clear();
     if (!term) { status.textContent = 'Start typing to search your Piano library.'; return; }
-    const matching = (front.getSongs?.() || []).filter(song => {
-      const metadata = [song.title, song.artist, song.source,
-        ...(taxonomy?.folders?.(song) || []), ...(taxonomy?.groups?.(song) || []),
-        ...(taxonomy?.classifiers?.(song) || []), song.identifiers?.tags || '', song.identifiers?.genre || ''];
-      return metadata.some(value => String(value || '').toLowerCase().includes(term));
-    });
+    const matching = scopedMatches(term);
     matching.forEach(song => matchingIds.add(String(song.id)));
     status.textContent = matching.length
       ? 'Showing ' + Math.min(LIMIT, matching.length) + ' of ' + matching.length + ' matches.'
-      : 'No Piano songs match this search.';
+      : 'No Piano songs match this search inside the current library scope.';
     const playable = panel()?.dataset.running === 'true' && front.bridgeReady?.() === true;
     for (const song of matching.slice(0, LIMIT)) {
       const row = document.createElement('div'); row.className = 'piano-pft-result';
@@ -89,7 +95,11 @@
       if (search) { search.value = ''; render(); search.focus(); }
       return;
     }
-    if (!songId || !matchingIds.has(String(songId))) return;
+    // A filter can change while Fast Track is open. Check again immediately
+    // before Play, queue mutation, Jump or Details; never act on a stale result.
+    if (!songId || !matchingIds.has(String(songId)) ||
+        !scopedMatches(String(search?.value || '').trim().toLowerCase())
+          .some(song => String(song.id) === String(songId))) { render(); return; }
     if (action === 'queue-add') {
       if (ports.command?.('queue:add', { songId }) !== false) render();
     } else if (action === 'queue-remove') {
@@ -102,7 +112,7 @@
     } else if (action === 'jump' || action === 'details') {
       const card = jump(songId);
       if (card && action === 'details') {
-        card.querySelector('[data-af-action="piano-frontend-media-details"]')?.click();
+        window.EveAudioflixPianoFrontendSettings?.open?.(songId, 'settings');
       }
     }
   }
@@ -151,7 +161,7 @@
   }
   const oldMount = front.mount;
   front.mount = nextHost => { oldMount(nextHost); mount(nextHost); };
-  Object.assign(ns, { ready: true, mount, close, render });
+  Object.assign(ns, { ready: true, mount, close, render, scopedMatches });
 })(window.EveAudioflixPianoFastTrack = window.EveAudioflixPianoFastTrack || {},
   window.EveAudioflixPianoFrontend, window.EveAudioflixPianoFrontendPorts,
   window.EveAudioflixPianoTaxonomy);

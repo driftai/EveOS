@@ -3,8 +3,10 @@
   'use strict';
   if (ns.ready || !front?.ready || !ports?.ready) return;
   let host = null, selectedId = '', draggedQueueId = '', mode = 'settings', snapshot = ports.snapshot?.() || {};
+  let panelState = 'compact', returnFocus = null;
   const canvas = () => host?.querySelector('[data-piano-frontend]');
   const $ = selector => canvas()?.querySelector(selector);
+  const text = (selector, value) => { const node = $(selector); if (node) node.textContent = value; };
   const list = value => window.EveAudioflixPianoTaxonomy?.list?.(value) || [];
   const songs = () => front.getSongs?.() || [];
   const songById = id => songs().find(song => String(song.id) === String(id)) || null;
@@ -32,9 +34,9 @@
   }
   function ensureModal() {
     const c = canvas(); if (!c || c.querySelector('.piano-pfs-overlay')) return;
-    const overlay = document.createElement('div'); overlay.className = 'piano-pfs-overlay'; overlay.style.position = 'fixed'; overlay.style.inset = '12px'; overlay.hidden = true;
-    overlay.innerHTML = `<section class="piano-pfs-dialog" role="dialog" aria-modal="true" aria-labelledby="pfs-title">
-      <header><div><span>PIANO SONG</span><h3 id="pfs-title">Song settings</h3></div><button type="button" data-pfs-action="close" aria-label="Close Piano song settings">×</button></header>
+    const overlay = document.createElement('div'); overlay.className = 'piano-pfs-overlay'; overlay.hidden = true; overlay.dataset.viewState = panelState;
+    overlay.innerHTML = `<section class="piano-pfs-dialog" role="dialog" aria-modal="false" aria-labelledby="pfs-title">
+      <header><div><span>PIANO SONG</span><h3 id="pfs-title">Song settings</h3></div><div class="piano-pfs-window-actions"><button type="button" data-pfs-action="minimize" aria-label="Minimize song panel" title="Minimize">−</button><button type="button" data-pfs-action="expand" aria-label="Expand song panel" title="Expand">⛶</button><button type="button" data-pfs-action="close" aria-label="Close song panel" title="Close">×</button></div></header>
       <div data-pfs-settings><div class="piano-pfs-grid">
         <label>Title<input data-pfs-title data-piano-suggest="title" maxlength="180"></label><label>Artist / author<input data-pfs-artist data-piano-suggest="artist" maxlength="90"></label>
         <label>Genres<input data-pfs-genres data-piano-suggest="genre" data-piano-suggest-multi="true" placeholder="genre, genre"></label><label>Tags (up to 80)<input data-pfs-tags data-piano-suggest="tag" data-piano-suggest-multi="true" placeholder="tag, tag"></label>
@@ -50,7 +52,7 @@
       </div></fieldset><div class="piano-pfs-disabled"><strong>Localization</strong><span>Not available for live Piano songs yet. Piano Port will support rendered media in a future milestone.</span></div>
       <div data-pfs-source class="piano-pfs-source"></div><div data-pfs-duplicates class="piano-pfs-duplicates"></div>
       <footer><button type="button" data-pfs-action="internal">Open in EveOS</button><span data-pfs-note role="status"></span><button type="button" data-pfs-action="save">Save settings</button></footer></div>
-      <div data-pfs-internal hidden><div class="piano-pfs-internal-head"><div><span>PIANO INTERNAL VIEW</span><strong data-pfs-internal-song>Shared Player Queue</strong></div><button type="button" data-pfs-action="settings">Song settings</button></div>
+      <div data-pfs-internal hidden><div class="piano-pfs-internal-head"><div><span>PIANO INTERNAL VIEW</span><strong data-pfs-internal-song>Selected Song</strong></div><button type="button" data-pfs-action="settings">Song details</button></div><div class="piano-pfs-focus-meta" data-pfs-focus-meta>Viewing the selected song, without changing playback.</div>
         <div class="piano-pfs-queue-summary"><div><span>NOW</span><strong data-pfs-now>Nothing playing</strong></div><div><span>NEXT</span><strong data-pfs-next>Nothing queued next</strong></div></div>
         <div class="piano-pfs-queue-tools"><select data-pfs-mode aria-label="Queue mode"><option value="manual">Manual</option><option value="ordered">Ordered</option><option value="shuffle">Shuffle</option></select>
           <button type="button" data-pfs-action="queue-play">Play queue</button><button type="button" data-pfs-action="queue-stop">Stop</button><button type="button" data-pfs-action="queue-previous">Previous</button><button type="button" data-pfs-action="queue-next">Next</button><button type="button" data-pfs-action="queue-shuffle">Shuffle</button><button type="button" data-pfs-action="queue-clear">Clear</button></div>
@@ -62,6 +64,16 @@
     overlay.querySelector('[data-pfs-volume-inherit]')?.addEventListener('change', renderVolume);
     overlay.querySelector('[data-pfs-mode]')?.addEventListener('change', event => ports.command?.('queue:mode',{value:event.target.value}));
   }
+  function applyPanelState() {
+    const overlay = $('.piano-pfs-overlay'); if (!overlay) return;
+    overlay.dataset.viewState = panelState;
+    const min = overlay.querySelector('[data-pfs-action="minimize"]');
+    const expand = overlay.querySelector('[data-pfs-action="expand"]');
+    if (min) { min.textContent = panelState === 'minimized' ? '▴' : '−';
+      min.setAttribute('aria-label', panelState === 'minimized' ? 'Restore song panel' : 'Minimize song panel'); }
+    if (expand) { expand.textContent = panelState === 'expanded' ? '▣' : '⛶';
+      expand.setAttribute('aria-label', panelState === 'expanded' ? 'Compact song panel' : 'Expand song panel'); }
+  }
   function renderVolume() {
     const inherit=$('[data-pfs-volume-inherit]')?.checked, slider=$('[data-pfs-volume]'), output=$('[data-pfs-volume-output]');
     if(slider)slider.disabled=inherit;if(output)output.textContent=inherit?'Default':`${slider?.value||100}%`;
@@ -71,7 +83,10 @@
     for(const item of values||[]){const option=document.createElement('option');option.value=String(item.value);option.textContent=String(item.label||item.value);select.append(option);}
   }
   function open(songId, nextMode='settings') {
-    ensureModal(); const song=songById(songId); if(!song)return; selectedId=song.id; mode=nextMode;
+    ensureModal(); const song=songById(songId); if(!song)return false;
+    window.EveAudioflixPianoFrontendInternal?.close?.();
+    if ($('.piano-pfs-overlay')?.hidden) returnFocus=document.activeElement;
+    selectedId=song.id; mode=nextMode; panelState='compact';
     const ids=song.identifiers||{}, settings=playback(song), controls=snapshot.controls||{};
     $('[data-pfs-title]').value=song.title||'';$('[data-pfs-artist]').value=ids.author||song.artist||'';$('[data-pfs-genres]').value=list(ids.genre).join(', ');$('[data-pfs-tags]').value=list(ids.tags).join(', ');
     $('[data-pfs-rating]').value=ids.personal_rating==null?'':String(ids.personal_rating);$('[data-pfs-favorite]').checked=custom(song).favorite==='true';$('[data-pfs-folders]').value=list(custom(song).piano_folders_v1||custom(song).piano_folder).join(', ');$('[data-pfs-groups]').value=list(custom(song).piano_groups_v1||custom(song).piano_group).join(', ');
@@ -81,7 +96,10 @@
     $('[data-pfs-source]').textContent=song.source_url?`Source: ${song.source_url}`:`Source: ${song.source||'Local Piano library'}`;renderDuplicates(song);
     if (nextMode === 'internal') $('[data-pfs-internal-song]').textContent = song.title || 'Shared Player Queue';
     renderMode();
-    const overlay=$('.piano-pfs-overlay');overlay.hidden=false;overlay.querySelector('[data-pfs-action="close"]')?.focus();
+    const overlay=$('.piano-pfs-overlay');overlay.hidden=false;
+    text('#pfs-title',nextMode==='internal'?'Song Internal View':'Song Details');
+    const note=$('[data-pfs-note]');if(note)note.textContent='';
+    applyPanelState();overlay.querySelector('[data-pfs-action="close"]')?.focus({preventScroll:true});return true;
   }
   function renderDuplicates(song) {
     const target=$('[data-pfs-duplicates]');target.replaceChildren();const matches=duplicates(song);
@@ -89,30 +107,42 @@
     const help=document.createElement('p');help.textContent='Source matches are exact; title matches may be alternate arrangements. Review them without deleting either song.';target.append(help);
     for(const item of matches){const row=document.createElement('div');row.className='piano-pfs-duplicate-row';const label=document.createElement('span');label.textContent=`${item.level==='hard'?'Duplicate source':'Similar title'} · ${item.song.title}`;const compare=document.createElement('small');compare.textContent=(duplicateTools?.details?.(item.song)||[]).join(' · ');const actions=document.createElement('div');actions.append(makeButton('Keep Both','keep-both',{otherSongId:item.song.id}),makeButton('Merge metadata','merge-metadata',{otherSongId:item.song.id}));row.append(label,compare,actions);target.append(row);}
   }
-  function close(){const overlay=$('.piano-pfs-overlay');if(overlay)overlay.hidden=true;selectedId='';}
-  function renderMode(){const settings=$('[data-pfs-settings]'),internal=$('[data-pfs-internal]');if(settings)settings.hidden=mode!=='settings';if(internal)internal.hidden=mode!=='internal';if(mode==='internal')renderQueue();}
+  function close(){const overlay=$('.piano-pfs-overlay');if(overlay)overlay.hidden=true;selectedId='';
+    if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true});returnFocus=null;}
+  function renderMode(){text('#pfs-title',mode==='internal'?'Song Internal View':'Song Details');const settings=$('[data-pfs-settings]'),internal=$('[data-pfs-internal]');if(settings)settings.hidden=mode!=='settings';if(internal)internal.hidden=mode!=='internal';if(mode==='internal')renderQueue();}
   async function save() {
     const song=songById(selectedId);if(!song)return;const inherited=$('[data-pfs-volume-inherit]').checked;
     const payload={songId:song.id,title:$('[data-pfs-title]').value,artist:$('[data-pfs-artist]').value,genre:$('[data-pfs-genres]').value,tags:list($('[data-pfs-tags]').value).slice(0,80),rating:$('[data-pfs-rating]').value,favorite:$('[data-pfs-favorite]').checked,folders:list($('[data-pfs-folders]').value).slice(0,80),groups:list($('[data-pfs-groups]').value).slice(0,80),
       playback:{route:$('[data-pfs-route]').value,targetHint:$('[data-pfs-target]').value||null,layout:$('[data-pfs-layout]').value||null,instrumentId:$('[data-pfs-sound]').value||null,internalVolumePercent:inherited?null:Number($('[data-pfs-volume]').value)}};
     $('[data-pfs-note]').textContent='Saving through the Piano Backend…';const result=await ports.request?.('song:update',payload);$('[data-pfs-note]').textContent=result?.ok?'Saved by the Piano Backend.':(result?.error||'Backend is unavailable.');
   }
-  function renderQueue(){const queue=snapshot.queue||{},items=Array.isArray(queue.items)?queue.items:[],current=items.findIndex(item=>item.queueId===queue.currentId),manual=queue.mode==='manual';$('[data-pfs-now]').textContent=current>=0?items[current].label:'Nothing playing';$('[data-pfs-next]').textContent=items[current>=0?current+1:0]?.label||'Nothing queued next';if($('[data-pfs-mode]'))$('[data-pfs-mode]').value=queue.mode||'manual';const target=$('[data-pfs-queue-list]');target.replaceChildren();
-    items.slice(0,200).forEach((item,index)=>{const row=document.createElement('div');row.dataset.status=index===current?'current':index<Number(queue.cursor||0)?'played':'queued';row.dataset.queueId=item.queueId;row.draggable=manual;row.title=manual?'Drag to reorder this shared queue entry.':'Switch to Manual mode to drag queue entries.';row.addEventListener('dragstart',()=>{draggedQueueId=item.queueId;row.classList.add('is-dragging');});row.addEventListener('dragend',()=>{draggedQueueId='';row.classList.remove('is-dragging');});row.addEventListener('dragover',event=>{if(manual&&draggedQueueId)event.preventDefault();});row.addEventListener('drop',event=>{event.preventDefault();if(!manual||!draggedQueueId||draggedQueueId===item.queueId)return;const rect=row.getBoundingClientRect();ports.command?.('queue:reorder',{queueId:draggedQueueId,targetQueueId:item.queueId,after:event.clientY>rect.top+rect.height/2});});const label=document.createElement('span');label.textContent=`#${index+1} ${item.label}`;row.append(label,makeButton('Play','queue-item',{queueId:item.queueId}),makeButton('+','queue-duplicate',{queueId:item.queueId}),makeButton('−','queue-remove',{queueId:item.queueId}));target.append(row);});
+  function renderQueue(){const queue=snapshot.queue||{},items=Array.isArray(queue.items)?queue.items:[],current=items.findIndex(item=>item.queueId===queue.currentId),manual=queue.mode==='manual';
+    const song=songById(selectedId);const count=items.filter(item=>String(item.songId)===String(selectedId)).length;
+    text('[data-pfs-focus-meta]', song?`${song.artist||'Unknown artist'} · ${count} queued · Viewing only; no playback started`:'Song no longer in library.');$('[data-pfs-now]').textContent=current>=0?items[current].label:'Nothing playing';$('[data-pfs-next]').textContent=items[current>=0?current+1:0]?.label||'Nothing queued next';if($('[data-pfs-mode]'))$('[data-pfs-mode]').value=queue.mode||'manual';const target=$('[data-pfs-queue-list]');target.replaceChildren();
+    items.slice(0,200).forEach((item,index)=>{const row=document.createElement('div');row.className='piano-pfs-queue-row piano-pxp-queue-row';row.dataset.selected=String(item.songId)===String(selectedId)?'true':'false';row.dataset.status=index===current?'current':index<Number(queue.cursor||0)?'played':'queued';row.dataset.queueId=item.queueId;row.draggable=manual;row.title=manual?'Drag to reorder this shared queue entry.':'Switch to Manual mode to drag queue entries.';row.addEventListener('dragstart',()=>{draggedQueueId=item.queueId;row.classList.add('is-dragging');});row.addEventListener('dragend',()=>{draggedQueueId='';row.classList.remove('is-dragging');});row.addEventListener('dragover',event=>{if(manual&&draggedQueueId)event.preventDefault();});row.addEventListener('drop',event=>{event.preventDefault();if(!manual||!draggedQueueId||draggedQueueId===item.queueId)return;const rect=row.getBoundingClientRect();ports.command?.('queue:reorder',{queueId:draggedQueueId,targetQueueId:item.queueId,after:event.clientY>rect.top+rect.height/2});});const label=document.createElement('span');label.textContent=`#${index+1} ${item.label}`;row.append(label,makeButton('Play','queue-item',{queueId:item.queueId}),makeButton('+','queue-duplicate',{queueId:item.queueId}),makeButton('−','queue-remove',{queueId:item.queueId}));target.append(row);});
   }
-  function handle(action,target){if(action==='close')close();else if(action==='save')save();else if(action==='internal'){mode='internal';$('[data-pfs-internal-song]').textContent=songById(selectedId)?.title||'Shared Player Queue';renderMode();}else if(action==='settings'){mode='settings';renderMode();}else if(action==='keep-both'||action==='merge-metadata'){const song=songById(selectedId),other=songById(target.dataset.otherSongId);if(!song||!other)return;const payload=action==='keep-both'?{songId:song.id,duplicateKeep:duplicateTools?.keepPayload?.(song,other)||other.id}:duplicateTools?.mergePayload?.(song,other);if(payload&&ports.command?.('song:update',payload)!==false){target.closest('.piano-pfs-duplicate-row')?.remove();$('[data-pfs-note]').textContent=action==='keep-both'?'Saving this Keep Both decision…':'Merging metadata without deleting either song…';}}else if(action.startsWith('queue-')){const map={play:'queue:play',stop:'queue:stop',previous:'queue:previous',next:'queue:next',shuffle:'queue:shuffle',clear:'queue:clear',item:'queue:play-item',duplicate:'queue:duplicate',remove:'queue:remove'};const key=action.slice(6);ports.command?.(map[key],{queueId:target.dataset.queueId});}}
+  function handle(action,target){if(action==='close')close();
+    else if(action==='minimize'){panelState=panelState==='minimized'?'compact':'minimized';applyPanelState();}
+    else if(action==='expand'){panelState=panelState==='expanded'?'compact':'expanded';applyPanelState();}
+    else if(action==='save')save();else if(action==='internal'){mode='internal';$('[data-pfs-internal-song]').textContent=songById(selectedId)?.title||'Shared Player Queue';renderMode();}else if(action==='settings'){mode='settings';renderMode();}else if(action==='keep-both'||action==='merge-metadata'){const song=songById(selectedId),other=songById(target.dataset.otherSongId);if(!song||!other)return;const payload=action==='keep-both'?{songId:song.id,duplicateKeep:duplicateTools?.keepPayload?.(song,other)||other.id}:duplicateTools?.mergePayload?.(song,other);if(payload&&ports.command?.('song:update',payload)!==false){target.closest('.piano-pfs-duplicate-row')?.remove();$('[data-pfs-note]').textContent=action==='keep-both'?'Saving this Keep Both decision…':'Merging metadata without deleting either song…';}}else if(action.startsWith('queue-')){const map={play:'queue:play',stop:'queue:stop',previous:'queue:previous',next:'queue:next',shuffle:'queue:shuffle',clear:'queue:clear',item:'queue:play-item',duplicate:'queue:duplicate',remove:'queue:remove'};const key=action.slice(6);ports.command?.(map[key],{queueId:target.dataset.queueId});}}
   function decorate(target,visible){for(const row of target.querySelectorAll('.piano-frontend-song')){const song=visible.find(item=>String(item.id)===String(row.dataset.songId));if(!song||row.querySelector('[data-pfs-settings-button]'))continue;const actions=row.querySelector('.piano-pxm-song-actions')||row;const button=makeButton('⚙','open',{songId:song.id});button.dataset.afAction='piano-frontend-settings-open';button.dataset.pfsSettingsButton='';button.title=`Settings for ${song.title}`;
     const eye=makeButton('👁','internal-open',{songId:song.id});eye.dataset.afAction='piano-frontend-internal-open';eye.dataset.pfsEyeButton='';eye.title=`Open ${song.title} in EveOS`;
     eye.setAttribute('aria-label',`Open ${song.title} in EveOS internal view`);
     actions.append(eye,button);const dups=duplicates(song);if(dups.length){const details=row.querySelector('.piano-pxp-song-details');const badge=document.createElement('span');badge.className=`piano-pxp-chip piano-pfs-duplicate ${dups.some(item=>item.level==='hard')?'is-hard':'is-soft'}`;badge.textContent=dups.some(item=>item.level==='hard')?'Duplicate source':'Similar title';details?.append(badge);}}}
   function handleOpen(target){
     const action=target?.dataset?.afAction;
-    if(action!=='piano-frontend-settings-open' && action!=='piano-frontend-internal-open')return false;
-    open(target.dataset.songId,action==='piano-frontend-internal-open'?'internal':'settings');return true;
+    if(!['piano-frontend-settings-open','piano-frontend-internal-open','piano-frontend-media-details'].includes(action))return false;
+    return open(target.dataset.songId,action==='piano-frontend-internal-open'?'internal':'settings');
   }
   const oldMount=front.mount,oldHandle=front.handleAction,oldDecorate=ports.decorateSongs;
   front.mount=h=>{oldMount(h);host=h||host;ensureModal();};front.handleAction=target=>handleOpen(target)||oldHandle(target);ports.decorateSongs=(target,visible,all)=>{oldDecorate(target,visible,all);decorate(target,visible);};
   ports.subscribe?.(next=>{snapshot=next||snapshot;if(mode==='internal'&&!$('.piano-pfs-overlay')?.hidden)renderQueue();});
+  // Capture Details before the legacy Nexus/scroll editor interceptors; no second persistence path.
+    document.addEventListener('click',event=>{
+      const target=event.target.closest?.('[data-af-action="piano-frontend-media-details"]');
+      if(!target||!canvas()?.contains(target))return;
+      event.preventDefault();event.stopImmediatePropagation();open(target.dataset.songId,'settings');
+    },true);
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('.piano-pfs-overlay')?.hidden)close();});
-  Object.assign(ns,{ready:true,open});
+  Object.assign(ns,{ready:true,open,close});
 })(window.EveAudioflixPianoFrontendSettings=window.EveAudioflixPianoFrontendSettings||{},window.EveAudioflixPianoFrontend,window.EveAudioflixPianoFrontendPorts);
