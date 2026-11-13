@@ -28,7 +28,6 @@ const { cancelLeases } = require('./audioflix_spotify_playback_lease.js');
 const { handleInterrupt } = require('./audioflix_spotify_playback_preemption.js');
 const providerCapture = require('./audioflix_spotify_browser_capture.js');
 const engineOutputHost = require('./audioflix_spotify_engine_output_host.js');
-const authHandoff = require('./audioflix_spotify_auth_handoff.js');
 const { ownerAlive } = require('./audioflix_spotify_browser_owner.js');
 const {
     EDGE_LAUNCH_TIMEOUT_MS, CHROMIUM_LAUNCH_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS,
@@ -393,7 +392,6 @@ async function main() {
             if (requestUrl.pathname === '/playlist') return send(res, 200, await importPlaylist(body));
             if (requestUrl.pathname === '/open') return send(res, 200, await openManagedPage(body));
             if (requestUrl.pathname === '/auth') return send(res, 200, await openAuth(body));
-            if (requestUrl.pathname === '/auth-handoff') return send(res, 200, await authHandoff.capture(context));
             if (requestUrl.pathname === '/shutdown') {
                 send(res, 200, { ok: true, state: 'stopping' });
                 setImmediate(() => shutdown(0));

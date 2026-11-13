@@ -1,5 +1,5 @@
 // Official Spotify Embed policy: licensed Edge Beta app window + Windows process audio endpoint.
-// This is distinct from the managed Spotify Engine and the deferred Electron host.
+// This window has a separate lifecycle from the managed Spotify Engine.
 window.EveAudioflixSpotifyEdge = window.EveAudioflixSpotifyEdge || {};
 (function () {
   'use strict';

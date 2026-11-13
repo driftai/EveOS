@@ -10,7 +10,6 @@ import html
 import json
 import os
 import re
-import shutil
 import subprocess
 import threading
 import time
@@ -77,14 +76,6 @@ def _profile_dir() -> Path:
         return Path(configured).expanduser().resolve()
     local = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
     target = local / "EveOS" / "spotify-browser-edge-beta-profile"
-    if not target.exists():
-        legacy = Path.home() / "Downloads" / "drift-spotify-embed-scraper-v2" / ".spotify-browser-profile"
-        if legacy.is_dir():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                shutil.copytree(legacy, target)
-            except OSError:
-                pass
     target.mkdir(parents=True, exist_ok=True)
     return target
 
@@ -264,7 +255,7 @@ def open_session(value: str) -> dict:
             }
     return {
         "ok": True,
-        "message": "EveOS Spotify opened in a separate saved Edge profile. Sign in there once, verify the private playlist loads, then close that window and import again.",
+        "message": "EveOS opened the playlist in its saved Spotify Engine browser. If Spotify asks you to sign in, do it there, then close that window and import again.",
         "sessionReady": True,
         **normalized,
     }
