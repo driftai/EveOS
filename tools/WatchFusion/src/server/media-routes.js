@@ -5,6 +5,7 @@ import { getMember, getRoom, hasRoom, resolveRoomId } from './room-store.js';
 import { classifyMediaUrl } from './media-resolver.js';
 import { findMediaProvider } from './media-provider-registry.js';
 import { assertPublicHttpUrl } from './public-url.js';
+import { ownsLinkedSource } from './live-streams.js';
 
 const activeResolutions = new Set();
 
@@ -185,7 +186,8 @@ export async function handleMediaRoute(req, res, parts) {
       if (requestedRoomId) {
         const room = getRoom(requestedRoomId);
         const member = getMember(room, memberId);
-        if (!member || member.id !== room.hostId) {
+        if (!member || (body.linkedSource
+          ? !ownsLinkedSource(room, member, body.linkedSource) : member.id !== room.hostId)) {
           return json(res, 403, { ok: false, code: 'HOST_REQUIRED', message: 'Only the current host can resolve external media for this room.' });
         }
       }

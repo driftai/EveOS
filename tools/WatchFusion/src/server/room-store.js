@@ -83,6 +83,7 @@ export function publicState(room) {
     revision: room.revision || 0,
     serverTime,
     source: room.source,
+    linkedSourceActive: !!room.linkedSourceId,
     // Project the position to the exact same server timestamp we publish.
     // Using a second now() here makes the position a few milliseconds newer than projectedAt,
     // then viewers legitimately advance from projectedAt again and double-count that tiny lead.
@@ -127,6 +128,7 @@ export function createRoom(requestedRoomId, requestedAlias) {
 }
 
 export function joinMember(room, { requestedMemberId = '', requestedAlias = null, requestedRoomId = '', accountId, name }) {
+  const aliasChanged = !!requestedAlias && requestedAlias !== room.alias;
   if (requestedAlias) {
     const mapped = roomAliases.get(requestedAlias);
     if (mapped && mapped !== room.id) return { error: 'room number is already in use' };
@@ -143,6 +145,8 @@ export function joinMember(room, { requestedMemberId = '', requestedAlias = null
   const memberId = existing?.id || id();
   cancelPendingLeave(room, memberId);
   const cleanName = clampName(name || existing?.name);
+  const previousHost = room.hostId;
+  const changed = !existing || existing.name !== cleanName;
   if (existing) {
     existing.name = cleanName;
     existing.lastSeen = now();
@@ -151,16 +155,11 @@ export function joinMember(room, { requestedMemberId = '', requestedAlias = null
   }
   if (!room.ownerAccountId) {
     room.ownerAccountId = cleanAccountId;
-    room.ownerMemberId = memberId;
+  }
+  if (room.ownerAccountId === cleanAccountId) room.ownerMemberId = memberId;
+  if (!room.hostId || !room.members.has(room.hostId)) {
     room.hostId = memberId;
-    room.temporaryHost = false;
-  } else if (room.ownerAccountId === cleanAccountId) {
-    room.ownerMemberId = memberId;
-    room.hostId = memberId;
-    room.temporaryHost = false;
-  } else if (!room.hostId || !room.members.has(room.hostId)) {
-    room.hostId = memberId;
-    room.temporaryHost = true;
+    room.temporaryHost = room.ownerAccountId !== cleanAccountId;
   }
   const session = {
     memberId,
@@ -174,13 +173,17 @@ export function joinMember(room, { requestedMemberId = '', requestedAlias = null
   };
   sessions.set(memberId, session);
   room.lastActivity = now();
-  return { session };
+  return { session, changed: changed || aliasChanged || previousHost !== room.hostId };
 }
 
 export function getMember(room, memberId) {
-  const member = room.members.get(memberId) || [...room.members.values()].find(m => m.publicId === memberId);
+  const member = room.members.get(memberId);
   if (member) member.lastSeen = now();
   return member;
+}
+
+export function getTransferTarget(room, publicId) {
+  return [...room.members.values()].find(member => member.publicId === publicId);
 }
 
 export function leaveMember(room, memberId) {
@@ -210,7 +213,7 @@ export function cancelPendingLeave(room, memberId) {
   return true;
 }
 
-export function scheduleLeaveMember(room, memberId, delayMs = 5000) {
+export function scheduleLeaveMember(room, memberId, delayMs = MEMBER_STALE_MS) {
   const member = getMember(room, memberId);
   if (!member) return false;
   const internalId = member.id;
@@ -244,8 +247,14 @@ export function pruneRooms() {
     if (deletedAt < nowMs - 120000) deletedRooms.delete(roomId);
   }
   for (const [roomId, room] of rooms) {
+    let membersChanged = false;
     for (const [memberId, member] of room.members) {
-      if (member.lastSeen < nowMs - MEMBER_STALE_MS) room.members.delete(memberId);
+      if (member.lastSeen < nowMs - MEMBER_STALE_MS) {
+        cancelPendingLeave(room, memberId);
+        room.members.delete(memberId);
+        sessions.delete(memberId);
+        membersChanged = true;
+      }
     }
     if (room.hostId && !room.members.has(room.hostId)) {
       const fallback = room.members.values().next().value;
@@ -255,6 +264,8 @@ export function pruneRooms() {
     if (room.members.size === 0 && room.streams.size === 0 && room.lastActivity < cutoff) {
       rooms.delete(roomId);
       if (room.alias) roomAliases.delete(room.alias);
+    } else if (membersChanged) {
+      broadcastState(room);
     }
   }
 }

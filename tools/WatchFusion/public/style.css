@@ -78,6 +78,13 @@
 .smallrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .smallrow span { color: var(--text-muted); font-size: 13px; }
 .smallrow span#syncStatus { margin-left: auto; }
+.device-playback-timing { color: var(--text-main); font-size: 13px; }
+.device-playback-timing[open] { flex-basis: 100%; }
+.device-playback-timing summary { cursor: pointer; padding: 7px 9px; border: 1px solid var(--border-subtle); border-radius: 7px; }
+.device-timing-controls { display: grid; gap: 7px; padding: 8px 0 2px; }
+.device-timing-controls small { color: var(--text-muted); }
+.device-timing-controls > div { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.device-timing-controls output { min-width: 8em; text-align: center; font-variant-numeric: tabular-nums; }
 .side { padding: 16px; display: flex; flex-direction: column; min-height: 500px; }
 .sidehead { display: flex; justify-content: space-between; align-items: center; }
 .members { display: flex; flex-wrap: wrap; gap: 7px; }

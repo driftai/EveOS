@@ -244,7 +244,7 @@ function onYouTubeError(event) {
 }
 
 function hostPlaybackEventAllowed(playerState) {
-  if (!state || primingPlayer || playerInitializing || !isHost()) return false;
+  if (!state || primingPlayer || playerInitializing || followsRoomPlayback()) return false;
   if (!applyingRemote) return true;
 
   // Programmatic playback caused by an authoritative room update should not
@@ -304,7 +304,7 @@ function onYouTubeStateChange(event) {
 
 function onYouTubeRateChange() {
   if(window.watchFusionLinkedTab?.active?.()&&isHost()&&!window.watchFusionLinkedTab?.applying?.()){window.watchFusionLinkedTab.control('rate',ytPlayer?.getPlaybackRate?.()||1);return;}
-  if (!state || applyingRemote || primingPlayer || !isHost()) return;
+  if (!state || applyingRemote || primingPlayer || followsRoomPlayback()) return;
   command('rate', { rate: ytPlayer?.getPlaybackRate?.() || 1 });
 }
 function onYouTubeVolumeChange() {
@@ -316,22 +316,27 @@ function onYouTubeVolumeChange() {
 function requestViewerPlayback() {
   if (!ytPlayer || !ytPlayerReady || !state?.playback || state.playback.paused || state.playback.ended) return;
   const playingState = window.YT?.PlayerState?.PLAYING ?? 1;
-  const alreadyPlaying = ytPlayer.getPlayerState?.() === playingState;
+  const bufferingState = window.YT?.PlayerState?.BUFFERING ?? 3;
+  const playerState = ytPlayer.getPlayerState?.();
+  if (playerState === bufferingState) return;
+  const alreadyPlaying = playerState === playingState;
   if (alreadyPlaying) {
     playerPrimed = true;
     playerInitializing = false;
     if (!autoplayWasBlocked || userGesturePrimeUsed) applyRoomAudioState(ytPlayer, userGesturePrimeUsed);
     return;
   }
-  const mutedRetry = autoplayWasBlocked && !userGesturePrimeUsed;
+  if (requestViewerPlayback.checkTimer) return;
+  const mutedRetry = autoplayWasBlocked && !userGesturePrimeUsed, requestedVideo = state.source?.videoId;
   try {
     if (mutedRetry) ytPlayer.mute?.();
     else if (!applyRoomAudioState(ytPlayer, userGesturePrimeUsed)) restorePlayerAudioPrefs();
     ytPlayer.playVideo?.();
   } catch {}
-  clearTimeout(requestViewerPlayback.checkTimer);
   requestViewerPlayback.checkTimer = setTimeout(() => {
-    if (!ytPlayer || state?.playback?.paused || state?.playback?.ended) return;
+    requestViewerPlayback.checkTimer = null;
+    if (!ytPlayer || state?.source?.videoId !== requestedVideo || state?.playback?.paused || state?.playback?.ended) return;
+    if (ytPlayer.getPlayerState?.() === bufferingState) return;
     if (ytPlayer.getPlayerState?.() === playingState) {
       playerPrimed = true;
       playerInitializing = false;
@@ -355,13 +360,13 @@ function requestViewerPlayback() {
 function syncHydratedPlayer(videoId = state?.source?.videoId) {
   const expected = String(videoId || '');
   if (expected && state?.source?.videoId !== expected) return false;
-  const forceViewer = !isHost();
+  const forceViewer = followsRoomPlayback();
   syncPlayer({ hydrateHost: true, force: forceViewer });
   if (forceViewer && expected) {
     setTimeout(() => {
-      if (!roomId || isHost() || !ytPlayerReady || state?.source?.videoId !== expected) return;
+      if (!roomId || !followsRoomPlayback() || !ytPlayerReady || state?.source?.videoId !== expected) return;
       if ((ytPlayer?.getVideoData?.()?.video_id || '') !== expected) return;
-      syncPlayer({ force: true });
+      syncPlayer();
     }, 350);
   }
   return true;
@@ -374,8 +379,8 @@ function syncPlayer(options = {}) {
     ensurePlayer(state.source.videoId);
     return;
   }
-  if (isHost() && options.hydrateHost !== true) return;
-  if (!isHost() && typeof window.applyAdaptiveViewerSync === 'function') {
+  if (!followsRoomPlayback() && options.hydrateHost !== true) return;
+  if (followsRoomPlayback() && typeof window.applyAdaptiveViewerSync === 'function') {
     // Playback lifecycle ownership stays here. Adaptive sync is a focused
     // viewer-correction service and must not replace this function wholesale.
     window.applyAdaptiveViewerSync(Boolean(options?.force));

@@ -2,6 +2,7 @@ import { broadcastState, freshPlayback, getMember, getRoom, hasRoom, publicState
 import { json, now, readBody } from './http-utils.js';
 import { classifyMediaUrl } from './media-resolver.js';
 import { assertPublicHttpUrl } from './public-url.js';
+import { ownsLinkedSource } from './live-streams.js';
 
 export async function handleMediaStateRoute(req, res, parts) {
   if (parts[0] !== 'api' || parts[1] !== 'rooms' || parts[3] !== 'media-source' || req.method !== 'POST') return false;
@@ -11,14 +12,18 @@ export async function handleMediaStateRoute(req, res, parts) {
   const memberId = String(req.headers['x-member-id'] || '');
   const member = getMember(room, memberId);
   if (!member) return json(res, 401, { error: 'join the room first' });
-  if (memberId !== room.hostId) return json(res, 403, { error: 'only the current host can load media' });
-
   try {
     const body = await readBody(req);
+    const linked = ownsLinkedSource(room, room.members.get(memberId), body.linkedSource);
+    if (body.linkedSource ? !linked : memberId !== room.hostId || !room.members.has(memberId)) {
+      return json(res, 403, { error: 'Current host or linked source ownership required.' });
+    }
     const media = body.media || {};
 
     // 1. Embedded VoxelVision source
     if (media.type === 'voxelvision' || media.kind === 'voxelvision' || body.kind === 'voxelvision') {
+      if (linked) return json(res, 403, { error: 'Linked tabs require a playable media URL.' });
+      room.linkedSourceId = null;
       room.source = {
         kind: 'voxelvision',
         type: 'voxelvision',
@@ -37,6 +42,8 @@ export async function handleMediaStateRoute(req, res, parts) {
 
     // 2. Nuvio media integration source
     if (media.type === 'nuvio' || media.kind === 'nuvio' || body.kind === 'nuvio') {
+      if (linked) return json(res, 403, { error: 'Linked tabs require a playable media URL.' });
+      room.linkedSourceId = null;
       room.source = {
         kind: 'nuvio',
         type: 'nuvio',
@@ -57,9 +64,15 @@ export async function handleMediaStateRoute(req, res, parts) {
     // 3. Direct HLS/video source or a host-imported VoxelVision media file.
     const rawMediaUrl = String(media.url || '').trim();
     const localImported = /^\/voxelvision\/media\/imported\/[A-Za-z0-9._%~-]+$/i.test(rawMediaUrl);
+    if (linked && localImported) return json(res, 403, { error: 'Linked tabs require a public media URL.' });
     const parsed = localImported ? { kind: 'file', url: rawMediaUrl } : classifyMediaUrl(rawMediaUrl);
     if (!parsed || parsed.kind === 'page') return json(res, 400, { error: 'media source must be a direct HLS, media-file, Nuvio, or VoxelVision source' });
     const publicUrl = localImported ? rawMediaUrl : await assertPublicHttpUrl(parsed.url);
+    if (body.linkedSource ? !ownsLinkedSource(room, room.members.get(memberId), body.linkedSource)
+        : memberId !== room.hostId || !room.members.has(memberId)) {
+      return json(res, 403, { error: 'Source authority changed while loading media.' });
+    }
+    if (!linked) room.linkedSourceId = null;
     let referer = String(media.referer || body.originalUrl || '').trim();
     if (!referer || referer.includes('.watami.win') || referer.includes('.piltover.li') || referer.includes('.m3u8')) {
       referer = 'https://www.miruro.ru/';

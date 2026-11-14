@@ -45,11 +45,14 @@
     const volume=Number(metadata.volume);
     const normalizedVolume=Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):null;
     const nextAnchor={position:target,sampledAt:now,paused,ended,rate,volume:normalizedVolume};
+    const age=now-Number(metadata.sampledAt);
+    if(!options.force&&metadata.sampledAt&&(age<0||age>MAX_SAMPLE_AGE_MS))return{publish:false,reason:'stale',target,drift:0,anchor};
     if(options.force===true||!anchor)return{publish:true,reason:options.force===true?'force':'initial',target,drift:0,anchor:nextAnchor};
     const stateChanged=paused!==(anchor.paused===true)||ended!==(anchor.ended===true)
       ||Math.abs(rate-(Number(anchor.rate)||1))>.01
       ||normalizedVolume!==null&&Number.isFinite(Number(anchor.volume))&&Math.abs(normalizedVolume-Number(anchor.volume))>.02;
-    const expected=projectedPosition({currentTime:anchor.position,sampledAt:anchor.sampledAt,paused:anchor.paused,rate:anchor.rate},now);
+    const elapsed=Math.max(0,now-anchor.sampledAt)/1000;
+    const expected=anchor.position+(anchor.paused||anchor.ended?0:elapsed*(Number(anchor.rate)||1));
     const drift=target-expected;
     if(stateChanged)return{publish:true,reason:'state',target,drift,anchor:nextAnchor};
     return{publish:Math.abs(drift)>MIRROR_DRIFT_SEC,reason:Math.abs(drift)>MIRROR_DRIFT_SEC?'drift':'steady',target,drift,anchor:nextAnchor};

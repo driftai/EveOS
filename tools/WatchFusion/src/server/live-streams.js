@@ -8,6 +8,11 @@ const token = () => crypto.randomBytes(24).toString('hex');
 const send = (socket, data) => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(data)); };
 const text = (value, limit = 200) => String(value || '').slice(0, limit);
 const authorized = (stream, secret) => stream && secret === stream.publisherToken;
+export function ownsLinkedSource(room, member, proof) {
+  const stream = streams.get(room.linkedSourceId);
+  return !!member && !!stream && stream.linkedMemberId === member.id && stream.roomId === room.id
+    && proof?.id === stream.id && authorized(stream, proof.token);
+}
 function iceServers() {
   try { const value = JSON.parse(process.env.WATCHFUSION_ICE_SERVERS || '[]'); return Array.isArray(value) ? value.slice(0, 8) : []; }
   catch { return []; }
@@ -22,7 +27,8 @@ function roomAccess(roomId, memberId, streamId) {
   const id = resolveRoomId(roomId);
   if (!id || !hasRoom(id)) return null;
   const room = getRoom(id);
-  if (!getMember(room, memberId) || room.source?.streamId !== streamId || streams.get(streamId)?.roomId !== room.id) return null;
+  if (!getMember(room, memberId) || streams.get(streamId)?.roomId !== room.id) return null;
+  if (room.source?.streamId !== streamId && room.linkedSourceId !== streamId) return null;
   return { room, host: room.hostId === memberId };
 }
 function audioSyncSample(value = {}) {
@@ -61,8 +67,18 @@ function broadcastAudioSync(stream) {
 }
 function dispose(stream) {
   streams.delete(stream.id);
+  let detachedRoom;
+  if (stream.linkedMemberId && hasRoom(stream.roomId)) {
+    const room = getRoom(stream.roomId);
+    if (room.linkedSourceId === stream.id) {
+      room.linkedSourceId = null;
+      broadcastState(room);
+      detachedRoom = room;
+    }
+  }
   stream.syncSamples.clear();
   for (const socket of [stream.publisher, ...stream.viewers.values()]) socket?.close(1000, 'Live source stopped');
+  return detachedRoom;
 }
 export async function handleLiveRoute(req, res, parts) {
   if (parts[0] !== 'api' || parts[1] !== 'live') return false;
@@ -77,13 +93,28 @@ export async function handleLiveRoute(req, res, parts) {
   const stream = streams.get(parts[2]);
   if (!authorized(stream, body.publisherToken)) return json(res, 403, { error: 'Live source ownership required.' });
   stream.at = Date.now();
-  if (parts[3] === 'stop') { dispose(stream); return json(res, 200, { ok: true }); }
+  if (parts[3] === 'stop') {
+    const room = dispose(stream);
+    return json(res, 200, { ok: true, ...(room ? { state: publicState(room) } : {}) });
+  }
   if (parts[3] === 'room') {
     const id = resolveRoomId(body.roomId);
     const room = id && hasRoom(id) ? getRoom(id) : null;
     const memberId = String(req.headers['x-member-id'] || '');
     if (!room || !getMember(room, memberId) || room.hostId !== memberId) return json(res, 403, { error: 'Only the current host can share a live source.' });
+    if (body.mode === 'linked-tab') {
+      if (stream.roomId && (stream.roomId !== room.id || stream.linkedMemberId !== memberId)) {
+        return json(res, 409, { error: 'Source already belongs to a different session.' });
+      }
+      stream.roomId = room.id;
+      stream.linkedMemberId = memberId;
+      room.linkedSourceId = stream.id;
+      broadcastState(room);
+      return json(res, 200, { ok: true, state: publicState(room) });
+    }
+    if (stream.linkedMemberId) return json(res, 409, { error: 'Source belongs to a linked tab.' });
     stream.roomId = room.id;
+    room.linkedSourceId = null;
     room.source = { kind: 'live', type: 'live', streamId: stream.id, title: text(body.title) || 'Live media', mode: body.mode === 'audioflix' ? 'audioflix' : 'tab' };
     broadcastState(room);
     return json(res, 200, { ok: true, state: publicState(room) });
@@ -155,7 +186,8 @@ export function attachLiveStreams(server) {
           const sample = audioSyncSample(message.sample);
           if (sample) { stream.syncSamples.set(peerId, sample); broadcastAudioSync(stream); }
         } else if (!publisher && message.type === 'control') {
-          const canControl = credential.owner || roomAccess(credential.roomId, credential.memberId, stream.id)?.host;
+          const roomHost = roomAccess(credential.roomId, credential.memberId, stream.id)?.host;
+          const canControl = roomHost || (!stream.linkedMemberId && credential.owner);
           if (!canControl) return send(socket, { type: 'status', status: 'Only the host controls this live source.' });
           if (!['play', 'pause', 'toggle', 'seek', 'rate', 'volume', 'prev', 'next', 'jump', 'shuffle', 'loop'].includes(message.action)) return;
           send(stream.publisher, { type: 'control', action: message.action, value: Number(message.value) || 0 });

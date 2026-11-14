@@ -114,7 +114,7 @@ function applyRoomAudioState(player = ytPlayer, forceUnmute = false) {
   return true;
 }
 function publishRoomAudioState(volume, muted) {
-  if (!roomId || !session || !isHost() || performance.now() < roomAudioGuardUntil) return;
+  if (!roomId || !session || followsRoomPlayback() || performance.now() < roomAudioGuardUntil) return;
   const nextVolume = Math.min(100, Math.max(0, Number(volume) || 0));
   const nextMuted = !!muted;
   const current = authoritativeRoomAudio();
@@ -128,7 +128,7 @@ function publishRoomAudioState(volume, muted) {
   roomAudioCandidateKey = candidateKey;
   roomAudioCommandTimer = setTimeout(() => {
     roomAudioCommandTimer = null;
-    if (!roomId || !session || !isHost() || !ytPlayer || !ytPlayerReady || performance.now() < roomAudioGuardUntil) {
+    if (!roomId || !session || followsRoomPlayback() || !ytPlayer || !ytPlayerReady || performance.now() < roomAudioGuardUntil) {
       roomAudioCandidateKey = '';
       return;
     }
@@ -208,6 +208,7 @@ function playbackAuthorityKey(roomState = state) {
     source.url || '',
     source.streamId || '',
     source.mode || '',
+    roomState?.linkedSourceActive === true,
     Number(playback.updatedAt) || 0,
     playback.paused === true ? 1 : 0,
     playback.ended === true ? 1 : 0,
@@ -265,6 +266,7 @@ function saveRoomSession(value, ...ids) {
   for (const id of new Set(ids.filter(Boolean).map(item=>String(item).toUpperCase()))) saveSession(id, value);
 }
 function isHost() { return !!session && (state?.hostId === session.publicId || state?.hostId === session.memberId); }
+function followsRoomPlayback() { return !isHost() || state?.linkedSourceActive === true; }
 function setStatus(text) { $('syncStatus').textContent = text; }
 let lanBaseUrl = null;
 let lanNetworkInfo = null;
@@ -392,6 +394,10 @@ function leaveRoom(message='') {
   if ($('startPartyBtn')) $('startPartyBtn').hidden = false;
   if ($('openRoomBtn')) $('openRoomBtn').hidden = false;
   if ($('syncBtn')) $('syncBtn').hidden = true;
+  if ($('devicePlaybackTiming')) {
+    $('devicePlaybackTiming').hidden = true;
+    $('devicePlaybackTiming').open = false;
+  }
   if ($('copyBtn')) $('copyBtn').hidden = true;
   if ($('copyLanBtn')) $('copyLanBtn').hidden = true;
   if ($('leaveRoomBtn')) $('leaveRoomBtn').hidden = true;

@@ -82,12 +82,16 @@ test.describe('Adaptive playback drift regression', () => {
       return {
         steady: sync.mirrorPlan({ currentTime: 11.5, sampledAt: now + 1500, paused: false, rate: 1, volume: 0.5 }, anchor, { now: now + 1500 }),
         jitter: sync.mirrorPlan({ currentTime: 11.8, sampledAt: now + 1500, paused: false, rate: 1, volume: 0.5 }, anchor, { now: now + 1500 }),
+        longSteady: sync.mirrorPlan({ currentTime: 15, sampledAt: now + 5000, paused: false, rate: 1, volume: 0.5 }, anchor, { now: now + 5000 }),
+        delayed: sync.mirrorPlan({ currentTime: 11, sampledAt: now + 1000, paused: false, rate: 1, volume: 0.5 }, anchor, { now: now + 5000 }),
         seek: sync.mirrorPlan({ currentTime: 20, sampledAt: now + 1500, paused: false, rate: 1, volume: 0.5 }, anchor, { now: now + 1500 }),
         pause: sync.mirrorPlan({ currentTime: 11.5, sampledAt: now + 1500, paused: true, rate: 1, volume: 0.5 }, anchor, { now: now + 1500 })
       };
     });
     expect(result.steady.publish).toBe(false);
     expect(result.jitter.publish).toBe(false);
+    expect(result.longSteady.publish).toBe(false);
+    expect(result.delayed.reason).toBe('stale');
     expect(result.seek.publish).toBe(true);
     expect(result.seek.reason).toBe('drift');
     expect(result.pause.publish).toBe(true);
@@ -197,6 +201,38 @@ test.describe('Adaptive playback drift regression', () => {
 
     expect(calls.seek).toHaveLength(1);
     expect(calls.seek[0]).toBeGreaterThanOrEqual(100);
+  });
+
+  test('a buffering TV that is room host follows the linked timeline without repeated play or seek', async ({ page }) => {
+    await page.goto('/');
+    const result = await page.evaluate(() => {
+      const calls = { seek: 0, play: 0 };
+      const now = Date.now();
+      roomId = 'linked-room';
+      session = { memberId: 'tv-session', publicId: 'tv-public' };
+      state = { hostId: 'tv-public', linkedSourceActive: true,
+        source: { videoId: 'M7lc1UVf-VE' },
+        playback: { position: 100, paused: false, rate: 1, updatedAt: now, projectedAt: now } };
+      ytPlayerReady = true;
+      let current = 90;
+      let playerState = 3;
+      ytPlayer = {
+        getVideoData: () => ({ video_id: 'M7lc1UVf-VE' }),
+        getPlayerState: () => playerState,
+        getCurrentTime: () => current,
+        getPlaybackRate: () => 1,
+        seekTo: value => { current = value; calls.seek++; },
+        playVideo: () => { calls.play++; }
+      };
+      for (let tick = 0; tick < 20; tick++) syncPlayer();
+      const buffering = { ...calls, action: window.watchFusionSyncDiagnostics().action };
+      playerState = 1;
+      syncPlayer();
+      syncPlayer();
+      return { buffering, settled: calls };
+    });
+    expect(result.buffering).toEqual({ seek: 0, play: 0, action: 'buffering' });
+    expect(result.settled).toEqual({ seek: 1, play: 0 });
   });
 
   test('paused host state stops an already-playing viewer immediately', async ({ page }) => {

@@ -308,8 +308,8 @@ function withMediaGuard(fn) {
   mediaEventGuard += 1;
   try { return fn(); } finally { mediaEventGuard = Math.max(0, mediaEventGuard - 1); }
 }
-function authoritativeRoomPlay(position = 0) { if (!isHost()) return; command('play', { position }); }
-function authoritativeRoomPause(position = currentMediaPosition(), ended = false) { if (!isHost()) return; command('pause', { position, ended }); }
+function authoritativeRoomPlay(position = 0) { if (followsRoomPlayback()) return; command('play', { position }); }
+function authoritativeRoomPause(position = currentMediaPosition(), ended = false) { if (followsRoomPlayback()) return; command('pause', { position, ended }); }
 function attachedMediaControl(action, value) {
   if (!window.watchFusionLinkedTab?.active?.() || window.watchFusionLinkedTab?.applying?.() || performance.now() < mediaAttachedGuardUntil) return false;
   window.watchFusionLinkedTab.control(action, value); return true;
@@ -325,8 +325,8 @@ function onMediaPlay() {
   authoritativeRoomPlay(replaying ? 0 : currentMediaPosition());
 }
 function onMediaPause() { if (mediaEventGuard || !isHost() || !state || mediaVideo?.ended) return; if(!attachedMediaControl('pause',currentMediaPosition()))authoritativeRoomPause(currentMediaPosition(), false); }
-function onMediaSeeked() { if (mediaEventGuard || !isHost() || !state) return; if(!attachedMediaControl('seek',currentMediaPosition()))command('seek', { position: currentMediaPosition() }); }
-function onMediaRate() { if (mediaEventGuard || !isHost() || !state) return; if(!attachedMediaControl('rate',mediaVideo?.playbackRate||1))command('rate', { rate: mediaVideo?.playbackRate || 1 }); }
+function onMediaSeeked() { if (mediaEventGuard || !isHost() || !state) return; if(!attachedMediaControl('seek',currentMediaPosition())&&!followsRoomPlayback())command('seek', { position: currentMediaPosition() }); }
+function onMediaRate() { if (mediaEventGuard || !isHost() || !state) return; if(!attachedMediaControl('rate',mediaVideo?.playbackRate||1)&&!followsRoomPlayback())command('rate', { rate: mediaVideo?.playbackRate || 1 }); }
 function onMediaEnded() { if (mediaEventGuard || !isHost() || !state) return; authoritativeRoomPause(Math.max(currentMediaPosition(), mediaDuration()), true); }
 
 function replayViewerFromTerminal(target) {
@@ -346,7 +346,8 @@ function replayViewerFromTerminal(target) {
 }
 
 function syncMediaPlayer(options = {}) {
-  if (!roomId || !isMediaSource() || !mediaVideo || !mediaPlayerReady || isHost()) return;
+  if (!roomId || !isMediaSource() || !mediaVideo || !mediaPlayerReady || !followsRoomPlayback()) return;
+  if (window.watchFusionLinkedTab?.publishing?.() && !options.force) return;
   refreshMediaAnchor(false);
   const playback = state.playback || {};
   const target = projectedMediaTarget();
@@ -410,5 +411,5 @@ function followAttachedMedia(metadata = {}, options = {}) {
   return true;
 }
 window.mediaPlayback = { ensureSource: ensureMediaSource, sync: syncMediaPlayer, followAttached: followAttachedMedia, position: currentMediaPosition, state: mediaPlaybackState, restore: restoreMediaPlayback, clear: clearMediaPlayer };
-setInterval(() => { try { if (roomId && isMediaSource() && !isHost() && mediaPlayerReady) syncMediaPlayer(); } catch {} }, 250);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && roomId && isMediaSource() && !isHost()) { refreshMediaAnchor(true); syncMediaPlayer(); } });
+setInterval(() => { try { syncMediaPlayer(); } catch {} }, 250);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && roomId && isMediaSource() && followsRoomPlayback()) { refreshMediaAnchor(true); syncMediaPlayer(); } });

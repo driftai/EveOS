@@ -16,11 +16,22 @@
   const SENSOR_MIN_SAMPLES = 5;
   const SENSOR_MIN_AGE_MS = 900;
   const SENSOR_MAX_SPREAD_SEC = 0.22;
+  const DEVICE_TIMING_KEY = 'watchfusion.youtubePlaybackDelayMs';
+  const DEVICE_TIMING_STEP_MS = 25;
+  const DEVICE_TIMING_LIMIT_MS = 1000;
+  let deviceDelayMs = normalizeDeviceDelay(storage.get(DEVICE_TIMING_KEY));
+  let draftDeviceDelayMs = deviceDelayMs;
 
   let anchorKey = '';
   let anchorPosition = 0;
   let anchorServerTime = 0;
+  let anchorRate = 0;
   let seekCooldownUntil = 0;
+  let awaitingSeekRecovery = false;
+  let viewerWasBuffering = false;
+  let viewerScope = '';
+  let correctiveSeeks = 0;
+  let replayLoads = 0;
   let viewerSawEnded = false;
   let replayKey = '';
   let driftSamples = [];
@@ -32,6 +43,52 @@
     stable: false,
     action: 'idle'
   };
+
+  function normalizeDeviceDelay(value) {
+    const steps = Math.round((Number(value) || 0) / DEVICE_TIMING_STEP_MS);
+    return Math.max(-DEVICE_TIMING_LIMIT_MS, Math.min(DEVICE_TIMING_LIMIT_MS, steps * DEVICE_TIMING_STEP_MS));
+  }
+
+  function hasDeviceTiming() {
+    return !!roomId && !!state?.source?.videoId && followsRoomPlayback() && !window.watchFusionLinkedTab?.publishing?.();
+  }
+
+  function formatDeviceDelay(value) {
+    return value ? Math.abs(value) + ' ms ' + (value < 0 ? 'earlier' : 'later') : '0 ms';
+  }
+
+  function renderDeviceTiming() {
+    const controls = $('devicePlaybackTiming');
+    if (!controls) return;
+    controls.hidden = !hasDeviceTiming();
+    if (controls.hidden) {
+      controls.open = false;
+      draftDeviceDelayMs = deviceDelayMs;
+      return;
+    }
+    $('deviceTimingSummary').textContent = deviceDelayMs ? '· ' + formatDeviceDelay(deviceDelayMs) : '';
+    $('deviceTimingValue').textContent = formatDeviceDelay(draftDeviceDelayMs);
+    $('deviceTimingEarlier').disabled = draftDeviceDelayMs <= -DEVICE_TIMING_LIMIT_MS;
+    $('deviceTimingLater').disabled = draftDeviceDelayMs >= DEVICE_TIMING_LIMIT_MS;
+    $('deviceTimingApply').disabled = draftDeviceDelayMs === deviceDelayMs;
+    $('deviceTimingReset').disabled = !deviceDelayMs && !draftDeviceDelayMs;
+  }
+
+  function stageDeviceDelay(value) {
+    draftDeviceDelayMs = normalizeDeviceDelay(value);
+    renderDeviceTiming();
+  }
+
+  function applyDeviceDelay(value) {
+    if (!hasDeviceTiming()) return;
+    draftDeviceDelayMs = normalizeDeviceDelay(value);
+    if (draftDeviceDelayMs !== deviceDelayMs) {
+      deviceDelayMs = draftDeviceDelayMs;
+      storage.set(DEVICE_TIMING_KEY, String(deviceDelayMs));
+      if (!state.playback?.paused && !state.playback?.ended) syncPlayer({ force: true });
+    }
+    renderDeviceTiming();
+  }
 
   function median(values) {
     if (!values.length) return 0;
@@ -63,26 +120,34 @@
     if (!state?.playback) return;
     const key = syncStateKey();
     if (!force && key && key === anchorKey) return;
-    if (key !== anchorKey) resetDriftSensor('new-anchor');
+    const p = state.playback;
+    const position = Number(p.position) || 0;
+    const at = Number(p.projectedAt) || Number(state.serverTime) || Date.now();
+    const rate = p.paused || p.ended ? 0 : Number(p.rate) || 1;
+    if (key !== anchorKey) {
+      resetDriftSensor('new-anchor');
+      const changedMotion = (anchorRate === 0) !== (rate === 0);
+      const jumpThreshold = rate === 0 ? SYNC_TOLERANCE_SEC : HARD_DRIFT_SEC;
+      const jumped = Math.abs(position - projectAnchor(at)) >= jumpThreshold;
+      if (anchorKey && (changedMotion || jumped)) resetSeekRecovery();
+    }
     anchorKey = key;
-    anchorPosition = Number(state.playback.position) || 0;
-    anchorServerTime = Number(state.playback.projectedAt) || Number(state.serverTime) || Date.now();
+    anchorPosition = position;
+    anchorServerTime = at;
+    anchorRate = rate;
   }
 
   function serverNow() {
     return typeof estimatedServerNow === 'function' ? estimatedServerNow() : Date.now();
   }
 
-  function predictedPosition() {
-    const p = state?.playback;
-    if (!p) return 0;
-    if (p.paused || p.ended) return Number(p.position) || 0;
-    refreshAnchor(false);
-    return Math.max(
-      0,
-      anchorPosition
-        + Math.max(0, (serverNow() - anchorServerTime) / 1000) * (Number(p.rate) || 1)
-    );
+  function projectAnchor(at) {
+    return Math.max(0, anchorPosition + Math.max(0, at - anchorServerTime) / 1000 * anchorRate);
+  }
+
+  function resetSeekRecovery() {
+    awaitingSeekRecovery = false;
+    seekCooldownUntil = 0;
   }
 
   function sampleDrift(rawDrift, nowMs) {
@@ -119,13 +184,8 @@
     diagnostics.action = 'steady';
   }
 
-  function playbackSnapshotKey() {
-    const p = state?.playback;
-    return p ? [state?.revision, p.updatedAt, p.position, p.paused, p.ended].join('|') : '';
-  }
-
   function restartViewerFromEnded(target, baseRate) {
-    const key = playbackSnapshotKey();
+    const key = syncStateKey();
     if (!key || key === replayKey) return false;
     replayKey = key;
     viewerSawEnded = false;
@@ -133,10 +193,12 @@
       const startSeconds = Math.max(0, Number(target) || 0);
       if (typeof ytPlayer.loadVideoById === 'function') {
         ytPlayer.loadVideoById({ videoId: state.source.videoId, startSeconds });
+        replayLoads++;
       } else {
         ytPlayer.seekTo?.(startSeconds, true);
       }
       ytPlayer.setPlaybackRate?.(baseRate);
+      awaitSeekRecovery(performance.now());
       requestViewerPlayback();
       resetDriftSensor('replay');
       return true;
@@ -145,30 +207,54 @@
     }
   }
 
+  function awaitSeekRecovery(nowMs) {
+    awaitingSeekRecovery = true;
+    seekCooldownUntil = nowMs + SEEK_COOLDOWN_MS;
+  }
+
   function seekViewer(target, baseRate, nowMs, action = 'seek') {
     try {
       ytPlayer.setPlaybackRate?.(baseRate);
       ytPlayer.seekTo?.(target, true);
+      correctiveSeeks++;
     } catch {}
-    anchorPosition = target;
-    anchorServerTime = serverNow();
-    seekCooldownUntil = nowMs + SEEK_COOLDOWN_MS;
+    awaitSeekRecovery(nowMs);
     resetDriftSensor(action);
     setStatus('Re-synced');
   }
 
   function applyViewerCorrection(force = false) {
-    if (!roomId || !state?.source?.videoId || !ytPlayer || !ytPlayerReady || isHost()) return;
+    if (!roomId || !state?.source?.videoId || !ytPlayer || !ytPlayerReady || !followsRoomPlayback()) return;
+    if (playerInitializing || primingPlayer) return;
+    if (window.watchFusionLinkedTab?.publishing?.() && !force) return;
 
+    const scope = roomId + ':' + state.source.videoId;
+    if (scope !== viewerScope) {
+      viewerScope = scope;
+      viewerWasBuffering = false;
+      viewerSawEnded = false;
+      resetSeekRecovery();
+      replayKey = '';
+      correctiveSeeks = 0;
+      replayLoads = 0;
+      resetDriftSensor('source-changed');
+    }
     applyRoomAudioState();
     refreshAnchor(false);
 
     const baseRate = Math.min(2, Math.max(0.25, Number(state.playback.rate) || 1));
     const current = Number(ytPlayer.getCurrentTime?.()) || 0;
-    const target = predictedPosition();
+    const duration = Number(ytPlayer.getDuration?.()) || 0;
+    // Positive delay plays behind the room; negative delay compensates for late device output.
+    const delaySec = anchorRate && hasDeviceTiming() ? deviceDelayMs * anchorRate / 1000 : 0;
+    const projected = Math.max(0, projectAnchor(serverNow()) - delaySec);
+    const target = duration > 0 ? Math.min(duration, projected) : projected;
     const rawDrift = target - current;
     const absRaw = Math.abs(rawDrift);
     const nowMs = performance.now();
+    const playerState = ytPlayer.getPlayerState?.();
+    const buffering = playerState === (window.YT?.PlayerState?.BUFFERING ?? 3);
+    const playerEnded = playerState === (window.YT?.PlayerState?.ENDED ?? 0);
 
     // Always return the viewer to the host's actual playback rate. Sync logic is
     // not allowed to make a phone run faster/slower just to chase noisy samples.
@@ -178,27 +264,34 @@
       }
     } catch {}
 
-    if (state.playback.ended) {
-      viewerSawEnded = true;
+    if (state.playback.paused || state.playback.ended) {
+      viewerSawEnded = !!state.playback.ended;
       try {
-        if (absRaw > SYNC_TOLERANCE_SEC) ytPlayer.seekTo?.(target, true);
-        ytPlayer.pauseVideo?.();
+        const shouldSeek = absRaw > SYNC_TOLERANCE_SEC && (force || (!buffering && !awaitingSeekRecovery));
+        if (shouldSeek) {
+          awaitSeekRecovery(nowMs);
+          ytPlayer.seekTo?.(target, true);
+        }
+        if (shouldSeek || (!playerEnded && playerState !== (window.YT?.PlayerState?.PAUSED ?? 2)
+            && (!buffering || !awaitingSeekRecovery))) ytPlayer.pauseVideo?.();
       } catch {}
-      resetDriftSensor('ended');
+      resetDriftSensor('paused');
+      if (absRaw <= SYNC_TOLERANCE_SEC) resetSeekRecovery();
       markStable();
       return true;
     }
 
-    if (state.playback.paused) {
-      viewerSawEnded = false;
-      try {
-        if (absRaw > SYNC_TOLERANCE_SEC) ytPlayer.seekTo?.(target, true);
-        ytPlayer.pauseVideo?.();
-      } catch {}
-      resetDriftSensor('paused');
-      markStable();
+    if (buffering && !force) {
+      if (!viewerWasBuffering) resetDriftSensor('buffering');
+      viewerWasBuffering = true;
       return true;
     }
+    if (viewerWasBuffering) {
+      viewerWasBuffering = false;
+      resetDriftSensor('settling');
+    }
+
+    if (!force && playerEnded && duration > 0 && target >= duration - SYNC_TOLERANCE_SEC) return true;
 
     if (viewerSawEnded && target <= 1.5 && restartViewerFromEnded(target, baseRate)) return true;
     viewerSawEnded = false;
@@ -209,15 +302,28 @@
       return true;
     }
 
+    // A timed-out seek can leave the TV behind while its clock still reads
+    // Playing. Give it time to recover instead of seeking every cooldown.
+    if (awaitingSeekRecovery && nowMs >= seekCooldownUntil) {
+      if (absRaw < SEEK_DRIFT_SEC) resetSeekRecovery();
+      else {
+        diagnostics.action = 'waiting-for-player';
+        const message = 'Playback is behind · use Sync me to catch up';
+        if ($('syncStatus')?.textContent !== message) setStatus(message);
+        requestViewerPlayback();
+        return true;
+      }
+    }
+
     const sensor = sampleDrift(rawDrift, nowMs);
     const filteredAbs = Math.abs(sensor.filteredDriftSec);
 
     // A very large offset is safe to repair after a couple of consistent reads.
     const hardConsistent = sensor.sampleCount >= 2
       && driftSamples.slice(-2).every(sample => Math.sign(sample.drift) === Math.sign(sensor.filteredDriftSec));
-    if (filteredAbs >= HARD_DRIFT_SEC && hardConsistent && nowMs >= seekCooldownUntil) {
+    if (filteredAbs >= HARD_DRIFT_SEC && hardConsistent && !awaitingSeekRecovery) {
       seekViewer(target, baseRate, nowMs, 'hard-seek');
-    } else if (sensor.stable && filteredAbs >= SEEK_DRIFT_SEC && nowMs >= seekCooldownUntil) {
+    } else if (sensor.stable && filteredAbs >= SEEK_DRIFT_SEC && !awaitingSeekRecovery) {
       seekViewer(target, baseRate, nowMs, 'stable-seek');
     } else {
       // Below the trusted seek threshold, do nothing. In particular, a reported
@@ -233,6 +339,13 @@
   window.applyAdaptiveViewerSync = applyViewerCorrection;
   window.watchFusionSyncDiagnostics = () => ({
     ...diagnostics,
+    correctiveSeeks,
+    replayLoads,
+    deviceDelayMs: hasDeviceTiming() ? deviceDelayMs : 0,
+    revision: state?.revision ?? null,
+    playerState: ytPlayer?.getPlayerState?.() ?? null,
+    host: isHost(),
+    sourceLinked: state?.linkedSourceActive === true,
     clockOffsetMs: window.watchPartyClock?.offsetMs?.() ?? null,
     clockRttMs: window.watchPartyClock?.rttMs?.() ?? null,
     playerRate: Number(ytPlayer?.getPlaybackRate?.()) || null,
@@ -242,15 +355,21 @@
   const originalRender = render;
   render = function watchPartyAdaptiveRender() {
     refreshAnchor(true);
-    return originalRender();
+    const result = originalRender();
+    renderDeviceTiming();
+    return result;
   };
+
+  $('deviceTimingEarlier')?.addEventListener('click', () => stageDeviceDelay(draftDeviceDelayMs - DEVICE_TIMING_STEP_MS));
+  $('deviceTimingLater')?.addEventListener('click', () => stageDeviceDelay(draftDeviceDelayMs + DEVICE_TIMING_STEP_MS));
+  $('deviceTimingApply')?.addEventListener('click', () => applyDeviceDelay(draftDeviceDelayMs));
+  $('deviceTimingReset')?.addEventListener('click', () => applyDeviceDelay(0));
 
   const syncButton = $('syncBtn');
   if (syncButton) syncButton.onclick = () => syncPlayer({ force: true });
 
   setInterval(() => {
     try {
-      if (!roomId || !state?.source?.videoId || !ytPlayer || !ytPlayerReady || isHost()) return;
       applyViewerCorrection(false);
     } catch {}
   }, TICK_MS);
@@ -258,7 +377,7 @@
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       refreshAnchor(true);
-      if (roomId && !isHost()) applyViewerCorrection(false);
+      if (roomId) applyViewerCorrection(false);
     }
   });
 })();

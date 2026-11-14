@@ -2,11 +2,13 @@ import {
   appendChat,
   broadcast,
   broadcastState,
+  cancelPendingLeave,
   clampName,
   createRoom,
   deleteRoom,
   freshPlayback,
   getMember,
+  getTransferTarget,
   getRoom,
   hasRoom,
   id,
@@ -24,6 +26,7 @@ import { json, now, readBody } from './http-utils.js';
 import { parseYoutubeUrl, youtubeUrlFromId } from './youtube.js';
 import { MAX_CHAT_MESSAGE_CHARS, MAX_ROOM_COMMAND_BODY_BYTES } from './config.js';
 import { handleRoomImageRoute } from './room-image-routes.js';
+import { ownsLinkedSource } from './live-streams.js';
 
 function validAccountId(value) {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(value);
@@ -59,10 +62,17 @@ export async function handleRoomRoute(req, res, url, parts) {
   const memberId = String(req.headers['x-member-id'] || url.searchParams.get('memberId') || '');
   const member = getMember(room, memberId);
   if (!member) return json(res, 401, { error: 'join the room first' });
+  if (req.method === 'GET' && parts[3] === 'state') {
+    cancelPendingLeave(room, memberId);
+    return json(res, 200, { state: publicState(room) });
+  }
   const imageHandled = await handleRoomImageRoute(req, res, parts, room, member);
   if (imageHandled !== false) return imageHandled;
   if (req.method === 'GET' && parts[3] === 'events') return openEvents(req, res, room);
-  if (req.method === 'POST' && parts[3] === 'ping') return json(res, 200, { ok: true, serverTime: now() });
+  if (req.method === 'POST' && parts[3] === 'ping') {
+    cancelPendingLeave(room, memberId);
+    return json(res, 200, { ok: true, serverTime: now() });
+  }
   if (req.method === 'POST' && parts[3] === 'leave') {
     if (url.searchParams.get('defer') === '1') {
       scheduleLeaveMember(room, memberId);
@@ -72,7 +82,7 @@ export async function handleRoomRoute(req, res, url, parts) {
     broadcastState(room);
     return json(res, 200, { ok: true });
   }
-  if (req.method === 'POST' && parts[3] === 'command') return commandRoute(req, res, room, roomId, memberId, member);
+  if (req.method === 'POST' && parts[3] === 'command') return commandRoute(req, res, room, roomId, member);
   return false;
 }
 
@@ -97,7 +107,7 @@ async function joinRoomRoute(req, res, room, requestedRoomId, roomId) {
     name: clampName(body.name)
   });
   if (joined.error) return json(res, 409, { error: joined.error, roomCode: requestedAlias || null });
-  broadcastState(room);
+  if (joined.changed) broadcastState(room);
   return json(res, 200, { session: joined.session, state: publicState(room) });
 }
 
@@ -114,33 +124,39 @@ function openEvents(req, res, room) {
   req.on('close', () => { clearInterval(heartbeat); room.streams.delete(res); });
 }
 
-async function commandRoute(req, res, room, roomId, memberId, member) {
+async function commandRoute(req, res, room, roomId, member) {
   const body = await readBody(req, { maxBytes: MAX_ROOM_COMMAND_BODY_BYTES });
   const receivedAt = now();
   const sampleAgeSeconds = sampledCommandAgeSeconds(body, receivedAt);
-  const isHost = member.id === room.hostId || memberId === room.hostId;
-  if (['play', 'pause', 'seek', 'rate', 'volume', 'source', 'mirror', 'transfer-host'].includes(body.type) && !isHost) {
+  const isHost = member.id === room.hostId && room.members.has(member.id);
+  const type = body.type;
+  const linked = ownsLinkedSource(room, room.members.get(member.id), body.linkedSource);
+  if ((body.linkedSource || (type === 'mirror' && room.linkedSourceId)) && !linked) {
+    return json(res, 403, { error: 'Linked source ownership required.' });
+  }
+  if (['play', 'pause', 'seek', 'rate', 'volume', 'source', 'mirror', 'transfer-host', 'delete-room'].includes(type)
+      && !isHost && !(linked && ['source', 'mirror'].includes(type))) {
     return json(res, 403, { error: 'only the current host controls this action' });
   }
-  const type = body.type;
   if (type === 'delete-room') {
     broadcast(room, { type: 'room-deleted', roomId });
     deleteRoom(roomId, room);
     return json(res, 200, { ok: true, deleted: true });
   }
   if (type === 'transfer-host') {
-    const target = getMember(room, String(body.targetMemberId || ''));
+    const target = getTransferTarget(room, String(body.targetMemberId || ''));
     if (!target) return json(res, 404, { error: 'target member is no longer in the room' });
     room.hostId = target.id;
     room.temporaryHost = target.accountId !== room.ownerAccountId;
   } else if (type === 'source') {
-    if (body.source && typeof body.source === 'object') {
+    if (!linked && body.source && typeof body.source === 'object') {
       room.source = body.source;
     } else {
       const videoId = parseYoutubeUrl(body.input);
       if (!videoId) return json(res, 400, { error: 'enter a valid YouTube URL or video ID' });
       room.source = { type: 'youtube', videoId, originalUrl: youtubeUrlFromId(videoId) };
     }
+    if (!linked) room.linkedSourceId = null;
     room.playback = freshPlayback(room.playback);
   } else if (type === 'mirror') {
     const sampledPosition = Math.max(0, Number(body.position) || 0);

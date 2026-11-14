@@ -6,7 +6,21 @@
   const pendingControls=new Map();
 
   function active(){return !!link;}
-  function canControl(){return roomId?isHost():true;}
+  function roomProof(){return roomId && link?.roomId === roomId ? {id:link.id,token:link.publisherToken} : undefined;}
+  async function bindRoom(source, targetRoom) {
+    const bound=await post(`/api/live/${source.id}/room`,{publisherToken:source.publisherToken,roomId:targetRoom,mode:'linked-tab'});
+    if(roomId!==targetRoom)throw new Error('Room changed while attaching source.');
+    source.roomId=targetRoom;
+    if(bound.state&&applyIncomingRoomState(bound.state))render();
+  }
+  async function promoteToRoom() {
+    if(!link||!roomId)return false;
+    await bindRoom(link,roomId);
+    lastMirrorAnchor=null;
+    scheduleMirror(lastMetadata,true);
+    return true;
+  }
+  function canControl(){return link?.roomId ? isHost() && !!roomProof() : !roomId;}
   function setApplying(value){applying=!!value;}
   function status(message){if($('liveStatus'))$('liveStatus').textContent=message;}
   function clock(value){const n=Math.max(0,Math.floor(Number(value)||0));return `${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`;}
@@ -78,15 +92,19 @@
         rate:Number(metadata.rate)||1,volume:Math.max(0,Math.min(100,(Number(metadata.volume)||0)*100)),muted:Number(metadata.volume)===0,updatedAt:Date.now()};
       lastMirrorAnchor=plan.anchor;return true;
     }
-    if(!isHost())return;
+    const linkedSource=roomProof();
+    if(!linkedSource)return;
     if(mirrorInFlight){queuedMirror={metadata:{...metadata},force:queuedMirror?.force===true||force};return false;}
     const activeLink=link;
     mirrorInFlight=true;
     try{
-      const ok=await command('mirror',{position:plan.target,paused:!!metadata.paused,ended:!!metadata.ended,
+      const ok=await command('mirror',{linkedSource,position:plan.target,paused:!!metadata.paused,ended:!!metadata.ended,
         rate:Number(metadata.rate)||1,volume:Math.max(0,Math.min(100,(Number(metadata.volume)||0)*100)),muted:Number(metadata.volume)===0});
       if(ok&&link===activeLink)lastMirrorAnchor=plan.anchor;
       return ok;
+    }catch{
+      status('Linked source reconnecting…');
+      return false;
     }finally{
       mirrorInFlight=false;
       const queued=queuedMirror;queuedMirror=null;
@@ -99,9 +117,17 @@
   }
   async function followUrl(url){
     const value=String(url||'').trim();if(!/^https?:\/\//i.test(value)||value===loadedPageUrl||value===resolvingUrl)return;
+    if(loadedPageUrl&&state?.source?.videoId&&window.parseYoutubeInput?.(value)===state.source.videoId){
+      loadedPageUrl=value;
+      followLocal(lastMetadata);
+      scheduleMirror(lastMetadata);
+      return;
+    }
     if(resolvingUrl){pendingUrl=value;return;}
     const revision=++resolveRevision;resolvingUrl=value;pendingUrl='';status('Attached tab changed · resolving its playable source…');
-    const ok=await window.watchFusionMediaResolver?.resolveAndLoad?.(value,{silent:true});
+    if (roomId && !roomProof()) { resolvingUrl='';return; }
+    const resolve=window.watchFusionMediaResolver?.resolveAndLoad;
+    const ok=resolve&&await resolve(value,{silent:true,linkedSource:roomProof()}).catch(()=>false);
     if(revision!==resolveRevision)return;
     resolvingUrl='';
     if(ok){loadedPageUrl=value;lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();renderControls(lastMetadata);followLocal(lastMetadata,true);scheduleMirror(lastMetadata,true);status('Attached tab state linked · WatchFusion is playing the resolved source.');}
@@ -111,6 +137,7 @@
   }
   function onMetadata(metadata={}){
     lastTransportTiming=window.WatchFusionLinkedPlaybackSync?.transportTiming?.(metadata,Date.now())||null;
+    if(roomId&&link?.roomId!==roomId)return;
     lastMetadata=applyPendingControls({...lastMetadata,...metadata});renderControls(lastMetadata);
     const pageUrl=String(lastMetadata.pageUrl||'');
     if(pageUrl&&pageUrl!==loadedPageUrl){void followUrl(pageUrl);return;}
@@ -126,7 +153,16 @@
     if(roomId&&!isHost())return setStatus('Only the host can attach the room source.');
     if(active())return stop();
     if(state?.source?.kind==='live'&&state.source.mode==='audioflix')await window.unloadWatchFusionMedia?.();
-    const created=await post('/api/live',{});link=created;loadedPageUrl='';resolvingUrl='';pendingUrl='';lastMetadata={};lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();resolveRevision++;
+    const startingRoom=roomId;
+    const created=await post('/api/live',{});
+    try {
+      if(roomId!==startingRoom)throw new Error('Room changed while attaching source.');
+      if(startingRoom)await bindRoom(created,startingRoom);
+    } catch(error) {
+      await post(`/api/live/${created.id}/stop`,created).catch(()=>{});
+      setStatus(error.message);return false;
+    }
+    link=created;loadedPageUrl='';resolvingUrl='';pendingUrl='';lastMetadata={};lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();resolveRevision++;
     const pairing=new URL(location.origin);pairing.hash=`live=${created.id}.${created.publisherToken}`;
     $('livePairLink').value=pairing.href;$('livePairHelp').hidden=false;$('findMediaPanel').hidden=false;renderControls({});
     status('Pair the source tab. WatchFusion will resolve its URL and keep only playback state attached.');connectPeer();
@@ -134,11 +170,12 @@
   async function stop(options={}){
     if(!link)return true;
     const old=link;link=null;resolveRevision++;resolvingUrl='';pendingUrl='';loadedPageUrl='';lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();
-    peer?.stop();peer=null;await post(`/api/live/${old.id}/stop`,old).catch(()=>{});
+    peer?.stop();peer=null;const stopped=await post(`/api/live/${old.id}/stop`,old).catch(()=>null);
+    if(stopped?.state&&stopped.state.roomId===roomId&&applyIncomingRoomState(stopped.state))render();
     $('livePairHelp').hidden=true;restoreUi();if(!options.quiet)setStatus('Source tab unlinked · the page was restored to normal.');return true;
   }
   function reconnect(){if(!link)return start();connectPeer();return true;}
   $('linkTabBtn').onclick=()=>{void(active()?stop():start());};
-  window.watchFusionLinkedTab={active,applying:()=>applying,setApplying,control,start,stop,reconnect,render:renderControls,
+  window.watchFusionLinkedTab={active,promoteToRoom,publishing:()=>!!(roomProof()&&state?.linkedSourceActive),applying:()=>applying,setApplying,control,start,stop,reconnect,render:renderControls,
     metadata:()=>lastMetadata,diagnostics:()=>({transport:lastTransportTiming})};
 })();

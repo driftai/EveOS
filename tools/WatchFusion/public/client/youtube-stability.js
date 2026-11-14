@@ -3,7 +3,7 @@
   const BUFFER_GRACE_MS=1800, BUFFER_AHEAD_SEC=3;
 
   function eligible(){
-    return !!state?.source?.videoId && (!roomId || isHost()) && !window.watchFusionLinkedTab?.active?.();
+    return !!state?.source?.videoId && (!roomId || !followsRoomPlayback()) && !window.watchFusionLinkedTab?.active?.();
   }
   function clearTimer(){ if(timer)clearTimeout(timer);timer=null; }
   function bufferedAhead(){
