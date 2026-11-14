@@ -39,6 +39,9 @@ export async function runLiveSmokes() {
       assert.ok(!JSON.stringify(attach.json.state).includes(live.publisherToken));
       assert.ok(!JSON.stringify(attach.json.state).includes(live.viewerToken));
       const publisher = await connect({ id: live.id, role: 'publisher', token: live.publisherToken }); await publisher.take('ready');
+      const sentAt = Date.now(); publisher.send({type:'ping',sentAt});
+      const clock = await publisher.take('pong');
+      assert.equal(clock.sentAt,sentAt); assert.ok(clock.receivedAt > 0 && clock.serverTime >= clock.receivedAt);
       const viewer = await connect({ id: live.id, roomId: 'LIVEA', memberId: guest.memberId }); await viewer.take('ready');
       const joined = await publisher.take('viewer');
       publisher.send({ type: 'signal', peer: joined.peer, signal: { description: { type: 'offer', sdp: 'test-offer' } } });

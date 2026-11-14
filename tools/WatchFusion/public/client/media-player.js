@@ -365,13 +365,15 @@ function syncMediaPlayer(options = {}) {
   const playback = state.playback || {}, video = mediaVideo;
   const speakerTiming = window.watchFusionPresentation?.active?.();
   const delay = playback.paused || playback.ended ? 0 : (speakerTiming?.adjustmentMs || 0) * mediaAnchorRate / 1000;
-  const target = Math.max(0, Math.min(projectedMediaTarget() - delay, video.duration > 0 ? video.duration : Infinity));
+  const position = projectedMediaTarget();
+  const target = Math.max(0, Math.min((window.watchFusionPlayout?.position(position, 'direct') ?? position) - delay, video.duration > 0 ? video.duration : Infinity));
   const drift = target - currentMediaPosition();
   const baseRate = Math.min(2, Math.max(0.25, Number(playback.rate) || 1));
   const now = performance.now(), force = options.force === true;
   const buffering = video.seeking || video.readyState < 3;
   if (mediaSeek && Math.abs(drift) < .25 && !buffering) mediaSeek = null;
-  const canSeek = video.readyState >= 1 && (force || (!video.seeking && !mediaSeek));
+  const sourceStalled = window.watchFusionPlayout?.sourceBuffering() === true;
+  const canSeek = video.readyState >= 1 && (force || (!sourceStalled && !video.seeking && !mediaSeek));
   mediaSyncAction = buffering ? 'buffering' : 'steady';
   const seek = () => {
     mediaSeek = true; mediaSyncSeeks++; mediaSyncAction = force ? 'manual-sync' : 'seek';
@@ -393,8 +395,8 @@ function syncMediaPlayer(options = {}) {
         if (target < video.duration - .25 && !buffering) replayViewerFromTerminal(target);
       } else {
         if (canSeek && (force || (!buffering && Math.abs(drift) > 1.25))) seek();
-        else if (buffering || video.paused || mediaSeek) mediaConvergence.reset();
-        else rate = mediaConvergence.rate(baseRate, drift, now, speakerTiming ? speakerTiming.uncertaintyMs / 1000 : undefined);
+        else if (buffering || sourceStalled || video.paused || mediaSeek) mediaConvergence.reset();
+        else rate = mediaConvergence.rate(baseRate, drift, now, speakerTiming ? speakerTiming.uncertaintyMs / 1000 : window.watchFusionPlayout?.precision('direct'));
         if (video.paused && now >= (mediaPlay || 0)) {
           mediaPlay = now + 1000;
           window.watchFusionLinkedTab?.suppressPlaybackEcho?.();

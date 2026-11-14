@@ -7,6 +7,7 @@ import { startServer } from '../helpers/server-harness.js';
 import { request } from '../helpers/http-client.js';
 import { runPlaybackTimingChecks } from './playback-timing.js';
 import { runPresentationTimingChecks } from './presentation-timing.js';
+import { runAutomaticPlayoutChecks } from './automatic-playout.js';
 import { isM3u8Response } from '../../../src/server/media-routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -248,6 +249,7 @@ export async function runFastSmoke() {
 
   await runPlaybackTimingChecks(check);
   await runPresentationTimingChecks(check);
+  await runAutomaticPlayoutChecks(check);
 
   await check('FAST-02A:nuvio-browser-plugin-bridge-contract', () => {
     const build = fs.readFileSync(path.join(PROJECT_ROOT, 'scripts', 'BUILD-NUVIO.bat'), 'utf8');

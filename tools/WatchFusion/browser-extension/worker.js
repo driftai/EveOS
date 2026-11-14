@@ -6,6 +6,7 @@ importScripts('live-peer.js');
 
 let sourceTab = null, controlFrameId = 0, statePeer = null;
 let lastRefresh = 0, lastCombinedSample = null, publisherReady = false, stopping = false;
+let clockSamples = [];
 const frameSamples = new Map();
 
 function pairing(value) {
@@ -85,12 +86,34 @@ async function forwardControl(action,value) {
   return chrome.tabs.sendMessage(tabId,{type:'source-control',action,value},{frameId:controlFrameId}).catch(()=>{});
 }
 
+function updatePublisherClock({sentAt, receivedAt, serverTime}, localAt) {
+  if (![sentAt, receivedAt, serverTime, localAt].every(Number.isFinite) || serverTime < receivedAt) return;
+  if (clockSamples.length && Math.abs(localAt - clockSamples.at(-1).at) > 15000) clockSamples = [];
+  const rtt = localAt - sentAt - (serverTime - receivedAt);
+  if (rtt < 0 || rtt > 220) return;
+  const offset = ((receivedAt - sentAt) + (serverTime - localAt)) / 2;
+  if (clockSamples.length && Math.abs(offset - clockSamples.at(-1).offset) > 180) clockSamples = [];
+  clockSamples = [...clockSamples.filter(item => localAt - item.at <= 12000), {offset,rtt,at:localAt}].slice(-5);
+}
+function sendSourceSample(sample, tabMuted) {
+  const now = Date.now();
+  const valid = clockSamples.filter(item => now - item.at <= 12000).sort((a,b) => a.rtt - b.rtt);
+  const best = valid[0];
+  const close = best ? valid.filter(item => item.rtt <= best.rtt + 12) : [];
+  const offsets = close.map(item => item.offset).sort((a,b) => a-b);
+  const uncertaintyMs = best ? best.rtt / 2 + (offsets.at(-1) - offsets[0]) + 8 : Infinity;
+  const clock = close.length >= 3 && uncertaintyMs <= 125 && sample.sampledAt > 0 && now - sample.sampledAt >= 0 && now - sample.sampledAt <= 1500
+    ? {serverSampledAt:sample.sampledAt + offsets[Math.floor(offsets.length / 2)], uncertaintyMs} : {};
+  statePeer?.metadata({...sample, ...clock, ...(typeof tabMuted === 'boolean' ? {tabMuted} : {}), publisherSentAt:now});
+}
+
 function connectStatePublisher(config) {
   statePeer?.stop();
-  publisherReady=false;
+  publisherReady=false;clockSamples=[];
   statePeer=new WatchFusionLivePeer({
     base:config.base,id:config.id,token:config.token,publisher:true,
-    onReady:()=>{publisherReady=true;if(lastCombinedSample?.metadata)statePeer?.metadata(lastCombinedSample.metadata);},
+    onReady:()=>{publisherReady=true;if(lastCombinedSample?.metadata)sendSourceSample(lastCombinedSample.metadata);},
+    onClock:updatePublisherClock,
     onControl:(action,value)=>void forwardControl(action,value),
     onStatus:status=>{if(/stopped|expired|denied|replaced/i.test(String(status||'')))void stop();}
   });
@@ -169,7 +192,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
       const sample=combinedSample(sender.frameId||0,message,sender.tab?.url||'');
       if(!statePeer)await restorePublisherIfNeeded();
       if(!publisherReady)return {ok:true,pending:true};
-      statePeer?.metadata({...sample.metadata,publisherSentAt:Date.now()});return {ok:true};
+      sendSourceSample(sample.metadata,sender.tab?.mutedInfo?.muted);return {ok:true};
     }
     return {error:'No selected media tab.'};
   })().then(reply,error=>reply({error:error.message,code:error.code}));

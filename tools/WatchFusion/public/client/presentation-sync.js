@@ -57,6 +57,7 @@
     const volume = direct ? media.volume : (media.getVolume?.() ?? 100) / 100;
     return {
       mode: modeName, sampledAt: at, positionMs, roomPositionMs, rate,
+      bufferedUntilMs: direct ? window.watchFusionPlayout?.bufferedUntil(media, position) : null,
       playing: running && (direct ? !media.paused && !media.ended : ytState === 1),
       buffering: direct ? media.seeking || media.readyState < 3 : ytState === 3,
       ready: direct ? !!mediaPlayerReady : !!ytPlayerReady && !playerInitializing && !primingPlayer,
@@ -98,7 +99,7 @@
     frameOwner = video;
     if (!video?.requestVideoFrameCallback) return;
     const frame = (at, data) => {
-      if (frameOwner !== video || !panel.open) return;
+      if (frameOwner !== video || document.hidden) { if (frameOwner === video) frameOwner = null; return; }
       // DOM presentation estimates are deliberately separate from speaker measurements.
       const offset = (video.currentTime - data.mediaTime) * 1000 / video.playbackRate + data.expectedDisplayTime - at;
       if (Number.isFinite(offset)) videoFrame = { at, offset };
@@ -112,7 +113,7 @@
     if (!active || state.presentationEpoch == null) throw new Error('Restart WatchFusion to load speaker sync.');
     const response = await fetch(apiUrl('/api/rooms/' + encodeURIComponent(roomId) + '/presentation'), {
       method: 'POST', cache: 'no-store', signal, headers: {'Content-Type':'application/json','x-member-id':session.memberId},
-      body: JSON.stringify({epoch:state.presentationEpoch, ...body})
+      body: JSON.stringify({epoch:state.presentationEpoch, segment:state.playoutSegment, diagnostics:panel.open, ...body})
     });
     const data = await response.json().catch(() => ({}));
     if (identity() !== active) throw new Error('Room or playback source changed.');
@@ -185,19 +186,21 @@
       : 'Speaker delay is unmeasured. The latest player timing appears below.';
   }
 
-  async function report() {
+  async function report(onTiming, roomKey) {
     updatePanel();
-    if (!key || !panel.open || requestPending || document.visibilityState === 'hidden') return;
-    trackVideoFrames();
+    if (!key || requestPending || document.hidden || (!onTiming && !panel.open)) return;
+    if (panel.open || onTiming) trackVideoFrames();
     const report = timing();
     const active = key, controller = new AbortController();
     requestPending = true;
     const timeout = setTimeout(() => controller.abort(), 1800);
     try {
       const sentAt = Date.now();
-      const data = await exchange(report?.rttMs != null ? {report} : {}, controller.signal);
-      if (active !== key || !panel.open || controller.signal.aborted) return;
+      const data = await exchange(report?.rttMs != null && window.watchPartyClock.precise() ? {report} : {}, controller.signal);
+      if (active !== key || controller.signal.aborted) return;
       window.watchPartyClock.update(data.serverTime, sentAt, Date.now(), data.serverReceivedAt);
+      onTiming?.(data.coordination, roomKey, sentAt);
+      if (!panel.open || !data.peers) return;
       panelReady = true;
       if (result && !capture && !data.peers.some(item => item.member === receiver?.member)) result = null;
       const next = data.proposal?.id !== consumedProposal && data.proposal?.outputSession === outputSession ? data.proposal : null;
@@ -235,7 +238,7 @@
   async function peerSample(member, signal) {
     if (member === sourceSpeaker) return linkedTiming();
     if (member === session.publicId) return timing();
-    const data = await exchange({}, signal);
+    const data = await exchange({diagnostics:true}, signal);
     return data.peers.find(peer => peer.member === member);
   }
 
@@ -397,6 +400,7 @@
   $p('RecordReceiver').addEventListener('click', () => void record('receiver'));
   $p('Cancel').addEventListener('click', () => { setStatus('Recording canceled.'); capture?.abort(); });
   document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopTrackingFrames();
     if (document.hidden && capture) { setStatus('Recording canceled because this page was hidden.'); capture.abort(); }
   });
   $p('Send').addEventListener('click', () => void send());
@@ -416,6 +420,8 @@
 
   window.watchFusionPresentation = {
     render: updatePanel,
+    exchange: report,
+    open: () => panel.open,
     useManualTiming: () => { if (applied) { applied = null; setStatus('Advanced device timing active.'); updatePanel(); } },
     active: activeAdjustment,
     adjustmentMs: () => activeAdjustment()?.adjustmentMs ?? null,
@@ -424,5 +430,5 @@
     } })
   };
   updatePanel();
-  setInterval(() => { if (panel.open) void report(); }, 700);
+
 })();

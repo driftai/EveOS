@@ -164,14 +164,15 @@
                 <small id="youtubePlaybackModeHint"></small>
               </div>
               <span id="syncStatus">Solo mode</span>
+              <small id="roomPlayoutStatus" hidden></small>
               <button id="syncBtn" class="secondary" hidden>Sync me</button>
               <details id="presentationPanel" class="device-playback-timing" hidden>
-                <summary>Speaker sync</summary>
+                <summary>Advanced speaker diagnostics</summary>
                 <div class="device-timing-controls">
                   <p id="presentationStatus" role="status">Waiting for room timing.</p>
                   <ul id="presentationPeers"></ul>
                   <div id="presentationCapture" class="presentation-actions" hidden>
-                    <small>Keep this microphone in one spot. Play the same clear, varied section twice with only the selected speaker audible each time. Open Speaker sync on the receiver. Mute other outputs locally so room volume stays unchanged. If the original attached tab is your reference, silence the laptop’s room player too. Use a clear section at least 10 seconds from either end. Each five-second recording stays in this browser.</small>
+                    <small>Keep this microphone in one spot. Play the same clear, varied section twice with only the selected speaker audible each time. Open these diagnostics on the receiver. Mute other outputs locally so room volume stays unchanged. If the original attached tab is your reference, silence the laptop’s room player too. Use a clear section at least 10 seconds from either end. Each five-second recording stays in this browser.</small>
                     <label>Reference speaker <select id="presentationReference"></select></label>
                     <button id="presentationRecordReference" class="secondary" type="button">Record reference</button>
                     <label>Speaker to align <select id="presentationReceiver"></select></label>

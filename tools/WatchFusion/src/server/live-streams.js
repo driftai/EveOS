@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { broadcastState, getMember, getRoom, hasRoom, publicState, resolveRoomId } from './room-store.js';
 import { json, readBody } from './http-utils.js';
+import { observeLinkedPlayout } from './presentation-routes.js';
+import { parseYoutubeUrl } from './youtube.js';
 
 const streams = new Map();
 const token = () => crypto.randomBytes(24).toString('hex');
@@ -121,11 +123,24 @@ export async function handleLiveRoute(req, res, parts) {
   }
   return json(res, 404, { error: 'Unknown live action.' });
 }
+function relayLinkedPlayout(stream, raw = {}) {
+  if (!stream.linkedMemberId || !hasRoom(stream.roomId)) return;
+  const room = getRoom(stream.roomId, {touch:false}), state = stream.metadata;
+  if (room.linkedSourceId !== stream.id || room.hostId !== stream.linkedMemberId || !room.members.has(stream.linkedMemberId) || !room.source) return;
+  const matches = room.source.videoId ? parseYoutubeUrl(state.pageUrl) === room.source.videoId : state.pageUrl === (room.source.originalUrl || room.source.url);
+  if (!matches) return;
+  observeLinkedPlayout(room, {
+    outputSession:stream.id, sampledAt:raw.serverSampledAt ?? state.relayReceivedAt, positionMs:state.currentTime * 1000,
+    uncertaintyMs:raw.uncertaintyMs, tabMuted:raw.tabMuted === true, ready:!state.status && raw.currentTime != null,
+    playing:!state.paused && !state.ended && Math.abs(state.rate - room.playback.rate) < .01, buffering:state.buffering
+  }, state.relayReceivedAt);
+}
 function metadata(value = {}) {
   const pageUrl = /^https?:\/\//i.test(String(value.pageUrl || '')) ? text(value.pageUrl, 2048) : '';
   const relayReceivedAt = Date.now();
   return { title: text(value.title), group: text(value.group), pageUrl, paused: !!value.paused, ended: !!value.ended, buffering: value.buffering === true,
     sampledAt: Math.max(0, Number(value.sampledAt) || 0),
+    ...(typeof value.tabMuted === 'boolean' ? {tabMuted:value.tabMuted} : {}),
     publisherReceivedAt: Math.max(0, Number(value.publisherReceivedAt) || 0),
     publisherSentAt: Math.max(0, Number(value.publisherSentAt) || 0), relayReceivedAt,
     currentTime: Math.max(0, Number(value.currentTime) || 0), duration: Math.max(0, Number(value.duration) || 0),
@@ -145,7 +160,8 @@ export function attachLiveStreams(server) {
     const authTimer = setTimeout(() => socket.close(1008, 'Authentication required'), 5000);
     socket.on('message', raw => {
       try {
-        if (Date.now() - windowAt > 1000) { count = 0; windowAt = Date.now(); }
+        const receivedAt = Date.now();
+        if (receivedAt - windowAt > 1000) { count = 0; windowAt = Date.now(); }
         if (++count > 100) return socket.close(1008, 'Too many messages');
         const message = JSON.parse(raw);
         if (!stream) {
@@ -181,6 +197,7 @@ export function attachLiveStreams(server) {
           send(publisher ? stream.viewers.get(message.peer) : stream.publisher, { type: 'signal', peer: publisher ? message.peer : peerId, signal });
         } else if (publisher && message.type === 'metadata') {
           stream.metadata = metadata(message.metadata);
+          relayLinkedPlayout(stream, message.metadata);
           for (const viewer of stream.viewers.values()) send(viewer, { type: 'metadata', metadata: { ...stream.metadata, relaySentAt: Date.now() } });
         } else if (!publisher && message.type === 'sync-sample' && stream.roomId) {
           const sample = audioSyncSample(message.sample);
@@ -191,7 +208,7 @@ export function attachLiveStreams(server) {
           if (!canControl) return send(socket, { type: 'status', status: 'Only the host controls this live source.' });
           if (!['play', 'pause', 'toggle', 'seek', 'rate', 'volume', 'prev', 'next', 'jump', 'shuffle', 'loop'].includes(message.action)) return;
           send(stream.publisher, { type: 'control', action: message.action, value: Number(message.value) || 0 });
-        } else if (message.type === 'ping') send(socket, { type: 'pong' });
+        } else if (message.type === 'ping') send(socket, {type:'pong', sentAt:message.sentAt, receivedAt, serverTime:Date.now()});
       } catch { send(socket, { type: 'status', status: 'Invalid live message' }); }
     });
     socket.on('close', () => {

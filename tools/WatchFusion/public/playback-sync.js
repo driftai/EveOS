@@ -141,8 +141,6 @@
     anchorRate = rate;
   }
 
-  function serverNow() { return estimatedServerNow(); }
-
   function projectAnchor(at) {
     return Math.max(0, anchorPosition + Math.max(0, at - anchorServerTime) / 1000 * anchorRate);
   }
@@ -263,7 +261,8 @@
     const duration = Number(ytPlayer.getDuration?.()) || 0;
     // Positive delay plays behind the room; negative delay compensates for late device output.
     const delaySec = anchorRate && hasDeviceTiming() ? (window.watchFusionPresentation?.adjustmentMs?.() ?? deviceDelayMs) * anchorRate / 1000 : 0;
-    const projected = Math.max(0, projectAnchor(serverNow()) - delaySec);
+    const roomPosition = projectAnchor(estimatedServerNow());
+    const projected = Math.max(0, (window.watchFusionPlayout?.position(roomPosition, 'youtube') ?? roomPosition) - delaySec);
     const target = duration > 0 ? Math.min(duration, projected) : projected;
     const rawDrift = target - current;
     const absRaw = Math.abs(rawDrift);
@@ -294,7 +293,7 @@
       return true;
     }
 
-    if (buffering && !force) {
+    if (!force && (buffering || window.watchFusionPlayout?.sourceBuffering())) {
       if (!viewerWasBuffering) resetDriftSensor('buffering');
       viewerProgress = null;
       autoGovernor?.observe({nowMs, current, drift:rawDrift, buffering:true});
@@ -351,7 +350,7 @@
     } else if (sensor.stable && filteredAbs >= SEEK_DRIFT_SEC && !awaitingSeekRecovery) {
       seekViewer(target, baseRate, nowMs, 'stable-seek');
     } else if (!awaitingSeekRecovery && advancing && sensor.stable && sensor.spreadSec <= .09
-        && filteredAbs >= BUFFERED_DRIFT_SEC
+        && filteredAbs >= (window.watchFusionPlayout?.bufferedThreshold() ?? BUFFERED_DRIFT_SEC)
         && duration * (Number(ytPlayer.getVideoLoadedFraction?.()) || 0) >= Math.max(current, target) + 1) {
       seekViewer(target, baseRate, nowMs, 'buffered-seek', false);
     } else {

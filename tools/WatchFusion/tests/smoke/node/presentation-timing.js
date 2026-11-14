@@ -119,7 +119,7 @@ export async function runPresentationTimingChecks(check) {
     const source = {type:'source',input:'rm7UdTLKt5Y'};
     const {state} = (await cmd(source)).body;
     const epoch = state.presentationEpoch;
-    const read = (member, body = {}, expected = epoch) => request(room,'presentation', {epoch:expected,...body}, member?.memberId);
+    const read = (member, body = {}, expected = epoch) => request(room,'presentation', {epoch:expected,diagnostics:true,...body}, member?.memberId);
     const post = (member, extra = {}) => read(member,{report:{
       ...sample(), mode:'youtube', outputSession:'device-for-' + member.publicId, sampledAt:Date.now(), ready:true, playing:true, follows:member !== host,
       ...extra
@@ -133,6 +133,9 @@ export async function runPresentationTimingChecks(check) {
       const token = {target:tv.publicId,outputSession:'device-for-' + tv.publicId,id:'calibration-123',adjustmentMs:-850,observedMs:850,uncertaintyMs:12};
       assert.equal((await read(tv,{proposal:token})).status, 403);
       assert.equal((await read(host,{proposal:token})).status, 200);
+      const passive = await read(tv,{diagnostics:false});
+      assert.equal(passive.body.coordination.reference,'room-clock');
+      assert.equal(passive.body.peers,undefined); assert.equal(passive.body.proposal,undefined);
       const viewer = await read(tv);
       assert.equal(viewer.body.proposal.adjustmentMs, -850);
       assert.equal(viewer.body.peers.find(peer => peer.member === tv.publicId).rate, 1.25);

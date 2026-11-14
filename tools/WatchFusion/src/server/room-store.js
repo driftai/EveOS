@@ -46,7 +46,7 @@ export function freshPlayback(previous = {}) {
   };
 }
 
-export function getRoom(roomId) {
+export function getRoom(roomId, {touch = true} = {}) {
   let room = rooms.get(roomId);
   if (!room) {
     room = {
@@ -58,7 +58,7 @@ export function getRoom(roomId) {
     };
     rooms.set(roomId, room);
   }
-  room.lastActivity = now();
+  if (touch) room.lastActivity = now();
   return room;
 }
 
@@ -76,6 +76,7 @@ export function publicState(room) {
     joinedAt: member.joinedAt,
     isOwner: member.accountId === room.ownerAccountId
   }));
+  const presentation = presentationScope(room);
   return {
     roomId: room.id,
     roomCode: room.alias || null,
@@ -85,7 +86,8 @@ export function publicState(room) {
     serverTime,
     source: room.source,
     linkedSourceActive: !!room.linkedSourceId,
-    presentationEpoch: presentationScope(room).epoch,
+    presentationEpoch: presentation.epoch,
+    playoutSegment: presentation.playout.transport(room.playback),
     // Project the position to the exact same server timestamp we publish.
     // Using a second now() here makes the position a few milliseconds newer than projectedAt,
     // then viewers legitimately advance from projectedAt again and double-count that tiny lead.

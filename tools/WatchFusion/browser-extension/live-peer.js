@@ -5,15 +5,17 @@
     constructor(options) {
       this.options = options; this.peers = new Map(); this.closed = false; this.retry = 0;
       this.connect();
-      this.heartbeat = setInterval(() => this.send({ type: 'ping' }), 15000);
+      this.heartbeat = setInterval(() => this.ping(), options.onClock ? 3500 : 15000);
     }
     send(data) { if (this.socket?.readyState === 1) this.socket.send(JSON.stringify(data)); }
+    ping() { this.send({ type:'ping', ...(this.options.onClock ? {sentAt:Date.now()} : {}) }); }
     connect() {
       if (this.closed) return;
       const url = new URL('/live-ws', this.options.base); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
       const socket = new WebSocket(url); this.socket = socket;
       socket.onopen = () => { this.retry = 0; this.send({ type: 'join', id: this.options.id, token: this.options.token, role: (this.options.publisher || this.options.stream) ? 'publisher' : 'viewer', roomId: this.options.roomId, memberId: this.options.memberId }); };
       socket.onmessage = event => {
+        if (this.socket !== socket || this.closed) return;
         try {
           this.receive(JSON.parse(event.data)).catch(error => this.status(error.message));
         } catch {
@@ -23,6 +25,7 @@
       };
       socket.onerror = () => this.status('Live connection unavailable');
       socket.onclose = event => {
+        if (this.socket !== socket) return;
         this.clearPeers();
         if (this.closed) return;
         this.status(event.reason || 'Reconnecting live media…');
@@ -32,7 +35,8 @@
     }
     status(message) { this.options.onStatus?.(message); }
     async receive(message) {
-      if (message.type === 'ready') { this.iceServers = message.iceServers; this.viewerId = message.peer; this.options.onReady?.(); return; }
+      if (message.type === 'ready') { this.iceServers = message.iceServers; this.viewerId = message.peer; if (this.options.onClock) this.ping(); this.options.onReady?.(); return; }
+      if (message.type === 'pong') return this.options.onClock?.(message, Date.now());
       if (message.type === 'status') return this.status(message.status);
       if (message.type === 'audio-sync') return this.options.onAudioSync?.(message);
       if (message.type === 'metadata') return this.options.onMetadata?.({ ...message.metadata, viewerReceivedAt: Date.now() });

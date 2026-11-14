@@ -200,6 +200,7 @@ function estimatedServerNow() {
 window.watchPartyClock = {
   offsetMs: () => serverClockOffsetMs,
   rttMs: () => Number.isFinite(serverClockRttMs) ? serverClockRttMs : null,
+  precise: () => serverClockSamples.some(sample => sample.precise && Date.now() - sample.at < 15000),
   sampleCount: () => serverClockSamples.length,
   now: estimatedServerNow,
   serverAt: localTime => serverClockReference
@@ -218,7 +219,7 @@ function playbackAuthorityKey(roomState = state) {
     source.url || '',
     source.streamId || '',
     source.mode || '',
-    roomState?.linkedSourceActive === true,
+    roomState?.linkedSourceActive === true, roomState?.playoutSegment,
     Number(playback.updatedAt) || 0,
     playback.paused === true ? 1 : 0,
     playback.ended === true ? 1 : 0,
@@ -415,6 +416,7 @@ function leaveRoom(message='') {
   $('roomPill').textContent = 'Solo';
   $('roomPill').disabled = true;
   window.watchFusionPresentation?.render?.();
+  window.watchFusionPlayout?.render?.();
   if(message)setStatus(message);
 }
 function escapeHtml(v){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}

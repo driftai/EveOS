@@ -1,4 +1,5 @@
 import { json, readBody } from './http-utils.js';
+import { createPlayoutCoordinator } from './playout-coordinator.js';
 
 const reportsByRoom = new WeakMap();
 const reportLifetime = 5000;
@@ -17,9 +18,17 @@ export function presentationScope(room) {
   const current = scope(room);
   const previous = reportsByRoom.get(room);
   if (previous && previous.current.source === current.source && previous.current.linked === current.linked && previous.current.host === current.host) return previous;
-  const entry = { current, epoch: (previous?.epoch || 0) + 1, reports: new Map(), proposals: new Map() };
+  const entry = { current, epoch: (previous?.epoch || 0) + 1, reports: new Map(), proposals: new Map(), playout:createPlayoutCoordinator() };
   reportsByRoom.set(room, entry);
   return entry;
+}
+
+export function observeLinkedPlayout(room, sample, at) {
+  const entry = presentationScope(room);
+  if (!entry.current.mode || !entry.current.linked) return;
+  entry.playout.transport(room.playback);
+  entry.linkedOutput = {muted:sample.tabMuted, at};
+  entry.playout.observe('linked', sample, at);
 }
 
 export async function handlePresentation(req, res, room, member, at = Date.now()) {
@@ -36,6 +45,7 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
     return json(res, 409, { error: 'Room timing changed.' });
   }
   const time = Date.now();
+  const segment = entry.playout.transport(room.playback);
   for (const [id, item] of entry.reports) if (!room.members.has(id) || time - item.receivedAt > reportLifetime) entry.reports.delete(id);
   for (const [id, item] of entry.proposals) if (!room.members.has(id) || item.expiresAt <= time) entry.proposals.delete(id);
   if (body.report) {
@@ -56,9 +66,13 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
         sourceAgeMs: metric(report.sourceAgeMs, 0, 10000),
         corrections: metric(report.corrections, 0, 1e6),
         ready: report.ready === true, playing: report.playing === true, buffering: report.buffering === true,
+        bufferedUntilMs: metric(report.bufferedUntilMs, 0, 1e10),
         recentCorrection: typeof report.recentCorrection === 'string' && /^[a-z-]{1,32}$/.test(report.recentCorrection) ? report.recentCorrection : null,
         audible: report.audible === true, follows: report.follows === true
       });
+      if (body.segment === segment && (!report.playing || Math.abs(report.rate - room.playback.rate) <= .041 * room.playback.rate)) entry.playout.observe(member.id, {
+        ...entry.reports.get(member.id), uncertaintyMs: finite(report.rttMs, 0, 200) ? (current.mode === 'youtube' ? 35 : 12) + report.rttMs / 2 : Infinity
+      }, at);
     }
   }
 
@@ -77,9 +91,12 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
   }
   const proposal = entry.proposals.get(member.id);
   if (proposal && body.dismiss === proposal.id) entry.proposals.delete(member.id);
+  const viewers = new Set([...room.members.values()].filter(item =>
+    time - item.lastSeen <= 15000 && (entry.current.linked || item.id !== room.hostId)).map(item => item.id));
+  const coordination = entry.playout.coordinate({now:time, authority:entry.current.linked ? 'linked' : room.hostId, viewers,
+    allowHoldback:entry.current.mode === 'direct' && entry.linkedOutput?.muted === true && time - entry.linkedOutput.at < 1800});
   return json(res, 200, {
-    serverReceivedAt: at, serverTime: Date.now(),
-    peers: [...entry.reports.values()],
-    proposal: entry.proposals.get(member.id) || null
+    serverReceivedAt: at, serverTime: Date.now(), coordination,
+    ...(body.diagnostics === true ? {peers:[...entry.reports.values()], proposal:entry.proposals.get(member.id) || null} : {})
   });
 }

@@ -27,7 +27,7 @@ import { parseYoutubeUrl, youtubeUrlFromId } from './youtube.js';
 import { MAX_CHAT_MESSAGE_CHARS, MAX_ROOM_COMMAND_BODY_BYTES } from './config.js';
 import { handleRoomImageRoute } from './room-image-routes.js';
 import { ownsLinkedSource } from './live-streams.js';
-import { handlePresentation } from './presentation-routes.js';
+import { handlePresentation, presentationScope } from './presentation-routes.js';
 
 function validAccountId(value) {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(value);
@@ -218,6 +218,7 @@ async function commandRoute(req, res, room, roomId, member) {
     if (!appendChat(room, member, text)) return json(res, 400, { error: 'message rejected' });
   } else return json(res, 400, { error: 'unknown command' });
 
+  if (type === 'seek') presentationScope(room).playout.transport(room.playback, true);
   room.lastActivity = now();
   broadcastState(room);
   return json(res, 200, { ok: true, state: publicState(room) });
