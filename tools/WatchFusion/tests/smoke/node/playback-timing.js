@@ -56,6 +56,9 @@ export async function runPlaybackTimingChecks(check) {
     assert.ok(drift < .055 && drift > 0 && peak <= .040001);
     assert.equal(reversals, 0);
     controller.reset();
+    for (let tick = 0; tick <= 6; tick++) drift = controller.rate(1, .017, 20000 + tick * 250, .01);
+    assert.ok(drift > 1 && drift <= 1.004, 'calibrated direct media can converge at a bounded rate for a small stable error');
+    controller.reset();
     assert.equal(controller.rate(1.25, .3, 30000), 1.25, 'buffering or a new source resets correction');
     for (let tick = 1; tick < 12; tick++) {
       assert.equal(controller.rate(1.25, tick % 2 ? .13 : -.12, 30000 + 250 * tick), 1.25);
@@ -120,6 +123,7 @@ export async function runPlaybackTimingChecks(check) {
   await check('TIMING-25:stalled-youtube-viewer-does-not-loop-seeks', () => {
     let elapsed = 0, position = 90, playerState = 1;
     const seeks = [], network = [];
+    let roundToKeyframe = false;
     const status = { textContent: '' };
     const elements = new Map([['syncStatus', status]]);
     for (const id of ['devicePlaybackTiming', 'deviceTimingSummary', 'deviceTimingValue',
@@ -134,7 +138,7 @@ export async function runPlaybackTimingChecks(check) {
       ytPlayer: {
         getCurrentTime: () => position, getPlayerState: () => playerState,
         getPlaybackRate: () => 1, getDuration: () => 250, getVideoLoadedFraction: () => 1,
-        seekTo: (value, allowNetwork) => { seeks.push(value); network.push(allowNetwork); },
+        seekTo: (value, allowNetwork) => { seeks.push(value); network.push(allowNetwork); if (roundToKeyframe) position = Math.floor(value * 2) / 2 - .5; },
         pauseVideo: () => { playerState = 2; }
       },
       window: { YT: { PlayerState: { PLAYING: 1, PAUSED: 2, BUFFERING: 3 } } },
@@ -210,6 +214,12 @@ export async function runPlaybackTimingChecks(check) {
     assert.equal(seeks.at(-1), 60, 'Reset targets the original room position');
     assert.equal(preferences.get('watchfusion.youtubePlaybackDelayMs'), '0');
 
+    context.window.watchFusionPresentation = { adjustmentMs: () => -850 };
+    context.syncPlayer({force:true});
+    assert.ok(Math.abs(seeks.at(-1) - 61.7) < 1e-8, 'calibration overrides the saved manual setting at 2x');
+    assert.equal(preferences.get('watchfusion.youtubePlaybackDelayMs'), '0');
+    delete context.window.watchFusionPresentation;
+
     // A source change re-arms one in-buffer adjustment at a steady 240 ms lag.
     context.state = { ...context.state, source: {videoId:'next-video'} };
     Object.assign(playback, { position: 60, rate: 1, updatedAt: 26000, projectedAt: 26000 });
@@ -224,6 +234,24 @@ export async function runPlaybackTimingChecks(check) {
     }
     assert.equal(seeks.length - before, 1, JSON.stringify(context.window.watchFusionSyncDiagnostics()));
     assert.equal(network.at(-1), false, 'small YouTube corrections cannot request a fresh stream segment');
+    assert.equal(context.window.watchFusionSyncDiagnostics().replayLoads, 0);
+
+    elapsed += 250;
+    context.state.source.videoId = 'keyframe-fixture';
+    Object.assign(playback, { position: 80.12, updatedAt: 10000 + elapsed, projectedAt: 10000 + elapsed });
+    position = 80.12;
+    roundToKeyframe = true;
+    context.window.watchFusionPresentation = { adjustmentMs: () => 15 };
+    const beforeCalibration = seeks.length;
+    tickViewer(true, true);
+    assert.equal(seeks.length - beforeCalibration, 1);
+    assert.equal(network.at(-1), false, 'a small offset only tries an in-buffer seek');
+    assert.ok(Math.abs(seeks.at(-1) - 80.105) < 1e-6);
+    const simulatedLanding = position;
+    playerState = 3;
+    for (let tick = 0; tick < 60; tick++) { elapsed += 250; tickViewer(); }
+    assert.equal(position, simulatedLanding);
+    assert.equal(seeks.length - beforeCalibration, 1, 'keyframe rounding followed by buffering cannot loop');
     assert.equal(context.window.watchFusionSyncDiagnostics().replayLoads, 0);
   });
 

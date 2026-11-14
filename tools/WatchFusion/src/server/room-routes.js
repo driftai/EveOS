@@ -27,6 +27,7 @@ import { parseYoutubeUrl, youtubeUrlFromId } from './youtube.js';
 import { MAX_CHAT_MESSAGE_CHARS, MAX_ROOM_COMMAND_BODY_BYTES } from './config.js';
 import { handleRoomImageRoute } from './room-image-routes.js';
 import { ownsLinkedSource } from './live-streams.js';
+import { handlePresentation } from './presentation-routes.js';
 
 function validAccountId(value) {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(value);
@@ -63,6 +64,7 @@ export async function handleRoomRoute(req, res, url, parts) {
   const memberId = String(req.headers['x-member-id'] || url.searchParams.get('memberId') || '');
   const member = getMember(room, memberId);
   if (!member) return json(res, 401, { error: 'join the room first' });
+  if (parts[3] === 'presentation' && !parts[4]) return handlePresentation(req, res, room, member, serverReceivedAt);
   if (req.method === 'GET' && parts[3] === 'state') {
     cancelPendingLeave(room, memberId);
     return json(res, 200, { state: publicState(room) });

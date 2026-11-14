@@ -109,6 +109,7 @@
         title:pageMedia?.title || navigator.mediaSession?.metadata?.title || document.title,
         paused:element ? element.paused : pageMedia?.paused !== false,
         ended:element ? !!element.ended : !!pageMedia?.ended,
+        buffering:element ? element.seeking || element.readyState < 3 : undefined,
         currentTime:element?.currentTime || pageMedia?.currentTime || 0,
         duration:Number.isFinite(element?.duration) ? element.duration : pageMedia?.duration || 0,
         rate:element?.playbackRate || pageMedia?.rate || 1,

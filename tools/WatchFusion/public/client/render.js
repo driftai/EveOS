@@ -213,6 +213,7 @@ function render() {
   }
 
   reconcileRenderedMedia(source,youtubePlaybackMode);
+  window.watchFusionPresentation?.render?.();
   window.watchFusionYoutubePlaybackMode?.render?.();
   if(window.watchFusionLinkedTab?.active?.())window.watchFusionLinkedTab.render?.();
 }

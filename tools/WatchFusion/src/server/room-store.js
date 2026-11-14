@@ -9,6 +9,7 @@ import {
   ROOM_TTL_MS
 } from './config.js';
 import { now } from './http-utils.js';
+import { presentationScope } from './presentation-routes.js';
 
 const rooms = new Map();
 const roomAliases = new Map();
@@ -84,6 +85,7 @@ export function publicState(room) {
     serverTime,
     source: room.source,
     linkedSourceActive: !!room.linkedSourceId,
+    presentationEpoch: presentationScope(room).epoch,
     // Project the position to the exact same server timestamp we publish.
     // Using a second now() here makes the position a few milliseconds newer than projectedAt,
     // then viewers legitimately advance from projectedAt again and double-count that tiny lead.

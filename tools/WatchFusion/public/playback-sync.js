@@ -85,7 +85,7 @@
     draftDeviceDelayMs = normalizeDeviceDelay(value);
     if (draftDeviceDelayMs !== deviceDelayMs) {
       deviceDelayMs = draftDeviceDelayMs;
-      storage.set(DEVICE_TIMING_KEY, String(deviceDelayMs));
+      storage.set(DEVICE_TIMING_KEY, String(deviceDelayMs)); window.watchFusionPresentation?.useManualTiming?.();
       if (!state.playback?.paused && !state.playback?.ended) syncPlayer({ force: true });
     }
     renderDeviceTiming();
@@ -239,7 +239,7 @@
     setStatus('Catching up…');
   }
 
-  function applyViewerCorrection(force = false) {
+  function applyViewerCorrection(force = false, bufferedOnly = false) {
     if (!roomId || !state?.source?.videoId || !ytPlayer || !ytPlayerReady || !followsRoomPlayback()) return;
     if (playerInitializing || primingPlayer) return;
 
@@ -262,7 +262,7 @@
     const current = Number(ytPlayer.getCurrentTime?.()) || 0;
     const duration = Number(ytPlayer.getDuration?.()) || 0;
     // Positive delay plays behind the room; negative delay compensates for late device output.
-    const delaySec = anchorRate && hasDeviceTiming() ? deviceDelayMs * anchorRate / 1000 : 0;
+    const delaySec = anchorRate && hasDeviceTiming() ? (window.watchFusionPresentation?.adjustmentMs?.() ?? deviceDelayMs) * anchorRate / 1000 : 0;
     const projected = Math.max(0, projectAnchor(serverNow()) - delaySec);
     const target = duration > 0 ? Math.min(duration, projected) : projected;
     const rawDrift = target - current;
@@ -271,8 +271,6 @@
     const playerState = ytPlayer.getPlayerState?.();
     const buffering = playerState === (window.YT?.PlayerState?.BUFFERING ?? 3);
     const playerEnded = playerState === (window.YT?.PlayerState?.ENDED ?? 0);
-
-
     try { setViewerRate(baseRate); } catch {}
 
     if (state.playback.paused || state.playback.ended) {
@@ -314,12 +312,14 @@
     viewerSawEnded = false;
 
     if (force) {
-      seekViewer(target, baseRate, nowMs, 'manual-sync');
+      if (bufferedOnly) {
+        const bufferedEnd = duration * (Number(ytPlayer.getVideoLoadedFraction?.()) || 0);
+        if (buffering || awaitingSeekRecovery || absRaw < .01 || bufferedEnd < Math.max(current, target) + 1) return false;
+      }
+      seekViewer(target, baseRate, nowMs, 'manual-sync', !bufferedOnly);
       requestViewerPlayback();
       return true;
     }
-
-
     const sensor = sampleDrift(rawDrift, nowMs);
     const filteredAbs = Math.abs(sensor.filteredDriftSec);
     const playing = playerState === (window.YT?.PlayerState?.PLAYING ?? 1);
@@ -344,8 +344,6 @@
         return true;
       }
     }
-
-
     const hardConsistent = sensor.sampleCount >= 2
       && driftSamples.slice(-2).every(sample => Math.sign(sample.drift) === Math.sign(sensor.filteredDriftSec));
     if (filteredAbs >= HARD_DRIFT_SEC && hardConsistent && !awaitingSeekRecovery) {

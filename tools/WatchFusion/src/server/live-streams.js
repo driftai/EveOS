@@ -124,7 +124,7 @@ export async function handleLiveRoute(req, res, parts) {
 function metadata(value = {}) {
   const pageUrl = /^https?:\/\//i.test(String(value.pageUrl || '')) ? text(value.pageUrl, 2048) : '';
   const relayReceivedAt = Date.now();
-  return { title: text(value.title), group: text(value.group), pageUrl, paused: !!value.paused, ended: !!value.ended,
+  return { title: text(value.title), group: text(value.group), pageUrl, paused: !!value.paused, ended: !!value.ended, buffering: value.buffering === true,
     sampledAt: Math.max(0, Number(value.sampledAt) || 0),
     publisherReceivedAt: Math.max(0, Number(value.publisherReceivedAt) || 0),
     publisherSentAt: Math.max(0, Number(value.publisherSentAt) || 0), relayReceivedAt,

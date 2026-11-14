@@ -425,3 +425,11 @@ html.eveos-embedded .watch-shell.room-idle .find-media-panel {
   .device-timing-row, .device-timing-actions { grid-template-columns: minmax(0, 1fr); }
   #deviceTimingValue { grid-column: auto; }
 }
+
+.device-timing-controls > .presentation-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.presentation-actions small { flex: 1 1 100%; }
+.device-timing-controls > .presentation-actions[hidden] { display: none; }
+#presentationPanel ul { margin: 0; padding-inline-start: 18px; }
+#presentationPanel p { margin: 0; }
+#presentationPanel select { max-width: 100%; }
+#presentationPanel label { min-width: 0; max-width: 100%; display: grid; gap: 3px; }

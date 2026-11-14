@@ -9,7 +9,7 @@ let mediaEventGuard = 0;
 let mediaAnchorKey = '';
 let mediaAnchorPosition = 0;
 let mediaAnchorServerTime = 0, mediaAnchorRate = 0, mediaAnchorScope = "";
-let mediaConvergence, mediaSeek, mediaPlay;
+let mediaConvergence, mediaSeek, mediaPlay, mediaSyncSeeks = 0, mediaSyncAction = 'idle';
 let mediaAttachedGuardUntil = 0;
 let mediaReplayKey = '';
 let hlsNetworkRecoveryAttempts = 0;
@@ -236,7 +236,7 @@ async function loadMediaSource(source) {
   const video = ensureMediaElement();
   if (!video) return false;
   mediaLoadedUrl = url;
-  mediaPlayerReady = false;
+  mediaPlayerReady = false; mediaSyncSeeks = 0; mediaSyncAction = 'loading';
   setStatus('Loading media…');
   installMediaTracks(source);
   try {
@@ -363,15 +363,18 @@ function syncMediaPlayer(options = {}) {
 
   refreshMediaAnchor(false);
   const playback = state.playback || {}, video = mediaVideo;
-  const target = Math.min(projectedMediaTarget(), video.duration > 0 ? video.duration : Infinity);
+  const speakerTiming = window.watchFusionPresentation?.active?.();
+  const delay = playback.paused || playback.ended ? 0 : (speakerTiming?.adjustmentMs || 0) * mediaAnchorRate / 1000;
+  const target = Math.max(0, Math.min(projectedMediaTarget() - delay, video.duration > 0 ? video.duration : Infinity));
   const drift = target - currentMediaPosition();
   const baseRate = Math.min(2, Math.max(0.25, Number(playback.rate) || 1));
   const now = performance.now(), force = options.force === true;
   const buffering = video.seeking || video.readyState < 3;
   if (mediaSeek && Math.abs(drift) < .25 && !buffering) mediaSeek = null;
   const canSeek = video.readyState >= 1 && (force || (!video.seeking && !mediaSeek));
+  mediaSyncAction = buffering ? 'buffering' : 'steady';
   const seek = () => {
-    mediaSeek = true;
+    mediaSeek = true; mediaSyncSeeks++; mediaSyncAction = force ? 'manual-sync' : 'seek';
     window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
     video.currentTime = target;
     mediaConvergence.reset();
@@ -391,13 +394,14 @@ function syncMediaPlayer(options = {}) {
       } else {
         if (canSeek && (force || (!buffering && Math.abs(drift) > 1.25))) seek();
         else if (buffering || video.paused || mediaSeek) mediaConvergence.reset();
-        else rate = mediaConvergence.rate(baseRate, drift, now);
+        else rate = mediaConvergence.rate(baseRate, drift, now, speakerTiming ? speakerTiming.uncertaintyMs / 1000 : undefined);
         if (video.paused && now >= (mediaPlay || 0)) {
           mediaPlay = now + 1000;
           window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
           video.play()?.catch?.(() => { if (mediaVideo === video) setStatus('Tap the video once to allow playback.'); });
         }
       }
+      if (rate !== baseRate) mediaSyncAction = 'rate-correction';
       if (Math.abs(video.playbackRate - rate) > .002) {
         window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
         video.playbackRate = rate;

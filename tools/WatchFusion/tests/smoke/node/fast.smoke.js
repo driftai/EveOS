@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { startServer } from '../helpers/server-harness.js';
 import { request } from '../helpers/http-client.js';
 import { runPlaybackTimingChecks } from './playback-timing.js';
+import { runPresentationTimingChecks } from './presentation-timing.js';
 import { isM3u8Response } from '../../../src/server/media-routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -188,14 +189,14 @@ export async function runFastSmoke() {
     assert.match(commands, /!ytPlayer \|\| !ytPlayerReady\)[\s\S]*setTimeout\(tick, 50\)/);
     assert.match(commands, /const forceViewer = followsRoomPlayback\(\)/);
     assert.match(commands, /syncPlayer\(\{ hydrateHost: true, force: forceViewer \}\)/);
-    assert.match(playbackSync, /SEEK_DRIFT_SEC = 0\.65/);
+    assert.match(playbackSync, /sensor\.stable && filteredAbs >= SEEK_DRIFT_SEC && !awaitingSeekRecovery/);
     assert.match(playbackSync, /SENSOR_MIN_SAMPLES = 5/);
     assert.doesNotMatch(playbackSync, /nearestHigherRate|nearestLowerRate/);
     assert.match(mediaPlayer, /mediaAnchorServerTime/);
     assert.match(mediaPlayer, /mediaEnsurePromise && mediaEnsureUrl === url/);
     assert.doesNotMatch(mediaPlayer, /host\.innerHTML\s*=/);
     assert.match(mediaPlayer, /host\.prepend\(mediaVideo\)/);
-    assert.match(mediaPlayer, /mediaConvergence\.rate\(baseRate, drift, now\)/);
+    assert.match(mediaPlayer, /mediaConvergence\.rate\(baseRate, drift, now(?:,|\))/);
     assert.match(continuityBridge, /transfer\.retryTimer = setInterval/);
     assert.match(continuityBridge, /completedTransferIds\.has\(data\.requestId\)/);
   });
@@ -246,6 +247,7 @@ export async function runFastSmoke() {
   });
 
   await runPlaybackTimingChecks(check);
+  await runPresentationTimingChecks(check);
 
   await check('FAST-02A:nuvio-browser-plugin-bridge-contract', () => {
     const build = fs.readFileSync(path.join(PROJECT_ROOT, 'scripts', 'BUILD-NUVIO.bat'), 'utf8');

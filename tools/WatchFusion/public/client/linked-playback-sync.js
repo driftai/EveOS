@@ -47,9 +47,10 @@
     const sensor = createDriftSensor({ minAgeMs: 600, maxSpread: .08 });
     let correcting = false;
     function reset() { sensor.reset(); correcting = false; }
-    function rate(base, drift, time) {
+    function rate(base, drift, time, precision) {
       const result = sensor.sample(drift, time);
-      correcting = result.stable && Math.abs(result.median) >= (correcting ? .045 : .10);
+      const settle = precision ?? .045, enter = precision == null ? .10 : precision * 1.4;
+      correcting = result.stable && Math.abs(result.median) >= (correcting ? settle : enter);
       if (!correcting) return base;
       const adjustment = Math.sign(result.median) * Math.min(.04, Math.abs(result.median) * .2);
       return Math.min(2, Math.max(.25, base * (1 + adjustment)));
