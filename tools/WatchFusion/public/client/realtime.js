@@ -10,11 +10,8 @@ const realtimeChatAcks = new Map();
 
 function acceptRealtimeState(nextState) {
   const revision = Number(nextState?.revision);
-  if (Number.isFinite(revision)) {
-    if (revision < realtimeRevision) return false;
-    realtimeRevision = revision;
-  }
-  state = nextState;
+  if ((Number.isFinite(revision) && revision < realtimeRevision) || !applyIncomingRoomState(nextState)) return false;
+  if (Number.isFinite(revision)) realtimeRevision = revision;
   return true;
 }
 

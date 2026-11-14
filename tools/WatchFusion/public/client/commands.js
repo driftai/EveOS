@@ -77,9 +77,7 @@ function ensurePlayer(videoId) {
             }
             if (roomId) {
               await primeYouTubePlayer();
-              // Priming may legitimately finish without autoplay permission.
-              // The player is still initialized at that point, so a later
-              // manual host Play event must be allowed to become room state.
+              // Allow manual host playback after blocked autoplay.
               playerInitializing = false;
               syncHydratedPlayer(desired);
             } else {
@@ -169,7 +167,7 @@ function primeYouTubePlayer(force = false) {
   if (!ytPlayer || !ytPlayerReady || primingPlayer) return Promise.resolve();
   if (playerPrimed && !force) return Promise.resolve();
 
-  primingPlayer = true;
+  primingPlayer = true; window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
   suppressAudioPersistence = true;
   const targetPosition = Number(state?.playback?.position) || 0;
   const wasApplyingRemote = applyingRemote;
@@ -182,8 +180,9 @@ function primeYouTubePlayer(force = false) {
       if (settled) return;
       settled = true;
       try {
+        window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
         ytPlayer.pauseVideo?.();
-        ytPlayer.seekTo?.(targetPosition, true);
+        if (!followsRoomPlayback()) ytPlayer.seekTo?.(targetPosition, true);
       } catch {}
       playerPrimed = sawPlaying;
       if (!sawPlaying) {
@@ -329,6 +328,7 @@ function requestViewerPlayback() {
   if (requestViewerPlayback.checkTimer) return;
   const mutedRetry = autoplayWasBlocked && !userGesturePrimeUsed, requestedVideo = state.source?.videoId;
   try {
+    window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
     if (mutedRetry) ytPlayer.mute?.();
     else if (!applyRoomAudioState(ytPlayer, userGesturePrimeUsed)) restorePlayerAudioPrefs();
     ytPlayer.playVideo?.();

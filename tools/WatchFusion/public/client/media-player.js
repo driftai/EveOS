@@ -8,8 +8,8 @@ let mediaLoadedUrl = '';
 let mediaEventGuard = 0;
 let mediaAnchorKey = '';
 let mediaAnchorPosition = 0;
-let mediaAnchorServerTime = 0;
-let mediaDriftCorrecting = false;
+let mediaAnchorServerTime = 0, mediaAnchorRate = 0, mediaAnchorScope = "";
+let mediaConvergence, mediaSeek, mediaPlay;
 let mediaAttachedGuardUntil = 0;
 let mediaReplayKey = '';
 let hlsNetworkRecoveryAttempts = 0;
@@ -56,7 +56,8 @@ function clearMediaPlayer() {
   hlsMediaRecoveryAttempts = 0;
   mediaAnchorKey = '';
   mediaAnchorServerTime = 0;
-  mediaDriftCorrecting = false;
+  mediaConvergence?.reset();
+  mediaSeek = mediaPlay = null;
   if (hlsInstance) { try { hlsInstance.destroy(); } catch {} hlsInstance = null; }
   if (mediaVideo) {
     withMediaGuard(() => { try { mediaVideo.pause(); mediaVideo.removeAttribute('src'); mediaVideo.load(); } catch {} });
@@ -107,16 +108,27 @@ function installMediaTracks(source) {
 
 function mediaStateKey() {
   const playback = state?.playback;
-  return playback ? [playback.updatedAt, playback.projectedAt, playback.position, playback.paused, playback.ended, playback.rate].join('|') : '';
+  return playback ? [roomId, state?.source?.url, playback.updatedAt, playback.paused, playback.ended, playback.rate].join('|') : '';
 }
 
 function refreshMediaAnchor(force = false) {
   if (!state?.playback) return;
   const key = mediaStateKey();
   if (!force && key && key === mediaAnchorKey) return;
+  const position = Number(state.playback.position) || 0;
+  const at = Number(state.playback.projectedAt) || Number(state.serverTime) || estimatedServerNow();
+  const rate = state.playback.paused || state.playback.ended ? 0 : Number(state.playback.rate) || 1;
+  const scope = roomId + ':' + state?.source?.url;
+  const oldPosition = mediaAnchorPosition + Math.max(0, at - mediaAnchorServerTime) / 1000 * mediaAnchorRate;
+  if (scope !== mediaAnchorScope || rate !== mediaAnchorRate || Math.abs(position - oldPosition) > .6) {
+    mediaConvergence?.reset();
+    mediaSeek = null;
+  }
+  mediaAnchorScope = scope;
+  mediaAnchorRate = rate;
   mediaAnchorKey = key;
-  mediaAnchorPosition = Number(state.playback.position) || 0;
-  mediaAnchorServerTime = Number(state.playback.projectedAt) || Number(state.serverTime) || estimatedServerNow();
+  mediaAnchorPosition = position;
+  mediaAnchorServerTime = at;
 }
 
 function projectedMediaTarget() {
@@ -217,7 +229,7 @@ async function loadMediaSource(source) {
   const url = String(source.url);
   if (mediaLoadedUrl === url && mediaPlayerReady) {
     refreshMediaAnchor(false);
-    if (roomId && !isHost()) syncMediaPlayer();
+    if (roomId && followsRoomPlayback()) syncMediaPlayer();
     return true;
   }
   clearMediaPlayer();
@@ -244,7 +256,7 @@ async function loadMediaSource(source) {
           hlsMediaRecoveryAttempts = 0;
           mediaPlayerReady = true;
           refreshMediaAnchor(true);
-          if (roomId && !isHost()) syncMediaPlayer();
+          if (roomId && followsRoomPlayback()) syncMediaPlayer();
         });
         hlsInstance.loadSource(playUrl);
         hlsInstance.attachMedia(video);
@@ -260,7 +272,7 @@ async function loadMediaSource(source) {
     mediaPlayerReady = true;
     refreshMediaAnchor(true);
     if (!applyRoomMediaAudio()) restoreMediaAudioPrefs();
-    if (roomId && !isHost()) syncMediaPlayer();
+    if (roomId && followsRoomPlayback()) syncMediaPlayer();
     setStatus(source.title ? `Ready · ${source.title}` : 'Media ready');
     return true;
   } catch (error) {
@@ -325,7 +337,7 @@ function onMediaPlay() {
   authoritativeRoomPlay(replaying ? 0 : currentMediaPosition());
 }
 function onMediaPause() { if (mediaEventGuard || !isHost() || !state || mediaVideo?.ended) return; if(!attachedMediaControl('pause',currentMediaPosition()))authoritativeRoomPause(currentMediaPosition(), false); }
-function onMediaSeeked() { if (mediaEventGuard || !isHost() || !state) return; if(!attachedMediaControl('seek',currentMediaPosition())&&!followsRoomPlayback())command('seek', { position: currentMediaPosition() }); }
+function onMediaSeeked() { if (mediaEventGuard || !isHost() || !state) return; if(!attachedMediaControl('seek',currentMediaPosition())&&!followsRoomPlayback())command('seek', { position: currentMediaPosition(), paused: mediaVideo?.paused === true }); }
 function onMediaRate() { if (mediaEventGuard || !isHost() || !state) return; if(!attachedMediaControl('rate',mediaVideo?.playbackRate||1)&&!followsRoomPlayback())command('rate', { rate: mediaVideo?.playbackRate || 1 }); }
 function onMediaEnded() { if (mediaEventGuard || !isHost() || !state) return; authoritativeRoomPause(Math.max(currentMediaPosition(), mediaDuration()), true); }
 
@@ -336,6 +348,7 @@ function replayViewerFromTerminal(target) {
   const startSeconds = Math.max(0, Number(target) || 0);
   withMediaGuard(() => {
     try {
+      window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
       mediaVideo.currentTime = startSeconds;
       const playPromise = mediaVideo.play();
       playPromise?.catch?.(() => setStatus('Tap the video once to allow playback.'));
@@ -347,45 +360,48 @@ function replayViewerFromTerminal(target) {
 
 function syncMediaPlayer(options = {}) {
   if (!roomId || !isMediaSource() || !mediaVideo || !mediaPlayerReady || !followsRoomPlayback()) return;
-  if (window.watchFusionLinkedTab?.publishing?.() && !options.force) return;
+
   refreshMediaAnchor(false);
-  const playback = state.playback || {};
-  const target = projectedMediaTarget();
-  const current = currentMediaPosition();
-  const drift = target - current;
+  const playback = state.playback || {}, video = mediaVideo;
+  const target = Math.min(projectedMediaTarget(), video.duration > 0 ? video.duration : Infinity);
+  const drift = target - currentMediaPosition();
   const baseRate = Math.min(2, Math.max(0.25, Number(playback.rate) || 1));
+  const now = performance.now(), force = options.force === true;
+  const buffering = video.seeking || video.readyState < 3;
+  if (mediaSeek && Math.abs(drift) < .25 && !buffering) mediaSeek = null;
+  const canSeek = video.readyState >= 1 && (force || (!video.seeking && !mediaSeek));
+  const seek = () => {
+    mediaSeek = true;
+    window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
+    video.currentTime = target;
+    mediaConvergence.reset();
+  };
+  if (!mediaConvergence) mediaConvergence = window.WatchFusionLinkedPlaybackSync.createMediaConvergence();
 
   try {
     withMediaGuard(() => {
       applyRoomMediaAudio();
-      mediaVideo.playbackRate = baseRate;
-      if (playback.ended) {
-        const terminal = Number.isFinite(mediaVideo.duration) ? Math.min(target, mediaVideo.duration || target) : target;
-        if (Math.abs(current - terminal) > 0.25 && mediaVideo.readyState >= 1) mediaVideo.currentTime = Math.max(0, terminal);
-        mediaVideo.pause();
-        return;
+      let rate = baseRate;
+      if (playback.ended || playback.paused) {
+        if (!video.paused) { window.watchFusionLinkedTab?.suppressPlaybackEcho?.(); video.pause(); }
+        if (canSeek && Math.abs(drift) > .35) seek();
+        mediaConvergence.reset();
+      } else if (video.ended && !force) {
+        if (target < video.duration - .25 && !buffering) replayViewerFromTerminal(target);
+      } else {
+        if (canSeek && (force || (!buffering && Math.abs(drift) > 1.25))) seek();
+        else if (buffering || video.paused || mediaSeek) mediaConvergence.reset();
+        else rate = mediaConvergence.rate(baseRate, drift, now);
+        if (video.paused && now >= (mediaPlay || 0)) {
+          mediaPlay = now + 1000;
+          window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
+          video.play()?.catch?.(() => { if (mediaVideo === video) setStatus('Tap the video once to allow playback.'); });
+        }
       }
-
-      if (playback.paused) {
-        if (Math.abs(drift) > 0.35 && mediaVideo.readyState >= 1) mediaVideo.currentTime = Math.max(0, target);
-        mediaVideo.pause();
-        return;
+      if (Math.abs(video.playbackRate - rate) > .002) {
+        window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
+        video.playbackRate = rate;
       }
-
-      if (mediaVideo.ended) {
-        replayViewerFromTerminal(0);
-        return;
-      }
-
-      const absoluteDrift = Math.abs(drift);
-      if (absoluteDrift > 1.25 || options.force) {
-        mediaVideo.currentTime = Math.max(0, target);
-        mediaDriftCorrecting = false;
-      } else if (absoluteDrift >= 0.20 || (mediaDriftCorrecting && absoluteDrift > 0.12)) {
-        mediaVideo.playbackRate = drift > 0 ? Math.min(2, baseRate + 0.25) : Math.max(0.5, baseRate - 0.25);
-        mediaDriftCorrecting = true;
-      } else mediaDriftCorrecting = false;
-      mediaVideo.play()?.catch?.(() => setStatus('Tap the video once to allow playback.'));
     });
   } catch (error) { setStatus(error?.message || 'Media synchronization error.'); }
 }

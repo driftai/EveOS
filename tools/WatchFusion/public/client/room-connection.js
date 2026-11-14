@@ -78,9 +78,11 @@ function connectEvents() {
 }
 
 function applyIncomingRoomState(nextState) {
-  const revision = Number(nextState?.revision);
-  const current = Number(state?.revision);
-  if (Number.isFinite(revision) && Number.isFinite(current) && revision < current) return false;
+  if (!nextState || (roomId && nextState.roomId && nextState.roomId !== roomId)) return false;
+  const revision = Number(nextState.revision), current = Number(state?.revision);
+  if (Number.isFinite(revision) && Number.isFinite(current)) {
+    if (revision < current || (revision === current && Number(nextState.serverTime) < Number(state.serverTime))) return false;
+  }
   state = nextState;
   return true;
 }
@@ -138,9 +140,12 @@ function startStatePolling() {
 let pingTimer = null;
 function pingServerClock() {
   if (!session || !roomId) return;
-  const sentAt = Date.now();
+  const activeRoom = roomId, activeMember = session.memberId, sentAt = Date.now();
   fetch(apiUrl(`/api/rooms/${roomId}/ping`), {method:'POST',headers:{'x-member-id':session.memberId}})
-    .then(async response => { const receivedAt = Date.now(); const data = await response.json().catch(() => ({})); updateServerClock(data.serverTime, sentAt, receivedAt); })
+    .then(async response => {
+      const receivedAt = Date.now(), data = await response.json().catch(() => ({}));
+      if (response.ok && roomId === activeRoom && session?.memberId === activeMember) updateServerClock(data.serverTime, sentAt, receivedAt, data.serverReceivedAt);
+    })
     .catch(() => {});
 }
 function startPing() {

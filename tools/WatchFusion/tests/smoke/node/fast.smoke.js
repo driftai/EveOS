@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { startServer } from '../helpers/server-harness.js';
 import { request } from '../helpers/http-client.js';
+import { runPlaybackTimingChecks } from './playback-timing.js';
 import { isM3u8Response } from '../../../src/server/media-routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -194,7 +195,7 @@ export async function runFastSmoke() {
     assert.match(mediaPlayer, /mediaEnsurePromise && mediaEnsureUrl === url/);
     assert.doesNotMatch(mediaPlayer, /host\.innerHTML\s*=/);
     assert.match(mediaPlayer, /host\.prepend\(mediaVideo\)/);
-    assert.match(mediaPlayer, /absoluteDrift >= 0\.20 \|\| \(mediaDriftCorrecting && absoluteDrift > 0\.12\)/);
+    assert.match(mediaPlayer, /mediaConvergence\.rate\(baseRate, drift, now\)/);
     assert.match(continuityBridge, /transfer\.retryTimer = setInterval/);
     assert.match(continuityBridge, /completedTransferIds\.has\(data\.requestId\)/);
   });
@@ -244,87 +245,7 @@ export async function runFastSmoke() {
     assert.doesNotMatch(linkedTab,/action===['"]play['"][\s\S]{0,120}peer\.control\(['"]seek['"]/);
   });
 
-  await check('FAST-02E:stalled-youtube-viewer-does-not-loop-seeks', () => {
-    let elapsed = 0, position = 90, playerState = 1;
-    const seeks = [];
-    const status = { textContent: '' };
-    const elements = new Map([['syncStatus', status]]);
-    for (const id of ['devicePlaybackTiming', 'deviceTimingSummary', 'deviceTimingValue',
-      'deviceTimingEarlier', 'deviceTimingLater', 'deviceTimingApply', 'deviceTimingReset']) {
-      elements.set(id, { addEventListener(_type, fn) { this.click = fn; } });
-    }
-    const preferences = new Map();
-    const playback = { position: 100, paused: false, rate: 1, updatedAt: 10000, projectedAt: 10000 };
-    const context = {
-      roomId: 'linked-room', state: { source: { videoId: 'fixture' }, playback },
-      ytPlayerReady: true, playerInitializing: false, primingPlayer: false,
-      ytPlayer: {
-        getCurrentTime: () => position, getPlayerState: () => playerState,
-        getPlaybackRate: () => 1, seekTo: value => seeks.push(value), pauseVideo: () => { playerState = 2; }
-      },
-      window: { YT: { PlayerState: { PLAYING: 1, PAUSED: 2, BUFFERING: 3 } } },
-      followsRoomPlayback: () => true, isHost: () => false, isTryCloudflare: false,
-      estimatedServerNow: () => 10000 + elapsed, performance: { now: () => elapsed },
-      storage: preferences,
-      applyRoomAudioState() {}, requestViewerPlayback() {}, render() {},
-      syncPlayer: options => context.window.applyAdaptiveViewerSync(options.force),
-      $: id => elements.get(id), setStatus: value => { status.textContent = value; },
-      setInterval() {}, document: { addEventListener() {} }
-    };
-    vm.runInNewContext(fs.readFileSync(path.join(PROJECT_ROOT, 'public', 'playback-sync.js'), 'utf8'), context);
-    const sync = context.window.applyAdaptiveViewerSync;
-    for (; elapsed < 9000; elapsed += 250) {
-      if (elapsed === 5000) Object.assign(playback, { position: 105, updatedAt: 15000, projectedAt: 15000 });
-      sync();
-    }
-    assert.equal(seeks.length, 1, 'a stalled clock and an equivalent new room anchor cannot restart catch-up');
-    assert.match(status.textContent, /Playback is behind/);
-
-    sync(true);
-    assert.equal(seeks.length, 2, 'manual Sync me bypasses the seek latch');
-    Object.assign(playback, { position: 60, updatedAt: 19000, projectedAt: 19000 });
-    sync();
-    sync();
-    assert.equal(seeks.length, 3, 'a genuine source jump rearms correction');
-    elapsed += 3000;
-    playerState = 3;
-    sync();
-    sync();
-    assert.equal(seeks.length, 3, 'buffering still owns recovery');
-    playerState = 1;
-    position = 63;
-    sync();
-    position = 61;
-    sync();
-    sync();
-    assert.equal(seeks.length, 4, 'a viewer that recovered can correct a later independent drift');
-
-    Object.assign(playback, { position: 60, paused: true, updatedAt: 22001, projectedAt: 22001 });
-    sync();
-    sync();
-    assert.equal(seeks.length, 5, 'a paused snapshot issues one seek while the TV position is stale');
-    assert.equal(playerState, 2);
-
-    position = 60;
-    sync();
-    Object.assign(playback, { position: 59, updatedAt: 22002, projectedAt: 22002 });
-    sync();
-    assert.equal(seeks.length, 6, 'subsequent paused seeks still follow the host');
-
-    Object.assign(playback, { position: 60, paused: false, rate: 2, updatedAt: 22000, projectedAt: 22000 });
-    context.render();
-    elements.get('deviceTimingEarlier').click();
-    elements.get('deviceTimingEarlier').click();
-    assert.equal(seeks.length, 6, 'staging device timing never seeks');
-    elements.get('deviceTimingApply').click();
-    assert.ok(Math.abs(seeks.at(-1) - 60.1) < 1e-8, '50 ms earlier advances 100 ms on the 2x media timeline');
-    assert.equal(seeks.length, 7, 'Apply requests one local seek');
-    assert.equal(playback.position, 60, 'device timing never changes the shared timeline');
-    assert.equal(preferences.get('watchfusion.youtubePlaybackDelayMs'), '-50');
-    elements.get('deviceTimingReset').click();
-    assert.equal(seeks.at(-1), 60, 'Reset targets the original room position');
-    assert.equal(preferences.get('watchfusion.youtubePlaybackDelayMs'), '0');
-  });
+  await runPlaybackTimingChecks(check);
 
   await check('FAST-02A:nuvio-browser-plugin-bridge-contract', () => {
     const build = fs.readFileSync(path.join(PROJECT_ROOT, 'scripts', 'BUILD-NUVIO.bat'), 'utf8');

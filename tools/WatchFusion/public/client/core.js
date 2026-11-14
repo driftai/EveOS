@@ -42,7 +42,7 @@ let remotePollTimer = null;
 let remotePollBusy = false;
 let serverClockOffsetMs = 0;
 let serverClockRttMs = Infinity;
-let serverClockSamples = [];
+let serverClockSamples = [], serverClockReference = null;
 const isTryCloudflare = /(^|\.)trycloudflare\.com$/i.test(location.hostname);
 const eveosShareParams = new URLSearchParams(location.search);
 const eveosShareMode = ['lan', 'cloudflare'].includes(eveosShareParams.get('eveosShareMode')) ? eveosShareParams.get('eveosShareMode') : 'local';
@@ -168,33 +168,43 @@ function medianNumber(values) {
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
-function updateServerClock(serverTime, sentAt, receivedAt) {
-  const server = Number(serverTime);
-  if (!Number.isFinite(server)) return;
-  const t0 = Number(sentAt), t1 = Number(receivedAt);
-  if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 < t0) return;
-  const rtt = t1 - t0;
-  if (!Number.isFinite(rtt) || rtt > 5000) return;
-  const offset = server - (t0 + rtt / 2);
-  serverClockSamples.push({ rtt, offset, at: t1 });
+function updateServerClock(serverTime, sentAt, receivedAt, receivedByServer) {
+  const precise = receivedByServer != null;
+  const t0 = Number(sentAt), t1 = Number(receivedByServer ?? serverTime);
+  const t2 = Number(serverTime), t3 = Number(receivedAt);
+  if (![t0, t1, t2, t3].every(Number.isFinite) || t1 <= 0 || t2 < t1 || t3 < t0) return;
+  const rtt = (t3 - t0) - (t2 - t1);
+  if (rtt < 0 || t3 - t0 > 5000) return;
+  const localNow = Date.now(), monoNow = performance.now();
+  if (serverClockReference && Math.abs(localNow - serverClockReference.local - (monoNow - serverClockReference.mono)) > 100) {
+    serverClockSamples = [];
+  }
+  if (!precise && serverClockSamples.some(sample => sample.precise && t3 - sample.at < 30000)) return;
+  if (precise && !serverClockSamples.some(sample => sample.precise)) serverClockSamples = [];
+  const offset = ((t1 - t0) + (t2 - t3)) / 2;
+  serverClockSamples = serverClockSamples.filter(sample => t3 - sample.at < 45000 && t3 >= sample.at);
+  serverClockSamples.push({ rtt, offset, at: t3, precise });
   if (serverClockSamples.length > 12) serverClockSamples.shift();
 
-  // Do not freeze forever on the first lucky RTT. Keep a rolling set, take the
-  // lowest-latency samples, then use their median offset so one asymmetric LAN
-  // request cannot bias the viewer timeline for the whole room session.
-  const lowLatency = serverClockSamples
-    .slice()
-    .sort((a, b) => a.rtt - b.rtt)
-    .slice(0, Math.min(5, serverClockSamples.length));
-  serverClockRttMs = lowLatency.length ? lowLatency[0].rtt : rtt;
+  // Prefer low-delay exchanges and reject isolated asymmetric samples.
+  const sorted = [...serverClockSamples].sort((a, b) => a.rtt - b.rtt);
+  serverClockRttMs = sorted[0].rtt;
+  const lowLatency = sorted.filter(sample => sample.rtt <= serverClockRttMs + Math.max(8, serverClockRttMs / 4)).slice(0, 5);
   serverClockOffsetMs = medianNumber(lowLatency.map(sample => sample.offset));
+  serverClockReference = { local: localNow, mono: monoNow };
 }
-function estimatedServerNow() { return Date.now() + serverClockOffsetMs; }
+function estimatedServerNow() {
+  const reference = serverClockReference;
+  return reference ? reference.local + (performance.now() - reference.mono) + serverClockOffsetMs : Date.now();
+}
 window.watchPartyClock = {
   offsetMs: () => serverClockOffsetMs,
   rttMs: () => Number.isFinite(serverClockRttMs) ? serverClockRttMs : null,
   sampleCount: () => serverClockSamples.length,
   now: estimatedServerNow,
+  serverAt: localTime => serverClockReference
+    && Math.abs(Date.now() - serverClockReference.local - (performance.now() - serverClockReference.mono)) <= 100
+    ? Number(localTime) + serverClockOffsetMs : null,
   update: updateServerClock
 };
 

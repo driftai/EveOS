@@ -1,14 +1,8 @@
-/*
- * Conservative YouTube viewer synchronization.
- *
- * Mobile YouTube currentTime samples can be coarse/stale for a few ticks. A single
- * sample must never make a viewer run at 1.25x/0.75x. We keep the authoritative
- * playback rate, filter drift over a short window, and use one seek only when a
- * sustained offset is large enough to trust.
- */
+/* YouTube room sync preserves the room rate and verifies recovery from bounded seeks. */
 (() => {
   const SYNC_TOLERANCE_SEC = 0.15;
-  const SEEK_DRIFT_SEC = 0.65;
+  const SEEK_DRIFT_SEC = 0.42;
+  const BUFFERED_DRIFT_SEC = 0.18;
   const HARD_DRIFT_SEC = 1.5;
   const SEEK_COOLDOWN_MS = 2500;
   const TICK_MS = 250;
@@ -17,10 +11,11 @@
   const SENSOR_MIN_AGE_MS = 900;
   const SENSOR_MAX_SPREAD_SEC = 0.22;
   const DEVICE_TIMING_KEY = 'watchfusion.youtubePlaybackDelayMs';
-  const DEVICE_TIMING_STEP_MS = 25;
+  const DEVICE_TIMING_STEP_MS = 5;
   const DEVICE_TIMING_LIMIT_MS = 1000;
   let deviceDelayMs = normalizeDeviceDelay(storage.get(DEVICE_TIMING_KEY));
   let draftDeviceDelayMs = deviceDelayMs;
+  const autoGovernor = window.WatchFusionLinkedPlaybackSync?.createAutoRoomGovernor?.();
 
   let anchorKey = '';
   let anchorPosition = 0;
@@ -29,7 +24,7 @@
   let seekCooldownUntil = 0;
   let awaitingSeekRecovery = false;
   let viewerWasBuffering = false;
-  let viewerScope = '';
+  let viewerScope = '', viewerProgress = null, hostPositionSample = null;
   let correctiveSeeks = 0;
   let replayLoads = 0;
   let viewerSawEnded = false;
@@ -50,7 +45,7 @@
   }
 
   function hasDeviceTiming() {
-    return !!roomId && !!state?.source?.videoId && followsRoomPlayback() && !window.watchFusionLinkedTab?.publishing?.();
+    return !!roomId && !!state?.source?.videoId && followsRoomPlayback() && !isHost();
   }
 
   function formatDeviceDelay(value) {
@@ -68,8 +63,14 @@
     }
     $('deviceTimingSummary').textContent = deviceDelayMs ? '· ' + formatDeviceDelay(deviceDelayMs) : '';
     $('deviceTimingValue').textContent = formatDeviceDelay(draftDeviceDelayMs);
+    const slider = $('deviceTimingSlider');
+    if (slider) slider.value = String(draftDeviceDelayMs);
     $('deviceTimingEarlier').disabled = draftDeviceDelayMs <= -DEVICE_TIMING_LIMIT_MS;
     $('deviceTimingLater').disabled = draftDeviceDelayMs >= DEVICE_TIMING_LIMIT_MS;
+    const earlierFine = $('deviceTimingEarlierFine');
+    const laterFine = $('deviceTimingLaterFine');
+    if (earlierFine) earlierFine.disabled = draftDeviceDelayMs <= -DEVICE_TIMING_LIMIT_MS;
+    if (laterFine) laterFine.disabled = draftDeviceDelayMs >= DEVICE_TIMING_LIMIT_MS;
     $('deviceTimingApply').disabled = draftDeviceDelayMs === deviceDelayMs;
     $('deviceTimingReset').disabled = !deviceDelayMs && !draftDeviceDelayMs;
   }
@@ -113,7 +114,7 @@
     const p = state?.playback;
     if (!p) return '';
     const sourceId = state?.source?.videoId || state?.source?.url || state?.source?.streamId || '';
-    return [sourceId, p.updatedAt, p.rate, p.paused, p.ended].join('|');
+    return [roomId, sourceId, p.updatedAt, p.rate, p.paused, p.ended].join('|');
   }
 
   function refreshAnchor(force = false) {
@@ -125,11 +126,14 @@
     const at = Number(p.projectedAt) || Number(state.serverTime) || Date.now();
     const rate = p.paused || p.ended ? 0 : Number(p.rate) || 1;
     if (key !== anchorKey) {
-      resetDriftSensor('new-anchor');
-      const changedMotion = (anchorRate === 0) !== (rate === 0);
+      const changedRate = anchorRate !== rate;
       const jumpThreshold = rate === 0 ? SYNC_TOLERANCE_SEC : HARD_DRIFT_SEC;
       const jumped = Math.abs(position - projectAnchor(at)) >= jumpThreshold;
-      if (anchorKey && (changedMotion || jumped)) resetSeekRecovery();
+      if (anchorKey && (changedRate || jumped)) {
+        resetDriftSensor('new-anchor');
+        resetSeekRecovery();
+        autoGovernor?.reset(viewerScope);
+      }
     }
     anchorKey = key;
     anchorPosition = position;
@@ -137,9 +141,7 @@
     anchorRate = rate;
   }
 
-  function serverNow() {
-    return typeof estimatedServerNow === 'function' ? estimatedServerNow() : Date.now();
-  }
+  function serverNow() { return estimatedServerNow(); }
 
   function projectAnchor(at) {
     return Math.max(0, anchorPosition + Math.max(0, at - anchorServerTime) / 1000 * anchorRate);
@@ -184,6 +186,15 @@
     diagnostics.action = 'steady';
   }
 
+  function setViewerRate(rate) {
+    const available = ytPlayer.getAvailablePlaybackRates?.();
+    if (available?.length && !available.includes(rate)) return;
+    if (Math.abs((Number(ytPlayer.getPlaybackRate?.()) || rate) - rate) > .001) {
+      window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
+      ytPlayer.setPlaybackRate?.(rate);
+    }
+  }
+
   function restartViewerFromEnded(target, baseRate) {
     const key = syncStateKey();
     if (!key || key === replayKey) return false;
@@ -191,14 +202,16 @@
     viewerSawEnded = false;
     try {
       const startSeconds = Math.max(0, Number(target) || 0);
+      window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
       if (typeof ytPlayer.loadVideoById === 'function') {
         ytPlayer.loadVideoById({ videoId: state.source.videoId, startSeconds });
         replayLoads++;
       } else {
         ytPlayer.seekTo?.(startSeconds, true);
       }
-      ytPlayer.setPlaybackRate?.(baseRate);
+      setViewerRate(baseRate);
       awaitSeekRecovery(performance.now());
+      autoGovernor?.reset(viewerScope);
       requestViewerPlayback();
       resetDriftSensor('replay');
       return true;
@@ -212,25 +225,28 @@
     seekCooldownUntil = nowMs + SEEK_COOLDOWN_MS;
   }
 
-  function seekViewer(target, baseRate, nowMs, action = 'seek') {
+  function seekViewer(target, baseRate, nowMs, action = 'seek', allowNetwork = true) {
     try {
-      ytPlayer.setPlaybackRate?.(baseRate);
-      ytPlayer.seekTo?.(target, true);
+      setViewerRate(baseRate);
+      window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
+      ytPlayer.seekTo?.(target, allowNetwork);
       correctiveSeeks++;
     } catch {}
     awaitSeekRecovery(nowMs);
+    if (action === 'manual-sync') autoGovernor?.reset(viewerScope);
+    autoGovernor?.onSeek(nowMs);
     resetDriftSensor(action);
-    setStatus('Re-synced');
+    setStatus('Catching up…');
   }
 
   function applyViewerCorrection(force = false) {
     if (!roomId || !state?.source?.videoId || !ytPlayer || !ytPlayerReady || !followsRoomPlayback()) return;
     if (playerInitializing || primingPlayer) return;
-    if (window.watchFusionLinkedTab?.publishing?.() && !force) return;
 
     const scope = roomId + ':' + state.source.videoId;
     if (scope !== viewerScope) {
-      viewerScope = scope;
+      viewerScope = scope; viewerProgress = null;
+      autoGovernor?.reset(scope);
       viewerWasBuffering = false;
       viewerSawEnded = false;
       resetSeekRecovery();
@@ -256,26 +272,25 @@
     const buffering = playerState === (window.YT?.PlayerState?.BUFFERING ?? 3);
     const playerEnded = playerState === (window.YT?.PlayerState?.ENDED ?? 0);
 
-    // Always return the viewer to the host's actual playback rate. Sync logic is
-    // not allowed to make a phone run faster/slower just to chase noisy samples.
-    try {
-      if (Math.abs((Number(ytPlayer.getPlaybackRate?.()) || baseRate) - baseRate) > 0.001) {
-        ytPlayer.setPlaybackRate?.(baseRate);
-      }
-    } catch {}
+
+    try { setViewerRate(baseRate); } catch {}
 
     if (state.playback.paused || state.playback.ended) {
       viewerSawEnded = !!state.playback.ended;
       try {
         const shouldSeek = absRaw > SYNC_TOLERANCE_SEC && (force || (!buffering && !awaitingSeekRecovery));
         if (shouldSeek) {
+          window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
           awaitSeekRecovery(nowMs);
           ytPlayer.seekTo?.(target, true);
         }
         if (shouldSeek || (!playerEnded && playerState !== (window.YT?.PlayerState?.PAUSED ?? 2)
-            && (!buffering || !awaitingSeekRecovery))) ytPlayer.pauseVideo?.();
+            && (!buffering || !awaitingSeekRecovery))) {
+          window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
+          ytPlayer.pauseVideo?.();
+        }
       } catch {}
-      resetDriftSensor('paused');
+      viewerProgress = null; resetDriftSensor('paused');
       if (absRaw <= SYNC_TOLERANCE_SEC) resetSeekRecovery();
       markStable();
       return true;
@@ -283,6 +298,8 @@
 
     if (buffering && !force) {
       if (!viewerWasBuffering) resetDriftSensor('buffering');
+      viewerProgress = null;
+      autoGovernor?.observe({nowMs, current, drift:rawDrift, buffering:true});
       viewerWasBuffering = true;
       return true;
     }
@@ -302,33 +319,44 @@
       return true;
     }
 
-    // A timed-out seek can leave the TV behind while its clock still reads
-    // Playing. Give it time to recover instead of seeking every cooldown.
-    if (awaitingSeekRecovery && nowMs >= seekCooldownUntil) {
-      if (absRaw < SEEK_DRIFT_SEC) resetSeekRecovery();
-      else {
-        diagnostics.action = 'waiting-for-player';
-        const message = 'Playback is behind · use Sync me to catch up';
+
+    const sensor = sampleDrift(rawDrift, nowMs);
+    const filteredAbs = Math.abs(sensor.filteredDriftSec);
+    const playing = playerState === (window.YT?.PlayerState?.PLAYING ?? 1);
+    const governorDecision = autoGovernor?.observe({nowMs, current,
+      drift:sensor.filteredDriftSec, playing, buffering, stable:sensor.stable});
+    const advancing = playing && viewerProgress && current > viewerProgress.current
+      && current - viewerProgress.current < 1 && nowMs > viewerProgress.nowMs && nowMs - viewerProgress.nowMs <= 1000;
+    if (playing && (!viewerProgress || current !== viewerProgress.current)) viewerProgress = {current, nowMs};
+    if (awaitingSeekRecovery) {
+      if (governorDecision?.settled || (nowMs >= seekCooldownUntil && governorDecision?.retry)) {
+        resetSeekRecovery();
+        if (governorDecision.settled) {
+          resetDriftSensor('aligned'); markStable();
+          requestViewerPlayback(); return true;
+        }
+      } else {
+        diagnostics.action = governorDecision?.reason || 'waiting-for-player';
+        const message = nowMs < seekCooldownUntil ? 'Catching up…'
+          : filteredAbs >= SEEK_DRIFT_SEC ? 'Playback is behind · use Sync me to catch up' : 'Connected · playback timing is settling';
         if ($('syncStatus')?.textContent !== message) setStatus(message);
         requestViewerPlayback();
         return true;
       }
     }
 
-    const sensor = sampleDrift(rawDrift, nowMs);
-    const filteredAbs = Math.abs(sensor.filteredDriftSec);
 
-    // A very large offset is safe to repair after a couple of consistent reads.
     const hardConsistent = sensor.sampleCount >= 2
       && driftSamples.slice(-2).every(sample => Math.sign(sample.drift) === Math.sign(sensor.filteredDriftSec));
     if (filteredAbs >= HARD_DRIFT_SEC && hardConsistent && !awaitingSeekRecovery) {
       seekViewer(target, baseRate, nowMs, 'hard-seek');
     } else if (sensor.stable && filteredAbs >= SEEK_DRIFT_SEC && !awaitingSeekRecovery) {
       seekViewer(target, baseRate, nowMs, 'stable-seek');
+    } else if (!awaitingSeekRecovery && advancing && sensor.stable && sensor.spreadSec <= .09
+        && filteredAbs >= BUFFERED_DRIFT_SEC
+        && duration * (Number(ytPlayer.getVideoLoadedFraction?.()) || 0) >= Math.max(current, target) + 1) {
+      seekViewer(target, baseRate, nowMs, 'buffered-seek', false);
     } else {
-      // Below the trusted seek threshold, do nothing. In particular, a reported
-      // 0.2-0.5s mobile currentTime offset is treated as sensor jitter unless it
-      // persists strongly enough to justify a seek.
       markStable();
     }
 
@@ -341,6 +369,7 @@
     ...diagnostics,
     correctiveSeeks,
     replayLoads,
+    autoSync: autoGovernor?.snapshot() || null,
     deviceDelayMs: hasDeviceTiming() ? deviceDelayMs : 0,
     revision: state?.revision ?? null,
     playerState: ytPlayer?.getPlayerState?.() ?? null,
@@ -360,17 +389,45 @@
     return result;
   };
 
-  $('deviceTimingEarlier')?.addEventListener('click', () => stageDeviceDelay(draftDeviceDelayMs - DEVICE_TIMING_STEP_MS));
-  $('deviceTimingLater')?.addEventListener('click', () => stageDeviceDelay(draftDeviceDelayMs + DEVICE_TIMING_STEP_MS));
+  $('deviceTimingEarlier')?.addEventListener('click', () => stageDeviceDelay(draftDeviceDelayMs - 25));
+  $('deviceTimingEarlierFine')?.addEventListener('click', () => stageDeviceDelay(draftDeviceDelayMs - 5));
+  $('deviceTimingSlider')?.addEventListener('input', event => stageDeviceDelay(Number(event.target?.value || 0)));
+  $('deviceTimingLaterFine')?.addEventListener('click', () => stageDeviceDelay(draftDeviceDelayMs + 5));
+  $('deviceTimingLater')?.addEventListener('click', () => stageDeviceDelay(draftDeviceDelayMs + 25));
   $('deviceTimingApply')?.addEventListener('click', () => applyDeviceDelay(draftDeviceDelayMs));
   $('deviceTimingReset')?.addEventListener('click', () => applyDeviceDelay(0));
 
   const syncButton = $('syncBtn');
   if (syncButton) syncButton.onclick = () => syncPlayer({ force: true });
 
+  function publishHostSeek() {
+    if (!roomId || !ytPlayerReady || !state?.source?.videoId || followsRoomPlayback()
+        || window.watchFusionLinkedTab?.active?.() || primingPlayer || playerInitializing || applyingRemote) {
+      hostPositionSample = null;
+      return;
+    }
+    const playerState = ytPlayer?.getPlayerState?.();
+    if (playerState !== 1 && playerState !== 2) return;
+    if (state.playback.paused !== (playerState === 2) || state.playback.ended) {
+      hostPositionSample = null;
+      return;
+    }
+    const position = Number(ytPlayer.getCurrentTime?.()), at = performance.now();
+    if (!Number.isFinite(position)) return;
+    const rate = Number(ytPlayer.getPlaybackRate?.()) || 1;
+    const scope = roomId + ':' + state.source.videoId;
+    const previous = hostPositionSample;
+    hostPositionSample = {scope, position, at, rate, playing:playerState === 1};
+    if (previous?.scope === scope && previous.playing === hostPositionSample.playing && previous.rate === rate
+        && window.WatchFusionLinkedPlaybackSync.positionJumped(position, previous, at)) {
+      void command('seek', { position, paused: playerState === 2 }).catch(() => setStatus('Room playback is reconnecting…'));
+    }
+  }
+
   setInterval(() => {
     try {
-      applyViewerCorrection(false);
+      if (roomId && !followsRoomPlayback()) publishHostSeek();
+      else { hostPositionSample = null; applyViewerCorrection(false); }
     } catch {}
   }, TICK_MS);
 

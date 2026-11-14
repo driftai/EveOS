@@ -394,3 +394,34 @@ html.eveos-embedded .watch-shell.room-idle .find-media-panel {
   }
 }
 
+/* WatchFusion device timing: compact fine/coarse adjustment. */
+.media-status-row { min-width: 0; }
+.media-status-row .device-playback-timing { box-sizing: border-box; flex: 1 1 100%; min-width: 0; width: 100%; max-width: 100%; }
+.device-playback-timing summary { min-height: 30px; padding: 5px 9px; }
+.device-timing-controls { display: grid; gap: 6px; min-width: 0; max-width: 100%; padding: 7px 0 2px; }
+.device-timing-controls small { overflow-wrap: anywhere; font-size: 12px; line-height: 1.3; }
+.device-timing-slider { display: grid; gap: 3px; min-width: 0; }
+.device-timing-slider > span { font-size: 12px; color: var(--text-muted); }
+.device-timing-slider input { display: block; width: 100%; min-width: 0; }
+.device-timing-controls > div { display: grid; align-items: center; gap: 5px; min-width: 0; max-width: 100%; }
+.device-timing-row { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.device-timing-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.device-timing-controls button { min-width: 0; max-width: 100%; min-height: 34px; padding: 6px 7px; font-size: 12px; line-height: 1.15; white-space: normal; }
+.device-timing-controls output { display: grid; place-items: center; min-width: 0; width: 100%; min-height: 32px; padding: 0 4px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.device-timing-controls button:focus-visible,
+.device-playback-timing summary:focus-visible,
+.device-timing-slider input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 900px) {
+  .media-status-row .device-playback-timing { grid-column: 1 / -1; }
+  .device-timing-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #deviceTimingEarlier { order: 1; }
+  #deviceTimingEarlierFine { order: 2; }
+  #deviceTimingValue { order: 3; grid-column: 1 / -1; }
+  #deviceTimingLaterFine { order: 4; }
+  #deviceTimingLater { order: 5; }
+  .device-timing-controls button { width: 100%; }
+}
+@media (max-width: 340px) {
+  .device-timing-row, .device-timing-actions { grid-template-columns: minmax(0, 1fr); }
+  #deviceTimingValue { grid-column: auto; }
+}

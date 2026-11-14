@@ -157,23 +157,23 @@ test.describe('Adaptive playback drift regression', () => {
     expect(calls.diagnostics.action).toBe('steady');
   });
 
-  test('filtered phase correction reports Re-synced then Connected after settling', async ({ page }) => {
+  test('filtered phase correction waits for observed alignment before reporting Connected', async ({ page }) => {
     await page.goto('/');
     const calls = await configureViewer(page, { current: 99, target: 100, samples: 5 });
     expect(calls.seek).toHaveLength(1);
-    expect(calls.rates).toEqual([1]);
-    expect(calls.status).toBe('Re-synced');
+    expect(calls.rates).toEqual([]);
+    expect(calls.status).toBe('Catching up…');
     expect(calls.diagnostics.action).toBe('stable-seek');
     const statuses = await page.evaluate(() => {
       syncPlayer();
       const settled = document.querySelector('#syncStatus').textContent;
-      setStatus('Re-synced');
+      setStatus('Catching up…');
       state.playback.paused = true;
       syncPlayer({ force: true });
       return { settled, paused: document.querySelector('#syncStatus').textContent };
     });
 
-    expect(statuses.settled).toMatch(/^Connected/);
+    expect(statuses.settled).toBe('Catching up…');
     expect(statuses.paused).toMatch(/^Connected/);
   });
 

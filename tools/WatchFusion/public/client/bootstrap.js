@@ -5,7 +5,8 @@ async function command(type, extra={}) {
   if (!activeRoom || !activeMember) return false;
   const sentAt = Date.now();
   const payload = {type, ...extra};
-  if (Number.isFinite(window.watchPartyClock?.rttMs?.())) payload.sampledServerAt = estimatedServerNow();
+  const sampledServerAt = window.watchPartyClock?.serverAt?.(sentAt);
+  if (Number.isFinite(sampledServerAt)) payload.sampledServerAt = sampledServerAt;
   const res = await fetch(apiUrl(`/api/rooms/${activeRoom}/command`), {
     method:'POST', headers:{'Content-Type':'application/json','x-member-id':activeMember}, body:JSON.stringify(payload)
   });

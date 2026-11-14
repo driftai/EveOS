@@ -166,13 +166,21 @@
               <span id="syncStatus">Solo mode</span>
               <button id="syncBtn" class="secondary" hidden>Sync me</button>
               <details id="devicePlaybackTiming" class="device-playback-timing" hidden>
-                <summary>Device timing <span id="deviceTimingSummary"></span></summary>
+                <summary>Advanced device timing <span id="deviceTimingSummary"></span></summary>
                 <div class="device-timing-controls">
-                  <small>If this TV sounds late, choose Earlier, then Apply. This adjusts playback on this device.</small>
-                  <div role="group" aria-label="Playback timing adjustment">
-                    <button id="deviceTimingEarlier" class="secondary" type="button">Earlier −25 ms</button>
+                  <small>If this device sounds early or late, drag the slider or use ±5/±25 ms, then Apply. This adjusts playback only on this device.</small>
+                  <label class="device-timing-slider" for="deviceTimingSlider">
+                    <span>Adjustment</span>
+                    <input id="deviceTimingSlider" type="range" min="-1000" max="1000" step="5" value="0" aria-label="Playback timing adjustment slider">
+                  </label>
+                  <div class="device-timing-row" role="group" aria-label="Playback timing adjustment">
+                    <button id="deviceTimingEarlier" class="secondary" type="button">−25 ms</button>
+                    <button id="deviceTimingEarlierFine" class="secondary" type="button">−5 ms</button>
                     <output id="deviceTimingValue" aria-label="Playback timing offset">0 ms</output>
-                    <button id="deviceTimingLater" class="secondary" type="button">Later +25 ms</button>
+                    <button id="deviceTimingLaterFine" class="secondary" type="button">+5 ms</button>
+                    <button id="deviceTimingLater" class="secondary" type="button">+25 ms</button>
+                  </div>
+                  <div class="device-timing-actions">
                     <button id="deviceTimingApply" class="secondary" type="button" disabled>Apply</button>
                     <button id="deviceTimingReset" class="secondary" type="button" disabled>Reset</button>
                   </div>

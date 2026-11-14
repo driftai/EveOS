@@ -41,6 +41,7 @@ function sampledCommandAgeSeconds(body, receivedAt) {
 }
 
 export async function handleRoomRoute(req, res, url, parts) {
+  const serverReceivedAt = now();
   const requestedRoomId = safeRoomId(parts[2]);
   if (!requestedRoomId) return json(res, 400, { error: 'invalid room id' });
   const roomId = resolveRoomId(requestedRoomId);
@@ -71,7 +72,7 @@ export async function handleRoomRoute(req, res, url, parts) {
   if (req.method === 'GET' && parts[3] === 'events') return openEvents(req, res, room);
   if (req.method === 'POST' && parts[3] === 'ping') {
     cancelPendingLeave(room, memberId);
-    return json(res, 200, { ok: true, serverTime: now() });
+    return json(res, 200, { ok: true, serverReceivedAt, serverTime: now() });
   }
   if (req.method === 'POST' && parts[3] === 'leave') {
     if (url.searchParams.get('defer') === '1') {
@@ -159,9 +160,12 @@ async function commandRoute(req, res, room, roomId, member) {
     if (!linked) room.linkedSourceId = null;
     room.playback = freshPlayback(room.playback);
   } else if (type === 'mirror') {
+    if (body.sourceKey && body.sourceKey !== (room.source?.videoId || room.source?.url)) {
+      return json(res, 409, { error: 'Playback source changed before the sample arrived.' });
+    }
     const sampledPosition = Math.max(0, Number(body.position) || 0);
     const rate = Math.min(2, Math.max(0.25, Number(body.rate) || 1));
-    const paused = !!body.paused;
+    const paused = !!body.paused || !!body.ended;
     room.playback.position = paused ? sampledPosition : sampledPosition + sampleAgeSeconds * rate;
     room.playback.paused = paused;
     room.playback.ended = !!body.ended;
@@ -179,15 +183,16 @@ async function commandRoute(req, res, room, roomId, member) {
     room.playback.ended = false;
     room.playback.updatedAt = receivedAt;
   } else if (type === 'pause') {
-    room.playback.position = Number(body.position) || projectedPosition(room);
+    room.playback.position = Number.isFinite(body.position) ? Math.max(0, body.position) : projectedPosition(room, receivedAt);
     room.playback.paused = true;
     room.playback.ended = !!body.ended;
     room.playback.updatedAt = now();
   } else if (type === 'seek') {
     const sampledPosition = Math.max(0, Number(body.position) || 0);
     const activeRate = Math.min(2, Math.max(0.25, Number(room.playback.rate) || 1));
-    room.playback.position = sampledPosition + sampleAgeSeconds * activeRate;
-    room.playback.paused = false;
+    const paused = body.paused === true;
+    room.playback.position = paused ? sampledPosition : sampledPosition + sampleAgeSeconds * activeRate;
+    room.playback.paused = paused;
     room.playback.ended = false;
     room.playback.updatedAt = receivedAt;
   } else if (type === 'rate') {

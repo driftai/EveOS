@@ -86,7 +86,10 @@ html .grid:has(#partyPanel:not([hidden])) .watch-shell {
   min-width: 0;
   min-height: 0;
   height: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-padding-bottom: 16px;
 }
 
 html.watchfusion-room-active #mediaStage.player-wrap:not(.media-stage-empty),

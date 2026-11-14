@@ -2,7 +2,7 @@
   const CONTROL_ECHO_TTL_MS=2500;
   let link=null,peer=null,lastMetadata={},loadedPageUrl='',resolvingUrl='',pendingUrl='',resolveRevision=0,applying=false;
   let lastMirrorAnchor=null,mirrorInFlight=false,queuedMirror=null;
-  let lastTransportTiming=null;
+  let lastTransportTiming=null, lastSampleAt=0, lastSampleUrl="", playbackEchoUntil=0;
   const pendingControls=new Map();
 
   function active(){return !!link;}
@@ -22,6 +22,7 @@
   }
   function canControl(){return link?.roomId ? isHost() && !!roomProof() : !roomId;}
   function setApplying(value){applying=!!value;}
+  function suppressPlaybackEcho(){if(active())playbackEchoUntil=performance.now()+650;}
   function status(message){if($('liveStatus'))$('liveStatus').textContent=message;}
   function clock(value){const n=Math.max(0,Math.floor(Number(value)||0));return `${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`;}
   async function post(path,body={}){
@@ -76,7 +77,7 @@
     return next;
   }
   function followLocal(metadata,force=false){
-    if(!state?.source)return;
+    if(!state?.source || roomProof())return;
     applying=true;
     try{
       if(state.source.kind==='media')window.mediaPlayback?.followAttached?.(metadata,{force});
@@ -85,6 +86,10 @@
   }
   async function mirrorNow(metadata,force=false){
     if(!active()||!loadedPageUrl)return;
+    if (roomId && mirrorInFlight) {
+      queuedMirror={metadata:{...metadata},force:queuedMirror?.force===true||force};
+      return false;
+    }
     const plan=window.WatchFusionLinkedPlaybackSync?.mirrorPlan?.(metadata,lastMirrorAnchor,{force});
     if(!plan?.publish)return false;
     if(!roomId){
@@ -94,13 +99,14 @@
     }
     const linkedSource=roomProof();
     if(!linkedSource)return;
-    if(mirrorInFlight){queuedMirror={metadata:{...metadata},force:queuedMirror?.force===true||force};return false;}
-    const activeLink=link;
+
+    const activeLink=link, activePage=loadedPageUrl;
     mirrorInFlight=true;
     try{
-      const ok=await command('mirror',{linkedSource,position:plan.target,paused:!!metadata.paused,ended:!!metadata.ended,
+      const sourceKey = state?.source?.videoId || state?.source?.url || '';
+      const ok=await command('mirror',{linkedSource,sourceKey,position:plan.target,paused:!!metadata.paused,ended:!!metadata.ended,
         rate:Number(metadata.rate)||1,volume:Math.max(0,Math.min(100,(Number(metadata.volume)||0)*100)),muted:Number(metadata.volume)===0});
-      if(ok&&link===activeLink)lastMirrorAnchor=plan.anchor;
+      if(ok&&link===activeLink&&loadedPageUrl===activePage)lastMirrorAnchor=plan.anchor;
       return ok;
     }catch{
       status('Linked source reconnecting…');
@@ -108,7 +114,7 @@
     }finally{
       mirrorInFlight=false;
       const queued=queuedMirror;queuedMirror=null;
-      if(queued)void mirrorNow(queued.metadata,queued.force);
+      if(queued&&link===activeLink&&queued.metadata.pageUrl===loadedPageUrl)void mirrorNow(queued.metadata,queued.force);
     }
   }
   function scheduleMirror(metadata,force=false){
@@ -130,21 +136,35 @@
     const ok=resolve&&await resolve(value,{silent:true,linkedSource:roomProof()}).catch(()=>false);
     if(revision!==resolveRevision)return;
     resolvingUrl='';
-    if(ok){loadedPageUrl=value;lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();renderControls(lastMetadata);followLocal(lastMetadata,true);scheduleMirror(lastMetadata,true);status('Attached tab state linked · WatchFusion is playing the resolved source.');}
+    if(ok){
+      loadedPageUrl=value;lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();
+      if (lastMetadata.pageUrl === value) {
+        renderControls(lastMetadata);followLocal(lastMetadata,true);scheduleMirror(lastMetadata,true);
+      }
+      status('Attached tab state linked · WatchFusion is playing the resolved source.');
+    }
     else status('Attached tab is connected, but its playable source could not be resolved yet.');
     const queued=pendingUrl;pendingUrl='';
     if(queued&&queued!==loadedPageUrl)void followUrl(queued);
   }
   function onMetadata(metadata={}){
-    lastTransportTiming=window.WatchFusionLinkedPlaybackSync?.transportTiming?.(metadata,Date.now())||null;
+    const now = Date.now(), sync = window.WatchFusionLinkedPlaybackSync;
+    lastTransportTiming=sync?.transportTiming?.(metadata,now)||null;
     if(roomId&&link?.roomId!==roomId)return;
-    lastMetadata=applyPendingControls({...lastMetadata,...metadata});renderControls(lastMetadata);
+    const sample = sync?.relaySample(metadata, now, window.watchPartyClock?.serverAt?.(now));
+    if (!sample || metadata.status?.startsWith('Waiting for playable media')) return;
+    if (metadata.pageUrl === lastSampleUrl && Number(metadata.sampledAt) <= lastSampleAt) return;
+    lastSampleAt = Number(metadata.sampledAt);
+    lastSampleUrl = metadata.pageUrl;
+    lastMetadata = { ...lastMetadata, ...sample };
+    const display = applyPendingControls(lastMetadata);
+    renderControls(display);
     const pageUrl=String(lastMetadata.pageUrl||'');
     if(pageUrl&&pageUrl!==loadedPageUrl){void followUrl(pageUrl);return;}
-    followLocal(lastMetadata);scheduleMirror(lastMetadata);
+    followLocal(display);scheduleMirror(lastMetadata);
   }
   function connectPeer(){
-    peer?.stop();if(!link)return;
+    peer?.stop();if(!link)return;lastSampleAt=0;lastSampleUrl="";
     peer=new WatchFusionLivePeer({base:location.origin,id:link.id,token:link.publisherToken,roomId,memberId:session?.memberId,
       onStatus:message=>status(message==='Source connected'?'Attached tab connected · matching media source…':message),
       onMetadata,onReady:()=>status('Waiting for attached tab state…')});
@@ -176,6 +196,6 @@
   }
   function reconnect(){if(!link)return start();connectPeer();return true;}
   $('linkTabBtn').onclick=()=>{void(active()?stop():start());};
-  window.watchFusionLinkedTab={active,promoteToRoom,publishing:()=>!!(roomProof()&&state?.linkedSourceActive),applying:()=>applying,setApplying,control,start,stop,reconnect,render:renderControls,
+  window.watchFusionLinkedTab={active,promoteToRoom,publishing:()=>!!(roomProof()&&state?.linkedSourceActive),applying:()=>applying || performance.now()<playbackEchoUntil,setApplying,suppressPlaybackEcho,control,start,stop,reconnect,render:renderControls,
     metadata:()=>lastMetadata,diagnostics:()=>({transport:lastTransportTiming})};
 })();
