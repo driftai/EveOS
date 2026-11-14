@@ -15,7 +15,7 @@
   const DEVICE_TIMING_LIMIT_MS = 1000;
   let deviceDelayMs = normalizeDeviceDelay(storage.get(DEVICE_TIMING_KEY));
   let draftDeviceDelayMs = deviceDelayMs;
-  const autoGovernor = window.WatchFusionLinkedPlaybackSync?.createAutoRoomGovernor?.();
+  const autoGovernor = window.WatchFusionLinkedPlaybackSync?.createAutoRoomGovernor?.(); const tvSeekGuard = window.watchFusionSeekHealth;
 
   let anchorKey = '';
   let anchorPosition = 0;
@@ -61,10 +61,9 @@
       draftDeviceDelayMs = deviceDelayMs;
       return;
     }
-    $('deviceTimingSummary').textContent = deviceDelayMs ? '· ' + formatDeviceDelay(deviceDelayMs) : '';
+    $('deviceTimingSummary').textContent = deviceDelayMs ? formatDeviceDelay(deviceDelayMs) : 'No override';
     $('deviceTimingValue').textContent = formatDeviceDelay(draftDeviceDelayMs);
-    const slider = $('deviceTimingSlider');
-    if (slider) slider.value = String(draftDeviceDelayMs);
+    window.watchFusionSyncCenter?.renderOffset(draftDeviceDelayMs, formatDeviceDelay(draftDeviceDelayMs));
     $('deviceTimingEarlier').disabled = draftDeviceDelayMs <= -DEVICE_TIMING_LIMIT_MS;
     $('deviceTimingLater').disabled = draftDeviceDelayMs >= DEVICE_TIMING_LIMIT_MS;
     const earlierFine = $('deviceTimingEarlierFine');
@@ -132,7 +131,7 @@
       if (anchorKey && (changedRate || jumped)) {
         resetDriftSensor('new-anchor');
         resetSeekRecovery();
-        autoGovernor?.reset(viewerScope);
+        autoGovernor?.reset(viewerScope); tvSeekGuard?.reset(viewerScope);
       }
     }
     anchorKey = key;
@@ -224,11 +223,13 @@
   }
 
   function seekViewer(target, baseRate, nowMs, action = 'seek', allowNetwork = true) {
+    const attempt = {scope:viewerScope, nowMs, current:Number(ytPlayer.getCurrentTime?.()), target, action};
+    if (action !== 'manual-sync' && tvSeekGuard && !tvSeekGuard.permit(attempt)) { diagnostics.action = 'seek-guard-hold'; return false; }
     try {
       setViewerRate(baseRate);
       window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
       ytPlayer.seekTo?.(target, allowNetwork);
-      correctiveSeeks++;
+      correctiveSeeks++; tvSeekGuard?.record(attempt);
     } catch {}
     awaitSeekRecovery(nowMs);
     if (action === 'manual-sync') autoGovernor?.reset(viewerScope);
@@ -241,7 +242,8 @@
     if (!roomId || !state?.source?.videoId || !ytPlayer || !ytPlayerReady || !followsRoomPlayback()) return;
     if (playerInitializing || primingPlayer) return;
 
-    const scope = roomId + ':' + state.source.videoId;
+    const scope = [roomId, state.source.videoId, state.presentationEpoch, state.playoutSegment].join(':');
+    force ||= !!viewerScope && scope !== viewerScope && scope.slice(0, scope.lastIndexOf(':')) === viewerScope.slice(0, viewerScope.lastIndexOf(':'));
     if (scope !== viewerScope) {
       viewerScope = scope; viewerProgress = null;
       autoGovernor?.reset(scope);
@@ -257,7 +259,7 @@
     refreshAnchor(false);
 
     const baseRate = Math.min(2, Math.max(0.25, Number(state.playback.rate) || 1));
-    const current = Number(ytPlayer.getCurrentTime?.()) || 0;
+    const current = Number(ytPlayer.getCurrentTime?.()); if (!Number.isFinite(current)) return false;
     const duration = Number(ytPlayer.getDuration?.()) || 0;
     // Positive delay plays behind the room; negative delay compensates for late device output.
     const delaySec = anchorRate && hasDeviceTiming() ? (window.watchFusionPresentation?.adjustmentMs?.() ?? deviceDelayMs) * anchorRate / 1000 : 0;
@@ -265,11 +267,10 @@
     const projected = Math.max(0, (window.watchFusionPlayout?.position(roomPosition, 'youtube') ?? roomPosition) - delaySec);
     const target = duration > 0 ? Math.min(duration, projected) : projected;
     const rawDrift = target - current;
-    const absRaw = Math.abs(rawDrift);
-    const nowMs = performance.now();
+    const absRaw = Math.abs(rawDrift), nowMs = performance.now();
     const playerState = ytPlayer.getPlayerState?.();
     const buffering = playerState === (window.YT?.PlayerState?.BUFFERING ?? 3);
-    const playerEnded = playerState === (window.YT?.PlayerState?.ENDED ?? 0);
+    const playerEnded = playerState === (window.YT?.PlayerState?.ENDED ?? 0); tvSeekGuard?.observe({scope, nowMs, current, drift:rawDrift, target, rate:baseRate, playing:playerState === 1, buffering});
     try { setViewerRate(baseRate); } catch {}
 
     if (state.playback.paused || state.playback.ended) {
@@ -328,7 +329,7 @@
       && current - viewerProgress.current < 1 && nowMs > viewerProgress.nowMs && nowMs - viewerProgress.nowMs <= 1000;
     if (playing && (!viewerProgress || current !== viewerProgress.current)) viewerProgress = {current, nowMs};
     if (awaitingSeekRecovery) {
-      if (governorDecision?.settled || (nowMs >= seekCooldownUntil && governorDecision?.retry)) {
+      if (governorDecision?.settled || (nowMs >= seekCooldownUntil && (governorDecision?.retry || tvSeekGuard?.canRetry(nowMs)))) {
         resetSeekRecovery();
         if (governorDecision.settled) {
           resetDriftSensor('aligned'); markStable();
@@ -366,7 +367,7 @@
     ...diagnostics,
     correctiveSeeks,
     replayLoads,
-    autoSync: autoGovernor?.snapshot() || null,
+    autoSync: autoGovernor?.snapshot() || null, seekGuard: tvSeekGuard?.snapshot() || null,
     deviceDelayMs: hasDeviceTiming() ? deviceDelayMs : 0,
     revision: state?.revision ?? null,
     playerState: ytPlayer?.getPlayerState?.() ?? null,
@@ -391,6 +392,7 @@
   $('deviceTimingSlider')?.addEventListener('input', event => stageDeviceDelay(Number(event.target?.value || 0)));
   $('deviceTimingLaterFine')?.addEventListener('click', () => stageDeviceDelay(draftDeviceDelayMs + 5));
   $('deviceTimingLater')?.addEventListener('click', () => stageDeviceDelay(draftDeviceDelayMs + 25));
+  window.watchFusionSyncCenter?.bindOffset(stageDeviceDelay, () => draftDeviceDelayMs);
   $('deviceTimingApply')?.addEventListener('click', () => applyDeviceDelay(draftDeviceDelayMs));
   $('deviceTimingReset')?.addEventListener('click', () => applyDeviceDelay(0));
 

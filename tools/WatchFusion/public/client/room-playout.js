@@ -11,6 +11,7 @@
     if (!health) return;
     const available = roomKey() && supportedPlayback();
     health.hidden = !available;
+    window.watchFusionSyncCenter?.setVisible(available);
     if (!available) return;
     const current = target();
     const label = !playing() ? 'Auto sync ready' : current?.authorityBuffering ? 'Auto sync · source buffering'

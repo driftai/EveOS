@@ -1,0 +1,100 @@
+/* WatchFusion Sync Center — a standalone, responsive room-timing surface.
+   Visual-only styles; timing, correction, and transport are unchanged. */
+.watch-sync-center {
+  --sync-ink: #eaf0fc;
+  --sync-soft: #a0acc2;
+  --sync-line: rgba(166, 190, 225, .16);
+  --sync-card: rgba(19, 27, 42, .9);
+  box-sizing: border-box;
+  margin: 0 12px 12px;
+  color: var(--sync-ink);
+  border: 1px solid var(--sync-line);
+  border-radius: 17px;
+  background: linear-gradient(133deg, rgba(34, 53, 77, .92), rgba(17, 23, 37, .98) 43%, rgba(17, 24, 35, .98));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .15), inset 0 1px rgba(255, 255, 255, .035);
+  overflow: hidden;
+  min-width: 0;
+}
+.watch-sync-center[hidden] { display: none !important; }
+.sync-center-header { display: flex; align-items: center; gap: 13px; padding: 15px 17px; min-width: 0; }
+.sync-center-icon { position: relative; display: grid; place-items: center; flex: 0 0 39px; width: 39px; height: 39px; border-radius: 12px; color: #87e2ce; background: rgba(58, 194, 173, .10); border: 1px solid rgba(108, 225, 208, .19); }
+.sync-center-icon::before, .sync-center-icon::after { content: ''; position: absolute; border-radius: 50%; border: 2px solid currentColor; }
+.sync-center-icon::before { width: 10px; height: 10px; background: rgba(89, 225, 196, .14); }
+.sync-center-icon::after { width: 23px; height: 23px; opacity: .37; }
+.sync-center-headline { flex: 1; min-width: 0; }
+.sync-center-eyebrow { display: block; color: #8db2d8; font-size: 10px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+.sync-center-title { display: block; margin-top: 2px; font-size: 16px; line-height: 1.2; font-weight: 800; letter-spacing: -.018em; }
+.sync-center-description { display: block; margin-top: 4px; color: var(--sync-soft); font-size: 12px; line-height: 1.4; }
+.watch-sync-center #roomPlayoutStatus.sync-state-pill { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; max-width: 46%; margin: 0; padding: 8px 11px; color: #a3efd8; font-size: 11px; font-weight: 700; line-height: 1.25; background: rgba(46, 161, 131, .10); border: 1px solid rgba(73, 200, 159, .23); border-radius: 999px; }
+.watch-sync-center #roomPlayoutStatus.sync-state-pill[hidden] { display: none !important; }
+.sync-state-pill::before { content: ''; display: block; flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: #66dcbd; box-shadow: 0 0 0 3px rgba(102, 220, 189, .1); }
+.sync-center-more { border-top: 1px solid var(--sync-line); }
+.sync-center-more > summary { list-style: none; cursor: pointer; display: flex; align-items: center; min-height: 43px; gap: 9px; padding: 8px 17px; color: #d8e2f2; font-size: 12px; font-weight: 750; }
+.sync-center-more > summary::-webkit-details-marker, .watch-sync-center .device-playback-timing > summary::-webkit-details-marker { display: none; }
+.sync-center-more > summary::marker, .watch-sync-center .device-playback-timing > summary::marker { content: ''; }
+.sync-center-more > summary:hover, .watch-sync-center .device-playback-timing > summary:hover { background: rgba(255, 255, 255, .035); }
+.sync-center-more > summary:focus-visible, .watch-sync-center .device-playback-timing > summary:focus-visible { outline: 2px solid var(--accent, #82b5fc); outline-offset: -3px; }
+.sync-center-more-label { flex: 1; }
+.sync-center-more-note { color: var(--sync-soft); font-size: 11px; font-weight: 500; }
+.sync-chevron { display: inline-block; width: 8px; height: 8px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform .18s ease; opacity: .7; margin: -4px 3px 0 6px; }
+.sync-center-more[open] > summary .sync-chevron, .watch-sync-center .device-playback-timing[open] > summary .sync-chevron { transform: rotate(225deg); margin-top: 4px; }
+.sync-center-body { display: grid; gap: 10px; padding: 2px 13px 13px; }
+.sync-center-info { display: flex; gap: 9px; align-items: start; padding: 10px 12px; color: #9aaec7; font-size: 11px; line-height: 1.45; background: rgba(13, 19, 30, .35); border: 1px solid rgba(166, 190, 225, .10); border-radius: 11px; }
+.sync-center-info strong { color: #c4d9ef; }
+.sync-center-info-mark { flex: 0 0 17px; display: grid; place-items: center; height: 17px; width: 17px; border: 1px solid #477a9a; border-radius: 50%; font-weight: 800; color: #92bee0; font-size: 10px; }
+.watch-sync-center .device-playback-timing { display: block; width: 100%; min-width: 0; max-width: 100%; flex-basis: auto; color: var(--sync-ink); background: rgba(11, 18, 29, .53); border: 1px solid var(--sync-line); border-radius: 12px; overflow: hidden; }
+.watch-sync-center .device-playback-timing[hidden] { display: none !important; }
+.watch-sync-center .device-playback-timing > summary { display: flex; align-items: center; gap: 10px; min-height: 46px; box-sizing: border-box; padding: 11px 13px; border: 0; border-radius: 0; list-style: none; }
+.sync-subtitle { flex: 1; min-width: 0; font-size: 12px; font-weight: 750; }
+.sync-sublabel { display: block; color: var(--sync-soft); font-size: 11px; line-height: 1.35; font-weight: 500; margin-top: 3px; }
+.watch-sync-center #deviceTimingSummary { color: #a1ebd1; font-size: 11px; font-weight: 650; white-space: normal; text-align: right; max-width: 38%; }
+.watch-sync-center .device-timing-controls { padding: 3px 13px 13px; display: grid; gap: 12px; min-width: 0; }
+.watch-sync-center .sync-field-note { margin: 0; color: var(--sync-soft); font-size: 11px; line-height: 1.45; }
+.watch-sync-center .sync-adjust-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(114px, 140px); gap: 10px; align-items: end; }
+.sync-adjust-label { display: block; color: #9fb0c8; font-size: 10px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.watch-sync-center #deviceTimingValue { display: block; min-width: 0; width: 100%; margin-top: 5px; padding: 0; font-size: clamp(16px, 2.5vw, 22px); line-height: 1.2; font-weight: 800; letter-spacing: -.02em; text-align: left; color: #e7f4f5; font-variant-numeric: tabular-nums; }
+.sync-number-label { display: grid; gap: 5px; color: var(--sync-soft); font-size: 11px; min-width: 0; }
+.sync-number-wrap { position: relative; display: block; }
+.watch-sync-center #deviceTimingInput { box-sizing: border-box; display: block; width: 100%; min-width: 0; min-height: 40px; padding: 8px 38px 8px 10px; border: 1px solid rgba(155, 183, 220, .27); border-radius: 9px; background: rgba(6, 11, 20, .58); color: #e4efff; font: inherit; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sync-number-unit { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: #90a4be; font-size: 11px; pointer-events: none; }
+.watch-sync-center .device-timing-slider { display: grid; gap: 5px; }
+.sync-range-ends { display: flex; justify-content: space-between; gap: 12px; color: #94a8be; font-size: 11px; }
+.watch-sync-center #deviceTimingSlider { width: 100%; min-width: 0; height: 26px; margin: 0; accent-color: #69d5c2; cursor: pointer; touch-action: auto; }
+.watch-sync-center .device-timing-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.watch-sync-center .device-timing-actions button { min-height: 36px; min-width: 88px; padding: 8px 14px; border-radius: 9px; font-size: 12px; font-weight: 700; }
+.watch-sync-center #deviceTimingApply:not(:disabled) { background: #66cdb6; border-color: #66cdb6; color: #102721; }
+.watch-sync-center #deviceTimingApply:disabled { opacity: .45; }
+.watch-sync-center #deviceTimingReset { background: transparent; }
+.watch-sync-center .device-timing-controls > div { min-width: 0; }
+.watch-sync-center .device-timing-controls > .presentation-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.watch-sync-center .presentation-actions[hidden] { display: none !important; }
+.watch-sync-center #presentationPanel .presentation-actions label { flex: 1 1 180px; }
+.watch-sync-center #presentationPanel select { width: 100%; min-height: 38px; background: #101927; border-radius: 8px; }
+.watch-sync-center #presentationPanel p { color: #c0cddd; font-size: 12px; line-height: 1.5; }
+.watch-sync-center #presentationPanel .presentation-actions button { min-height: 35px; }
+.sync-peers { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: 8px; }
+.sync-peer-card { padding: 10px 11px; background: var(--sync-card); border: 1px solid var(--sync-line); border-radius: 10px; min-width: 0; }
+.sync-peer-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.sync-peer-name { font-size: 12px; font-weight: 800; overflow-wrap: anywhere; }
+.sync-peer-state { display: inline-flex; align-items: center; color: #a4e4d2; font-size: 10px; padding: 4px 7px; border-radius: 99px; background: rgba(61, 176, 146, .12); }
+.sync-peer-state.is-buffering { color: #f3ca8f; background: rgba(219, 153, 70, .13); }
+.sync-peer-state.is-idle { color: #a1b0c3; background: rgba(148, 160, 180, .1); }
+.sync-peer-metrics { display: flex; flex-wrap: wrap; gap: 5px; }
+.sync-peer-metric { display: flex; gap: 5px; align-items: baseline; padding: 5px 7px; color: #b5c5da; background: rgba(113, 150, 195, .09); border: 1px solid rgba(155, 183, 220, .1); border-radius: 6px; font-size: 10px; }
+.sync-peer-metric b { font-size: 11px; color: #ecf4ff; font-weight: 750; font-variant-numeric: tabular-nums; }
+.watch-sync-center input:focus-visible, .watch-sync-center button:focus-visible, .watch-sync-center select:focus-visible { outline: 2px solid #8fc3ff; outline-offset: 2px; }
+@media (max-width: 540px) {
+  .watch-sync-center { margin: 0 8px 10px; border-radius: 13px; }
+  .sync-center-header { padding: 13px; gap: 10px; flex-wrap: wrap; }
+  .sync-center-icon { width: 34px; height: 34px; flex-basis: 34px; }
+  .sync-center-headline { flex: 1 1 calc(100% - 44px); }
+  .watch-sync-center #roomPlayoutStatus.sync-state-pill { margin-left: 44px; max-width: calc(100% - 44px); }
+  .sync-center-more > summary { padding-inline: 13px; }
+  .sync-center-body { padding: 0 9px 10px; }
+  .sync-center-more-note { display: none; }
+}
+@media (max-width: 350px) {
+  .watch-sync-center .sync-adjust-main { grid-template-columns: 1fr; }
+  .watch-sync-center .device-timing-actions { display: grid; grid-template-columns: 1fr 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { .sync-chevron { transition: none; } }

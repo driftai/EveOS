@@ -65,6 +65,14 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
         videoFrameOffsetMs: metric(report.videoFrameOffsetMs, -2000, 2000),
         sourceAgeMs: metric(report.sourceAgeMs, 0, 10000),
         corrections: metric(report.corrections, 0, 1e6),
+        filteredDriftMs: metric(report.filteredDriftMs, -200000, 200000),
+        seekHealth: report.seekHealth && typeof report.seekHealth === 'object' ? {
+          reason: typeof report.seekHealth.reason === 'string' && /^[a-z-]{1,40}$/.test(report.seekHealth.reason) ? report.seekHealth.reason : null,
+          attempts: metric(report.seekHealth.attempts, 0, 1e6),
+          failures: metric(report.seekHealth.failures, 0, 100),
+          overshoots: metric(report.seekHealth.overshoots, 0, 1e6),
+          cooldownRemainingMs: metric(report.seekHealth.cooldownRemainingMs, 0, 60000)
+        } : null,
         ready: report.ready === true, playing: report.playing === true, buffering: report.buffering === true,
         bufferedUntilMs: metric(report.bufferedUntilMs, 0, 1e10),
         recentCorrection: typeof report.recentCorrection === 'string' && /^[a-z-]{1,32}$/.test(report.recentCorrection) ? report.recentCorrection : null,
@@ -97,6 +105,7 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
     allowHoldback:entry.current.mode === 'direct' && entry.linkedOutput?.muted === true && time - entry.linkedOutput.at < 1800});
   return json(res, 200, {
     serverReceivedAt: at, serverTime: Date.now(), coordination,
-    ...(body.diagnostics === true ? {peers:[...entry.reports.values()], proposal:entry.proposals.get(member.id) || null} : {})
+    ...((body.diagnostics === true || body.trace === true) ? {peers:[...entry.reports.values()]} : {}),
+    ...(body.diagnostics === true ? {proposal:entry.proposals.get(member.id) || null} : {})
   });
 }

@@ -23,6 +23,8 @@
   <link rel="stylesheet" href="/setup.css">
   <link rel="stylesheet" href="/live-source.css">
   <link rel="stylesheet" href="/youtube-playback-mode.css">
+  <link rel="stylesheet" href="/sync-center.css">
+  <link rel="stylesheet" href="/sync-compact-room.css">
 </head>
 <body>
   <header class="topbar" id="watchfusionHeader">
@@ -164,55 +166,92 @@
                 <small id="youtubePlaybackModeHint"></small>
               </div>
               <span id="syncStatus">Solo mode</span>
-              <small id="roomPlayoutStatus" hidden></small>
               <button id="syncBtn" class="secondary" hidden>Sync me</button>
-              <details id="presentationPanel" class="device-playback-timing" hidden>
-                <summary>Advanced speaker diagnostics</summary>
-                <div class="device-timing-controls">
-                  <p id="presentationStatus" role="status">Waiting for room timing.</p>
-                  <ul id="presentationPeers"></ul>
-                  <div id="presentationCapture" class="presentation-actions" hidden>
-                    <small>Keep this microphone in one spot. Play the same clear, varied section twice with only the selected speaker audible each time. Open these diagnostics on the receiver. Mute other outputs locally so room volume stays unchanged. If the original attached tab is your reference, silence the laptop’s room player too. Use a clear section at least 10 seconds from either end. Each five-second recording stays in this browser.</small>
-                    <label>Reference speaker <select id="presentationReference"></select></label>
-                    <button id="presentationRecordReference" class="secondary" type="button">Record reference</button>
-                    <label>Speaker to align <select id="presentationReceiver"></select></label>
-                    <button id="presentationRecordReceiver" class="secondary" type="button">Record speaker</button>
-                    <button id="presentationCancel" class="secondary" type="button" hidden>Cancel recording</button>
-                    <button id="presentationSend" class="secondary" type="button" disabled>Send measured adjustment</button>
-                  </div>
-                  <div id="presentationChoice" class="presentation-actions" hidden>
-                    <button id="presentationApply" class="secondary" type="button" hidden>Use measured adjustment</button>
-                    <button id="presentationClear" class="secondary" type="button">Use previous timing</button>
-                  </div>
-                </div>
-              </details>
-              <details id="devicePlaybackTiming" class="device-playback-timing" hidden>
-                <summary>Advanced device timing <span id="deviceTimingSummary"></span></summary>
-                <div class="device-timing-controls">
-                  <small>If this device sounds early or late, drag the slider or use ±5/±25 ms, then Apply. This adjusts playback only on this device.</small>
-                  <label class="device-timing-slider" for="deviceTimingSlider">
-                    <span>Adjustment</span>
-                    <input id="deviceTimingSlider" type="range" min="-1000" max="1000" step="5" value="0" aria-label="Playback timing adjustment slider">
-                  </label>
-                  <div class="device-timing-row" role="group" aria-label="Playback timing adjustment">
-                    <button id="deviceTimingEarlier" class="secondary" type="button">−25 ms</button>
-                    <button id="deviceTimingEarlierFine" class="secondary" type="button">−5 ms</button>
-                    <output id="deviceTimingValue" aria-label="Playback timing offset">0 ms</output>
-                    <button id="deviceTimingLaterFine" class="secondary" type="button">+5 ms</button>
-                    <button id="deviceTimingLater" class="secondary" type="button">+25 ms</button>
-                  </div>
-                  <div class="device-timing-actions">
-                    <button id="deviceTimingApply" class="secondary" type="button" disabled>Apply</button>
-                    <button id="deviceTimingReset" class="secondary" type="button" disabled>Reset</button>
-                  </div>
-                </div>
-              </details>
               <button id="unloadMediaBtn" class="secondary" hidden>Unload media</button>
               <button id="copyBtn" class="secondary" hidden>Copy room link</button>
               <button id="copyLanBtn" class="secondary" hidden>Copy LAN link</button>
               <button id="leaveRoomBtn" class="secondary" hidden>Leave room</button>
               <button id="deleteRoomBtn" class="danger" hidden>Delete room</button>
             </div>
+            <details id="watchSyncCenter" class="watch-sync-center" aria-label="WatchFusion synchronization" hidden>
+              <summary class="sync-center-header" aria-label="Auto Sync and timing details">
+                <span class="sync-center-icon" aria-hidden="true"></span>
+                <span class="sync-center-headline">
+                  <strong class="sync-center-title">Auto Sync</strong>
+                  <span class="sync-center-description">Timing coordination runs in the background. No calibration steps required.</span>
+                </span>
+                <small id="roomPlayoutStatus" class="sync-state-pill" role="status" hidden></small>
+                <span class="sync-center-toggle-icon" aria-hidden="true">⌄</span>
+              </summary>
+              <div class="sync-center-expanded">
+              <details id="syncCenterMore" class="sync-center-more">
+                <summary><span class="sync-center-more-label">Timing &amp; diagnostics</span><span class="sync-center-more-note">Optional · view device details</span><span class="sync-chevron" aria-hidden="true"></span></summary>
+                <div class="sync-center-body">
+                  <div class="sync-center-info"><span class="sync-center-info-mark" aria-hidden="true">i</span><span><strong>Player timing is automatic.</strong> Speaker output latency can differ across devices and is not directly measured by the room clock.</span></div>
+                  <details id="devicePlaybackTiming" class="device-playback-timing" hidden>
+                    <summary><span class="sync-subtitle">Manual offset<span class="sync-sublabel">Only for persistent audio differences on this device</span></span><span id="deviceTimingSummary"></span><span class="sync-chevron" aria-hidden="true"></span></summary>
+                    <div class="device-timing-controls">
+                      <p class="sync-field-note">Auto Sync runs without an offset. This optional setting affects only your current device; it never changes the room timeline.</p>
+                      <div class="sync-adjust-main">
+                        <div>
+                          <span class="sync-adjust-label">Pending adjustment</span>
+                          <output id="deviceTimingValue" aria-live="polite">0 ms</output>
+                        </div>
+                        <label class="sync-number-label" for="deviceTimingInput">Exact value
+                          <span class="sync-number-wrap"><input id="deviceTimingInput" type="number" min="-1000" max="1000" step="5" value="0" inputmode="numeric" aria-label="Signed manual offset in milliseconds"><span class="sync-number-unit">ms</span></span>
+                        </label>
+                      </div>
+                      <label class="device-timing-slider" for="deviceTimingSlider">
+                        <input id="deviceTimingSlider" type="range" min="-1000" max="1000" step="5" value="0" aria-label="Manual playback offset: earlier on the left, later on the right">
+                        <span class="sync-range-ends"><span>1 s earlier</span><span>0</span><span>1 s later</span></span>
+                      </label>
+                      <!-- Legacy event hooks stay hidden for previously installed regression fixtures. -->
+                      <div class="sync-legacy-controls" hidden aria-hidden="true">
+                        <button id="deviceTimingEarlier" type="button" tabindex="-1">Earlier 25 ms</button>
+                        <button id="deviceTimingEarlierFine" type="button" tabindex="-1">Earlier 5 ms</button>
+                        <button id="deviceTimingLaterFine" type="button" tabindex="-1">Later 5 ms</button>
+                        <button id="deviceTimingLater" type="button" tabindex="-1">Later 25 ms</button>
+                      </div>
+                      <div class="device-timing-actions">
+                        <button id="deviceTimingReset" class="secondary" type="button" disabled>Reset offset</button>
+                        <button id="deviceTimingApply" type="button" disabled>Apply offset</button>
+                      </div>
+                    </div>
+                  </details>
+                  <details id="presentationPanel" class="device-playback-timing" hidden>
+                    <summary><span class="sync-subtitle">Speaker measurements<span class="sync-sublabel">Optional microphone test</span></span><span class="sync-chevron" aria-hidden="true"></span></summary>
+                    <div class="device-timing-controls">
+                      <p id="presentationStatus" role="status">Waiting for room timing.</p>
+                      <ul id="presentationPeers" class="sync-peers" aria-label="Connected device timing"></ul>
+                      <div id="presentationCapture" class="presentation-actions" hidden>
+                        <small>Measure the same distinctive passage through two speakers, one at a time, with the microphone in one place. Mute other outputs locally and keep room volume unchanged. Recordings stay in this browser.</small>
+                        <label>Reference speaker <select id="presentationReference"></select></label>
+                        <button id="presentationRecordReference" class="secondary" type="button">Record reference</button>
+                        <label>Speaker to align <select id="presentationReceiver"></select></label>
+                        <button id="presentationRecordReceiver" class="secondary" type="button">Record speaker</button>
+                        <button id="presentationCancel" class="secondary" type="button" hidden>Cancel recording</button>
+                        <button id="presentationSend" class="secondary" type="button" disabled>Send measured adjustment</button>
+                      </div>
+                      <div id="presentationChoice" class="presentation-actions" hidden>
+                        <button id="presentationApply" class="secondary" type="button" hidden>Use measured adjustment</button>
+                        <button id="presentationClear" class="secondary" type="button">Use previous timing</button>
+                      </div>
+                    </div>
+                  </details>
+                  <details id="syncRoomLog" class="sync-log-panel">
+                    <summary>Room sync log <span aria-hidden="true">·</span> recent timing</summary>
+                    <p class="sync-log-description">Players report timing here automatically. The log flags large or stale offsets and stays in this browser until copied.</p>
+                    <div class="sync-log-actions">
+                      <button id="syncRoomLogCopy" class="secondary" type="button">Copy log</button>
+                      <button id="syncRoomLogClear" class="secondary" type="button">Clear</button>
+                      <span id="syncRoomLogCount">Gathering timing…</span>
+                    </div>
+                    <textarea id="syncRoomLogText" rows="5" readonly spellcheck="false" aria-label="Recent room synchronization activity"></textarea>
+                  </details>
+                </div>
+              </details>
+              </div>
+            </details>
           </section>
         </div>
 

@@ -90,10 +90,13 @@ export async function sendFile(req, res) {
       'client/live-source.js',
       'client/linked-tab.js',
       'client/watchfusion-host-input-fix.js',
+      'client/sync-center.js',
+      'client/sync-seek-health.js',
       'playback-sync.js',
       'client/acoustic-timing.js',
       'client/presentation-sync.js',
-      'client/room-playout.js'
+      'client/room-playout.js',
+      'client/sync-room-log.js'
     ];
     try {
       const parts = await Promise.all(clientFiles.map(name => readContainedPublicText(name)));

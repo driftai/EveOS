@@ -1,0 +1,119 @@
+/* WatchFusion density refresh — no palette/theme replacement. */
+.watch-sync-center:not([open]) {
+  display: block; width: fit-content; max-width: calc(100% - 20px);
+  margin: 5px 10px 7px; border-radius: 11px;
+  box-shadow: none; background: rgba(26, 40, 57, .96);
+}
+.watch-sync-center > .sync-center-header {
+  list-style: none; cursor: pointer; user-select: none;
+}
+.watch-sync-center > .sync-center-header::-webkit-details-marker { display: none; }
+.watch-sync-center > .sync-center-header::marker { content: ''; }
+.watch-sync-center:not([open]) > .sync-center-header {
+  box-sizing: border-box; min-height: 35px; padding: 5px 9px; gap: 7px;
+  flex-wrap: nowrap; max-width: 100%;
+}
+.watch-sync-center:not([open]) .sync-center-icon {
+  flex: 0 0 22px; width: 22px; height: 22px; border-radius: 7px;
+}
+.watch-sync-center:not([open]) .sync-center-icon::before { width: 5px; height: 5px; border-width: 1px; }
+.watch-sync-center:not([open]) .sync-center-icon::after { width: 13px; height: 13px; border-width: 1px; }
+.watch-sync-center:not([open]) .sync-center-eyebrow,
+.watch-sync-center:not([open]) .sync-center-description { display: none; }
+.watch-sync-center:not([open]) .sync-center-title {
+  font-size: 12px; line-height: 1.2; margin: 0; white-space: nowrap;
+}
+.watch-sync-center:not([open]) .sync-center-headline { flex: 0 0 auto; }
+.watch-sync-center:not([open]) #roomPlayoutStatus.sync-state-pill {
+  min-width: 0; max-width: min(48vw, 180px); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; margin: 0; padding: 4px 8px;
+  font-size: 10px; border: none; background: transparent;
+}
+.watch-sync-center:not([open]) .sync-center-toggle-icon { font-size: 12px; color: #92abbf; }
+.watch-sync-center[open] { max-width: calc(100% - 16px); margin: 6px 8px 10px; }
+.watch-sync-center[open] .sync-center-header {
+  padding: clamp(8px, 1.2vw, 13px); gap: 9px;
+}
+.watch-sync-center[open] .sync-center-icon {
+  flex-basis: 31px; width: 31px; height: 31px; border-radius: 10px;
+}
+.watch-sync-center[open] .sync-center-title { font-size: clamp(13px, 1.5vw, 15px); }
+.watch-sync-center[open] .sync-center-description { font-size: 11px; line-height: 1.3; }
+.watch-sync-center .sync-center-toggle-icon { margin-left: auto; transition: transform .15s ease; }
+.watch-sync-center[open] .sync-center-toggle-icon { transform: rotate(180deg); }
+.watch-sync-center .sync-center-expanded { min-width: 0; }
+.watch-sync-center .sync-center-body { gap: clamp(6px, 1vw, 9px); padding: 3px 9px 10px; }
+.watch-sync-center .sync-center-more > summary { min-height: 34px; padding: 6px 11px; }
+.watch-sync-center .device-playback-timing > summary { min-height: 36px; padding: 8px 10px; }
+.watch-sync-center .sync-peer-card { padding: 8px 9px; }
+.watch-sync-center .sync-peer-head { margin-bottom: 5px; }
+.watch-sync-center .sync-peer-metrics { gap: 4px; }
+.watch-sync-center .sync-peer-metric { font-size: 9px; padding: 4px 5px; }
+.watch-sync-center .sync-peer-metric b { font-size: 10px; }
+.watch-sync-center .sync-center-info { padding: 7px 9px; }
+.watch-sync-center > .sync-center-header:hover { background: rgba(255, 255, 255, .035); }
+.watch-sync-center > .sync-center-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+
+/* Compact Watch Party independent of viewport pixel density or theme. */
+html.watchfusion-room-active #partyPanel.side {
+  box-sizing: border-box; padding: clamp(5px, .85vw, 10px); min-height: 0;
+}
+html.watchfusion-room-active #partyPanel .sidehead { gap: 8px; margin-bottom: 4px; min-width: 0; }
+html.watchfusion-room-active #partyPanel .sidehead h2 {
+  margin: 0; font-size: clamp(13px, 1.5vw, 17px); line-height: 1.2;
+}
+html.watchfusion-room-active #hostBadge { font-size: 10px; letter-spacing: .01em; white-space: nowrap; }
+html.watchfusion-room-active #members {
+  display: flex; gap: 5px; flex-wrap: nowrap;
+  align-items: center; min-width: 0; max-width: 100%;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
+  padding: 2px 0 5px;
+}
+html.watchfusion-room-active #members .member-row {
+  flex: 0 0 auto; margin: 0; min-width: 0; display: inline-flex; gap: 3px;
+}
+html.watchfusion-room-active #members .member {
+  box-sizing: border-box; max-width: min(47vw, 200px); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-size: 10px;
+  min-height: 25px; padding: 4px 7px;
+}
+html.watchfusion-room-active #members .member-transfer {
+  flex: 0 0 auto; min-height: 24px; padding: 3px 6px;
+  font-size: 10px; line-height: 1.1; border-radius: 7px;
+}
+html.watchfusion-room-active .host-handoff-hint {
+  font-size: 10px; line-height: 1.2; margin: 2px 0 4px;
+}
+html.watchfusion-room-active #partyDetails > hr { margin: 5px 0; }
+html.watchfusion-room-active #partyDetails > h2 { font-size: 12px; margin: 2px 0; }
+html.watchfusion-room-active #partyPanel .chatform { margin-top: 4px; }
+@media (max-width: 980px), (max-height: 620px) {
+  html.watchfusion-room-active .host-handoff-hint { display: none; }
+  html.watchfusion-room-active #partyDetails > hr,
+  html.watchfusion-room-active #partyDetails > h2 { display: none; }
+}
+@media (max-width: 560px) {
+  .watch-sync-center:not([open]) { margin: 4px 7px 5px; max-width: calc(100% - 14px); }
+  .watch-sync-center:not([open]) > .sync-center-header { padding: 5px 7px; min-height: 32px; gap: 5px; }
+  .watch-sync-center:not([open]) #roomPlayoutStatus.sync-state-pill {
+    margin-left: 0; max-width: min(46vw, 165px); padding-inline: 3px;
+  }
+  .watch-sync-center[open] #roomPlayoutStatus.sync-state-pill {
+    margin-left: 0; max-width: 100%; font-size: 10px; padding: 5px 7px;
+  }
+  .watch-sync-center[open] .sync-center-header { flex-wrap: nowrap; }
+  .watch-sync-center[open] .sync-center-eyebrow { display:none; }
+  .watch-sync-center[open] .sync-center-description { font-size: 10px; }
+  .watch-sync-center .sync-subtitle { font-size: 11px; }
+  .watch-sync-center .sync-sublabel { font-size: 10px; }
+  html.watchfusion-room-active #partyPanel.side { padding: 6px; }
+  html.watchfusion-room-active #members .member { max-width: 140px; }
+}
+/* Tiny, read-only room trace; deliberately subordinate to playback. */
+.sync-log-panel { min-width:0; padding: 7px 9px; border: 1px solid rgba(166,190,225,.16); border-radius: 9px; background: rgba(8, 15, 26, .36); }
+.sync-log-panel > summary { cursor:pointer; font-size:11px; font-weight:750; }
+.sync-log-description { margin: 7px 0; color: var(--sync-soft); font-size:10px; line-height:1.4; }
+.sync-log-actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:7px 0; }
+.sync-log-actions button { min-height:30px; padding:5px 9px; font-size:10px; }
+.sync-log-actions span { color: var(--sync-soft); font-size:10px; margin-left:auto; }
+.sync-log-panel textarea { display:block; box-sizing:border-box; width:100%; max-height:115px; resize:vertical; overflow:auto; font-size:10px; line-height:1.4; border:1px solid rgba(166,190,225,.16); border-radius:7px; padding:6px; color:var(--sync-ink); background:rgba(5,9,16,.7); font-family:ui-monospace,Consolas,monospace; }

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-function configureViewer(page, { current, target = 100, paused = false, rate = 1, samples = 1, currentRate = 1 }) {
-  return page.evaluate(({ current, target, paused, rate, samples, currentRate }) => {
+function configureViewer(page, { current, target = 100, paused = false, rate = 1, samples = 1, currentRate = 1, advancing = false }) {
+  return page.evaluate(({ current, target, paused, rate, samples, currentRate, advancing }) => {
     const calls = { seek: [], rates: [], play: 0, pause: 0 };
     roomId = 'drift-room';
     state = {
@@ -19,6 +19,7 @@ function configureViewer(page, { current, target = 100, paused = false, rate = 1
     session = { memberId: 'viewer-member' };
     ytPlayerReady = true;
     ytPlayer = {
+      getPlayerState: () => paused ? 2 : 1,
       getVideoData: () => ({ video_id: 'M7lc1UVf-VE' }),
       getCurrentTime: () => current,
       getPlaybackRate: () => currentRate,
@@ -36,6 +37,12 @@ function configureViewer(page, { current, target = 100, paused = false, rate = 1
     try {
       for (let index = 0; index < samples; index++) {
         Object.defineProperty(performance, 'now', { configurable: true, value: () => began + index * 250 });
+        if (advancing && index > 0 && !calls.seek.length) {
+          current += .25 * rate;
+          state.playback.position += .25 * rate;
+          state.playback.updatedAt++;
+          state.playback.projectedAt = Date.now();
+        }
         syncPlayer();
       }
     } finally {
@@ -45,7 +52,7 @@ function configureViewer(page, { current, target = 100, paused = false, rate = 1
     calls.status = document.querySelector('#syncStatus').textContent;
     calls.diagnostics = window.watchFusionSyncDiagnostics();
     return calls;
-  }, { current, target, paused, rate, samples, currentRate });
+  }, { current, target, paused, rate, samples, currentRate, advancing });
 }
 
 test.describe('Adaptive playback drift regression', () => {
@@ -159,7 +166,7 @@ test.describe('Adaptive playback drift regression', () => {
 
   test('filtered phase correction waits for observed alignment before reporting Connected', async ({ page }) => {
     await page.goto('/');
-    const calls = await configureViewer(page, { current: 99, target: 100, samples: 5 });
+    const calls = await configureViewer(page, { current: 99, target: 100, samples: 5, advancing: true });
     expect(calls.seek).toHaveLength(1);
     expect(calls.rates).toEqual([]);
     expect(calls.status).toBe('Catching up…');

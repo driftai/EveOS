@@ -8,7 +8,7 @@
   const canRecord = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && !!Audio && !!window.AudioWorkletNode;
   let key = '', peers = [], proposal = null, applied = null, capture = null, result = null;
   let reference = null, receiver = null, requestPending = false, outputSession = makeClientId(), consumedProposal = null;
-  let videoFrame = null, frameOwner = null, frameCallback = null, statusMessage = '', lastPeerText = '';
+  let videoFrame = null, frameOwner = null, frameCallback = null, statusMessage = '';
   let panelReady = false;
   const sourceSpeaker = 'linked-source';
 
@@ -65,7 +65,11 @@
       outputSession, follows: !isHost() && followsRoomPlayback(), adjustmentMs: applied?.adjustmentMs ?? diagnostics?.deviceDelayMs ?? 0,
       videoFrameOffsetMs: direct && videoFrame && performance.now() - videoFrame.at < 500 ? videoFrame.offset : null,
       rttMs: window.watchPartyClock.rttMs(), offsetMs: window.watchPartyClock.offsetMs(),
-      corrections: diagnostics?.correctiveSeeks ?? null, recentCorrection: diagnostics?.action ?? null, sourceAgeMs
+      corrections: diagnostics?.correctiveSeeks ?? null, recentCorrection: diagnostics?.action ?? null, sourceAgeMs,
+      filteredDriftMs: Number.isFinite(diagnostics?.filteredDriftSec) ? Math.round(diagnostics.filteredDriftSec * 1000) : null,
+      seekHealth: diagnostics?.seekGuard ? {reason:diagnostics.seekGuard.reason, attempts:diagnostics.seekGuard.attempts,
+        failures:diagnostics.seekGuard.failures, overshoots:diagnostics.seekGuard.overshoots,
+        cooldownRemainingMs:diagnostics.seekGuard.cooldownRemainingMs} : null
     };
   }
 
@@ -110,7 +114,7 @@
 
   async function exchange(body, signal) {
     const active = identity();
-    if (!active || state.presentationEpoch == null) throw new Error('Restart WatchFusion to load speaker sync.');
+    if (!active || state.presentationEpoch == null) throw new Error('Restart WatchFusion to load timing diagnostics.');
     const response = await fetch(apiUrl('/api/rooms/' + encodeURIComponent(roomId) + '/presentation'), {
       method: 'POST', cache: 'no-store', signal, headers: {'Content-Type':'application/json','x-member-id':session.memberId},
       body: JSON.stringify({epoch:state.presentationEpoch, segment:state.playoutSegment, diagnostics:panel.open, ...body})
@@ -118,22 +122,12 @@
     const data = await response.json().catch(() => ({}));
     if (identity() !== active) throw new Error('Room or playback source changed.');
     if (!response.ok) throw new Error(response.status === 404 || response.status === 405
-      ? 'Restart WatchFusion to load speaker sync.' : data.error || 'Could not exchange room timing.');
+      ? 'Restart WatchFusion to load timing diagnostics.' : data.error || 'Could not exchange room timing.');
     return data;
   }
 
   function adjustment(value) { return value ? Math.abs(Math.round(value)) + ' ms ' + (value < 0 ? 'earlier' : 'later') : '0 ms'; }
   function signed(value) { return (value > 0 ? '+' : '') + Math.round(value) + ' ms'; }
-  function timingText(peer) {
-    if (!peer.ready) return 'player loading';
-    if (peer.buffering) return 'buffering';
-    const parts = [peer.playing ? 'playing' : 'paused', 'player ' + signed(peer.positionMs - peer.roomPositionMs)];
-    if (peer.rttMs != null) parts.push('RTT ' + Math.round(peer.rttMs) + ' ms');
-    if (peer.videoFrameOffsetMs != null) parts.push('video frame ' + signed(peer.videoFrameOffsetMs));
-    if (peer.sourceAgeMs != null) parts.push('source sample ' + Math.round(peer.sourceAgeMs) + ' ms old');
-    if (peer.corrections != null) parts.push(peer.corrections + ' seeks' + (peer.recentCorrection ? ' · ' + peer.recentCorrection : ''));
-    return parts.join(' · ');
-  }
   function refreshOptions(select, candidates, preferred) {
     const selected = select.value || preferred;
     const items = candidates.map(peer => [peer.member, peer.member === sourceSpeaker ? 'Attached source tab (if audible)' : state.members?.find(member => member.id === peer.member)?.name || 'Viewer']);
@@ -151,16 +145,7 @@
     if (!current || !panel.open) return;
     if (proposal?.expiresAt <= estimatedServerNow()) proposal = null;
     if (reference && !capture && Date.now() - reference.recordedAt > 120000) reference = receiver = result = null;
-    const names = state.members || [];
-    const label = [...peers].sort((a,b) => a.member.localeCompare(b.member)).map(peer =>
-      (names.find(item => item.id === peer.member)?.name || 'Viewer') + ' · ' + timingText(peer));
-    const serialized = JSON.stringify([label, names.map(member => member.id)]);
-    if (lastPeerText !== serialized) {
-      lastPeerText = serialized;
-      $p('Peers').replaceChildren(...label.map(line => {
-        const row = document.createElement('li'); row.textContent = line; return row;
-      }));
-    }
+    window.watchFusionSyncCenter?.renderPeers($p('Peers'), peers, state.members || []);
     const host = isHost(), busy = !!capture;
     const candidates = peers.filter(peer => peer.ready);
     const following = candidates.filter(peer => peer.follows);
@@ -182,7 +167,7 @@
     else if (applied && !statusMessage) $p('Status').textContent = 'Measured adjustment active · ' + adjustment(applied.adjustmentMs) + '.';
     else if (!statusMessage) $p('Status').textContent = host && !canRecord
       ? 'To measure speaker delay, open WatchFusion on the laptop at 127.0.0.1 or on HTTPS.'
-      : host && !following.length ? 'Open Speaker sync on the TV or phone to make it available here.'
+      : host && !following.length ? 'Waiting for a timing report from another device.'
       : 'Speaker delay is unmeasured. The latest player timing appears below.';
   }
 
@@ -190,16 +175,17 @@
     updatePanel();
     if (!key || requestPending || document.hidden || (!onTiming && !panel.open)) return;
     if (panel.open || onTiming) trackVideoFrames();
-    const report = timing();
+    const report = timing(), trace = window.watchFusionRoomSyncLog?.wantsSample();
     const active = key, controller = new AbortController();
     requestPending = true;
     const timeout = setTimeout(() => controller.abort(), 1800);
     try {
       const sentAt = Date.now();
-      const data = await exchange(report?.rttMs != null && window.watchPartyClock.precise() ? {report} : {}, controller.signal);
+      const data = await exchange({...(report?.rttMs != null && window.watchPartyClock.precise() ? {report} : {}), trace}, controller.signal);
       if (active !== key || controller.signal.aborted) return;
       window.watchPartyClock.update(data.serverTime, sentAt, Date.now(), data.serverReceivedAt);
       onTiming?.(data.coordination, roomKey, sentAt);
+      if (trace && data.peers) window.watchFusionRoomSyncLog?.observe(data.peers, data.coordination);
       if (!panel.open || !data.peers) return;
       panelReady = true;
       if (result && !capture && !data.peers.some(item => item.member === receiver?.member)) result = null;
