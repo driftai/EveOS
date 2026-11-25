@@ -123,9 +123,9 @@ export async function runR14sRecoveryChecks(check) {
     assert.deepEqual(L.actions,['reload','rebuild','reload','rebuild']);
     assert.equal(L.rescue.diagnostics().steps,2);
   });
-  await check('R14S-10:playback-wires-observer-for-followers-only-with-no-seek',()=>{
+  await check('R14S-10:playback-wires-local-observer-for-both-roles-with-no-seek',()=>{
     const source=read('public/playback-sync.js');
-    assert.match(source,/if \(!isHost\(\)\) window\.WatchFusionDecoderRescue\?\.observeTransport\?\.\(\{scope, nowMs:performance\.now\(\), paused:roomPaused\}\)/);
+    assert.match(source,/window\.WatchFusionDecoderRescue\?\.observeTransport\?\.\(\{scope, nowMs:performance\.now\(\), paused:roomPaused\}\)/);
     const decoder=read('public/client/tv-decoder-rescue.js');
     const observer=decoder.slice(decoder.indexOf('function observeTransport('),decoder.indexOf('function observeHealth('));
     assert.doesNotMatch(observer,/\.seek\(|\.pause\(|\.play\(|\.reload\(|\.rebuild\(/);

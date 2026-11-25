@@ -73,6 +73,46 @@ function uiLab(){
   return {peer,render,advance:ms=>{now+=ms;},ctx};
 }
 export async function runR14vChecks(check){
+  await check('WF06F-04:post-decoder recovery moderate lag earns one rejoin after fresh motion',()=>{
+    const l=decoderLab();l.wedge(0,10000);assert.equal(l.decoder.diagnostics().steps,1);
+    let now=11000,position=100,trust=true,buffer=true,mirror=false;
+    const io={follower:true,hostLinked:false,linkedSourceActive:()=>true,baseRate:1,state:()=>1,
+      referenceTrusted:()=>trust,sourceReferenceQualified:()=>trust,mirrorContradicted:()=>mirror,sourceBuffering:()=>false,
+      referenceUncertaintyMs:()=>25,current:()=>position,target:()=>position+2.5,buffered:()=>buffer};
+    const eligible=()=>l.decoder.allowAutomaticRejoin({nowMs:now,error:2.5,lead:1.5,io});
+    const advance=()=>{now+=250;position+=.25;};
+    for(;now<25000;advance()){mirror=now>=17000&&now<20000;assert.equal(eligible(),false);}
+    buffer=false;for(;now<28000;advance())assert.equal(eligible(),false);
+    buffer=true;let accepted=0;for(;now<50000;advance())if(eligible()){assert.ok(now>=36000);accepted++;}
+    assert.equal(accepted,1);assert.deepEqual(l.actions,['reload']);
+    assert.equal(l.decoder.allowAutomaticRejoin({nowMs:now,error:9,lead:1.5,io}),true,'large displaced-player recovery is unchanged');
+  });
+  await check('WF06F-05:healthy host is unrestricted but a recovered host needs fresh qualified motion',()=>{
+    const l=decoderLab();const io={follower:true,hostLinked:false,linkedSourceActive:()=>true};
+    const host={...io,follower:false,hostLinked:true};
+    assert.equal(l.decoder.allowAutomaticRejoin({nowMs:0,error:.6,io}),true);
+    assert.equal(l.decoder.allowAutomaticRejoin({nowMs:0,error:.6,io:host}),true);
+    l.exhaust();assert.equal(l.decoder.allowAutomaticRejoin({nowMs:56000,error:2.5,io:host}),false);
+    let now=56000,pos=100;Object.assign(host,{baseRate:1,state:()=>1,referenceTrusted:()=>true,sourceReferenceQualified:()=>true,mirrorContradicted:()=>false,sourceBuffering:()=>false,referenceUncertaintyMs:()=>25,current:()=>pos,target:()=>pos+2.5,buffered:()=>true});
+    let accepted=0;for(;now<85000;now+=250,pos+=.25)if(l.decoder.allowAutomaticRejoin({nowMs:now,error:2.5,lead:1.5,io:host})){assert.ok(now>=64000);accepted++;}
+    assert.equal(accepted,1);assert.deepEqual(l.actions,['reload','rebuild']);
+    assert.equal(l.decoder.allowAutomaticRejoin({nowMs:now,error:9,lead:1.5,io:host}),true);
+  });
+  await check('WF06F-08:real arbiter cannot repeatedly seek a recently recovered advancing TV',()=>{
+    const l=decoderLab();l.wedge(0,10000);assert.equal(l.decoder.diagnostics().steps,1);
+    let at=20000, pos=100, timer=0;const actions=[];
+    const c={document:{hidden:false},performance:{now:()=>at},WatchFusionDecoderRescue:l.decoder};c.window=c.globalThis=c;
+    for(const f of ['viewer-timing-math','viewer-release-evidence','viewer-sync-arbiter'])vm.runInNewContext(read('public/client/'+f+'.js'),c);
+    const io={follower:true,hostLinked:false,linkedSourceActive:()=>true,tvIdentity:'ROOM:VIDEO:4',baseRate:1,now:()=>at,
+      current:()=>pos,target:()=>pos+2.5,state:()=>1,availableRates:()=>[1],buffered:()=>true,referenceTrusted:()=>true,
+      referenceUncertaintyMs:()=>25,sourceReferenceQualified:()=>true,sourceBuffering:()=>false,mirrorContradicted:()=>false,
+      pause:()=>actions.push('pause'),seek:()=>actions.push('seek'),play:()=>actions.push('play'),rate:()=>actions.push('rate')};
+    const arb=c.WatchFusionViewerSyncArbiter.createViewerSyncArbiter({timers:{setTimeout:()=>++timer,clearTimeout(){}}});
+    const tick=()=>{arb.tick('ROOM:VIDEO:4:20',at,io);at+=250;pos+=.25;};
+    for(;at<28000;)tick();assert.equal(actions.length,0,'fresh continuous motion dwell is required');
+    for(;at<34000&&!arb.owns();)tick();assert.deepEqual(actions,['pause','seek']);
+    arb.intent('pause',io);for(;at<60000;)tick();assert.deepEqual(actions,['pause','seek'],'one moderate-lag rejoin per recovery step');
+  });
   await check('R14V-01:stable-170ms-decoder-timeline-heals-recovery-budget-only-after-one-minute',()=>{
     const l=decoderLab();l.exhaust();l.healthy(56000,131000);
     assert.equal(l.decoder.diagnostics().steps,0);

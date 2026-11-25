@@ -34,6 +34,32 @@ function play(L,{end=76000,step=250}={}){
  for(let t=50000;t<=end;t+=step){L.at(t);L.arb.tick('room:video:epoch:seg3',t,L.io);}
 }
 export async function runR14yChecks(check){
+ await check('WF06I-03:measured small TV overshoot earns one reverse trial, never a blind repeat',()=>{
+  const L=lab({rates:[.75,1,1.25]}),scope='room:video:epoch:seg3';
+  for(const mode of ['measured','no-motion','rejected','new-scope']){
+   const gate=L.ctx.WatchFusionReleaseEvidence.createTvRateRecheckGate();
+   const input={scope,io:L.io,rateHonored:false,quietStallMs:30000,quietRejoinMs:30000};
+   for(let t=0;t<=11000;t+=250)gate.consider({...input,nowMs:t,error:.303});
+   assert.equal(gate.snapshot().attempts,1);
+   gate.settle(scope,mode==='rejected'?'rejected':undefined,{probe:{nowMs:0,current:10},rate:1.25},{now:()=>1720,current:()=>mode==='no-motion'?11.72:12.15,baseRate:1});
+   let follow=null;for(let t=12000;t<=25000;t+=250)follow=gate.consider({...input,scope:mode==='new-scope'?scope+'x':scope,nowMs:t,error:-.127})||follow;
+   assert.equal(follow?.rate,mode==='measured'?.75:undefined,mode);
+   assert.equal(gate.snapshot().attempts,mode==='measured'?2:1);
+   for(let t=26000;t<=40000;t+=250)assert.equal(gate.consider({...input,nowMs:t,error:.12}),null);
+  }
+ });
+ await check('WF06I-04:only sustained qualified lock restores a spent TV trial for a new disturbance',()=>{
+  const L=lab({rates:[.75,1,1.25]}),scope='room:video:epoch:seg3';
+  for(const mode of ['healthy','rejected','stale','untrusted','not-locked','frozen','raw-offset']){
+   const gate=L.ctx.WatchFusionReleaseEvidence.createTvRateRecheckGate();
+   const input={scope,io:L.io,rateHonored:false,quietStallMs:30000,quietRejoinMs:30000};
+   for(let t=0;t<=11000;t+=250)gate.consider({...input,nowMs:t,error:.303});
+   gate.settle(scope,mode==='rejected'?'rejected':undefined,{probe:{nowMs:0,current:10},rate:1.25},{now:()=>1200,current:()=>11.5,baseRate:1});
+   for(let t=12000;t<=30000;t+=mode==='stale'?2000:250)gate.observeLock?.(scope,t,mode==='not-locked'?.15:.015,{...L.io,sourceReferenceQualified:()=>mode!=='untrusted',target:()=>t/1000,current:()=>mode==='frozen'?12:t/1000-(mode==='raw-offset'?.15:.015)});
+   let trial=null;for(let t=31000;t<=45000;t+=250)trial=gate.consider({...input,nowMs:t,error:.303})||trial;
+   assert.equal(trial?.rate,mode==='healthy'?1.25:undefined,mode);
+  }
+ });
  await check('R14Y-01:physical-R14x1-trace-shows-stable-200-and-300ms-TV-lead',()=>{
   const data=JSON.parse(read('tests/smoke/fixtures/20261121-r14x1-rate-plateau-redacted.json'));
   assert.equal(data.snapshots.length,94);
@@ -245,6 +271,41 @@ export async function runR14yChecks(check){
   assert.equal(brake({...job,before:.079},io,50000),false);
   assert.equal(brake({...job,recheck:false},io,50000),false);
   assert.equal(brake({before:.79},io,50000),false);
+ });
+
+ await check('ADAPTIVE06E-01:597ms to 362ms inconclusive trial earns exactly one qualified finish',()=>{
+  const L=lab({rates:[.75,1,1.25]}), scope='room:video:epoch:seg3';
+  const gate=L.ctx.WatchFusionReleaseEvidence.createTvRateRecheckGate();
+  const input={scope,io:L.io,rateHonored:false,quietStallMs:30000,quietRejoinMs:30000};
+  for(let t=0;t<=4500;t+=250)gate.consider({...input,nowMs:t,error:.597});
+  assert.equal(gate.snapshot().attempts,1);gate.settle(scope,undefined);
+  let finish=null;for(let t=5000;t<=20000;t+=250)finish=gate.consider({...input,nowMs:t,error:.362})||finish;
+  assert.equal(finish?.rate,1.25);assert.equal(gate.snapshot().attempts,2);gate.settle(scope,undefined);
+  for(let t=21000;t<=40000;t+=250)assert.equal(gate.consider({...input,nowMs:t,error:.15}),null);
+ });
+ await check('ADAPTIVE06E-02:failed progress, rejection and changed scope do not earn a finish',()=>{
+  const L=lab({rates:[1,1.25]}), scope='room:video:epoch:seg3';
+  for(const [verdict,error,nextScope,initial=.597] of [[undefined,.41,scope],[undefined,.43,scope,.64],['rejected',.362,scope],
+      [undefined,.362,'room:video:epoch:seg4'],['honored',.362,scope],[undefined,.597,scope]]){
+    const gate=L.ctx.WatchFusionReleaseEvidence.createTvRateRecheckGate();
+    const input={scope,io:L.io,rateHonored:false,quietStallMs:30000,quietRejoinMs:30000};
+    for(let t=0;t<=4500;t+=250)gate.consider({...input,nowMs:t,error:initial});
+    gate.settle(scope,verdict);
+    for(let t=5000;t<=20000;t+=250)assert.equal(gate.consider({...input,scope:nextScope,nowMs:t,error}),null);
+    assert.equal(gate.snapshot().attempts,1);
+  }
+ });
+ await check('ADAPTIVE06E-03:follow-up dwell restarts when source evidence is lost',()=>{
+  const L=lab({rates:[1,1.25]}), scope='room:video:epoch:seg3';
+  const gate=L.ctx.WatchFusionReleaseEvidence.createTvRateRecheckGate();
+  const input={scope,io:L.io,rateHonored:false,quietStallMs:30000,quietRejoinMs:30000};
+  for(let t=0;t<=4500;t+=250)gate.consider({...input,nowMs:t,error:.597});
+  gate.settle(scope,undefined);
+  for(let t=5000;t<=8000;t+=250)assert.equal(gate.consider({...input,nowMs:t,error:.362}),null);
+  assert.equal(gate.consider({...input,io:{...L.io,mirrorContradicted:()=>true},nowMs:8250,error:.362}),null);
+  for(let t=8500;t<12500;t+=250)assert.equal(gate.consider({...input,nowMs:t,error:.362}),null);
+  assert.equal(gate.consider({...input,nowMs:12500,error:.362})?.rate,1.25);
+  assert.equal(gate.snapshot().attempts,2);
  });
 
 }

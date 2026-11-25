@@ -8,7 +8,7 @@
   'use strict';
   if (typeof window === 'undefined' || window.WatchFusionZeroConverge) return;
   const PERIOD = 250, ACTIVE_PERIOD = 50, WINDOW = 2400, MIN_SPAN = 1800;
-  const ENTER = 16, OUTER = 100, MAX_HOST = 500, SETTLE = 2200;
+  const ENTER = 16, OUTER = 100, MAX_HOST = 700, SETTLE = 2200;
   const MAX_ATTEMPTS = 3, RETRY_MS = 15000, ACK_LIMIT = 500;
   const MAX_FINE_COMMAND = 650, MAX_CATCHUP_COMMAND = 1800;
   const PHASE_SLACK_MS = 18, RESTORE_LIMIT = 500;
@@ -54,6 +54,11 @@
   function finish(why,verify=false) {
     const j=job; if (!j) return;
     job=null; clearTimeout(j.timer); lastAt=now(); samples=[];
+    // Keep measured motion as provisional evidence across a temporary trust veto.
+    // Never continue actuation or credit motion until the same reference is qualified again.
+    const interrupted=j.host && j.ack!==null && j.best>=6 &&
+      ['reference-changed','reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(why) &&
+      key()===scope && j.player===ytPlayer && j.roomRate===state?.playback?.rate;
     try {
       // Restore only the handle we acquired. A replaced player still needs release.
       // Never overwrite a competing owner's command on the current player.
@@ -69,14 +74,16 @@
     lastTrial={verificationReason:why,verdict:verify?'awaiting-settled-evidence':'inconclusive', requestedRate:j.rate,
       baseRate:j.base, elapsedMs:Math.round(lastAt-j.at), ackMs:j.ack===null?null:Math.round(j.ack-j.at),
       measuredPhaseMs:Math.round(j.best), sampleRebased:!!j.evidenceAnchor, beforeMs:Math.round(j.before), residualMs:null};
-    pending=verify?{...j,endedAt:lastAt}:null;
+    pending=verify||interrupted?{...j,endedAt:lastAt,interrupted}:null;
     note('zero-actuator-finished',{reason:why,durationMs:lastTrial.elapsedMs,progressMs:lastTrial.measuredPhaseMs});
   }
   function discardPending(why) {
     if(!pending)return;
     // A brief mirror veto after a measured pulse is not actuator failure.
     // It cannot prove improvement, but may participate in one bounded retry.
-    if(pending.host && why==='mirror-contradicted' && pending.ack!==null && pending.best>=6) pending.cap.retryable++;
+    if(pending.host && ['mirror-contradicted','verification-context-changed'].includes(why) && pending.ack!==null && pending.best>=6 &&
+        pending.player===ytPlayer && pending.roomRate===state?.playback?.rate &&
+        pending.reference===window.watchFusionPlayout?.status?.()?.reference) pending.cap.retryable++;
     pending=null;
     lastTrial={...lastTrial,verdict:'inconclusive',verificationReason:why};
     note('zero-actuator-verification-lost',{reason:why});
@@ -182,7 +189,7 @@
       else if(at-r.at>=RESTORE_LIMIT){restoring=null;discardPending('base-rate-unconfirmed');note('zero-actuator-finished',{reason:'base-rate-unconfirmed',durationMs:Math.round(at-r.at)});}
       else{reason='restoring-base-rate';return;}
     }
-    if(b){samples=[];discardPending(b);reason=b;return;}
+    if(b){samples=[];if(!pending?.interrupted || at-pending.endedAt>8000 || !['reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(b))discardPending(b);reason=b;return;}
     const base=Math.min(2,Math.max(.25,Number(state.playback.rate)||1));
     if(at-lastAt<SETTLE){samples=[];reason='settling';return;}
     if(!Number.isFinite(rateNow())||Math.abs(rateNow()-base)>.015){samples=[];discardPending('manual-or-foreign-rate');reason='manual-or-foreign-rate';return;}
@@ -195,6 +202,11 @@
     medianMs=Math.round(m);madMs=Math.round(mad);
     const elapsed=at-samples[0].at, movement=(pos-samples[0].pos)*1000;
     const stable=mad<=9&&Math.max(...values)-Math.min(...values)<=40&&movement>=elapsed*base*.8&&movement<=elapsed*base*1.2;
+    if(pending?.interrupted){
+      const p=pending, continuous=Math.abs((t-p.target)*1000-(at-p.at)*p.base)<=35;
+      if(p.player!==ytPlayer || p.roomRate!==state.playback.rate || at-p.endedAt>8000 || !continuous)discardPending('interrupted-evidence-expired');
+      else if(!hostTrusted(t,m,at,Math.abs(m)>OUTER)){samples=[];reason='interrupted-rate-awaiting-reference';return;}
+    }
     if(pending && (pending.player!==ytPlayer || pending.roomRate!==state.playback.rate ||
         pending.reference!==window.watchFusionPlayout?.status?.()?.reference ||
         (host() && window.WatchFusionHostSeekPolicy?.sourceBlocker?.(t)!==null))) discardPending('verification-context-changed');
@@ -202,7 +214,8 @@
       const p=pending;
       if(!stable&&at-p.endedAt<8000){reason='rate-verification-measuring';return;}
       const improved=Math.abs(p.before)-Math.abs(m);
-      const proven=stable&&at-p.endedAt<=8000&&p.ack!==null&&p.best>=6&&improved>=Math.max(6,2*(p.mad+mad)+2);
+      const proven=stable&&at-p.endedAt<=8000&&p.ack!==null&&p.best>=6&&improved>=Math.max(6,2*(p.mad+mad)+2)&&
+        (!p.interrupted || (improved<=p.best+35 && Math.sign(m)===Math.sign(p.before)));
       p.cap.status=proven?'verified':'inconclusive';
       if(proven){p.cap.attempts=p.cap.contaminated=p.cap.retryable=0;strikes=0;if(host()){
         hostProbeProven=true;const tail=Math.max(0,Math.min(150*Math.abs(p.rate-p.base),improved-p.best));
@@ -236,7 +249,7 @@
     // or learned capability just because the window lost visibility.
     finish('page-hidden'); discardPending('page-hidden'); samples=[]; reason='page-hidden';
   }});
-  window.WatchFusionZeroConverge={version:'adaptive-actuator-06c',isApplying:()=>!!job||!!restoring||now()-lastAt<600,
+  window.WatchFusionZeroConverge={version:'adaptive-actuator-06i',isApplying:()=>!!job||!!restoring||now()-lastAt<600,
     diagnostics:()=>({reason,pulses,strikes,tickGapMs,maxTickGapMs,restoring:!!restoring,errorMs:lastErrorMs,medianMs,madMs,active:!!job,
       hostRateRecheck:{used:hostProbeUsed,measuredImprovement:hostProbeProven},
       actuator:lastTrial,capabilities:[...model].map(([rate,v])=>({rate,status:v.status,attempts:v.attempts,contaminated:v.contaminated,retryable:v.retryable,rearms:v.rearms}))})};

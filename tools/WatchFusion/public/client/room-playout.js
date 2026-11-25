@@ -6,6 +6,7 @@
     ? [roomId, session.memberId, state.presentationEpoch, state.playoutSegment].join(':') : null;
   const supportedPlayback = () => !!(state?.source?.videoId || state?.source?.kind === 'media' && state.source.url);
   const playing = () => state?.playback && !state.playback.paused && !state.playback.ended;
+  const backgroundHost = () => document.hidden && !!state?.source?.videoId && state.linkedSourceActive === true && isHost() && playing();
 
   function render() {
     if (!health) return;
@@ -34,7 +35,8 @@
   }
 
   function target() {
-    if (!playing() || document.hidden || !lease || lease.key !== roomKey() || performance.now() - lease.at > 3500) return null;
+    if (!playing() || !lease || lease.key !== roomKey() || performance.now() - lease.at > 3500) return null;
+    if (document.hidden && (!backgroundHost() || !hasSourceReference(lease.value,estimatedServerNow()))) return null;
     return lease.value;
   }
 
@@ -105,13 +107,13 @@
     const key = roomKey();
     if (key !== latestRoom) { latestRoom = key; lease = null; phaseSentAt = -Infinity; }
     const diagnostics = window.watchFusionPresentation;
-    if (!key || !diagnostics?.exchange || !supportedPlayback() || document.hidden) { render(); return; }
+    if (!key || !diagnostics?.exchange || !supportedPlayback() || (document.hidden && !backgroundHost())) { render(); return; }
     if (!playing() && !diagnostics.open() && performance.now() < nextIdlePoll) return;
     if (playing() || diagnostics.open()) nextIdlePoll = 0;
     else nextIdlePoll = performance.now() + 4000;
     try { await diagnostics.exchange(noteCoordination, key); } finally { render(); }
   }
-  document.addEventListener('visibilitychange', () => { if (document.hidden) lease = null; else void tick().catch(() => {}); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && !backgroundHost()) lease = null; else void tick().catch(() => {}); });
   window.watchFusionPlayout = {
     render,
     position:adjustedPosition,

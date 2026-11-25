@@ -5,6 +5,7 @@
 // a ~1.3 s source disagreement, and nothing measured commanded vs landed vs released positions.
 // Evidence type: Node VM with deterministic clocks only. Not Playwright, not Windows, not audible playback.
 import assert from 'node:assert/strict';
+import {world, fakePlayer, roomGlobals} from './v13107-falsifiers.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -37,6 +38,43 @@ function verify(H, at, ownedMs, resumed, endMs, heldReading = null) {
 }
 
 export async function runV13108gChecks(check) {
+  await check('WF06I-01:three measured pulses interrupted by temporary source trust loss finish convergence',()=>{
+    const ctx=world(),p=fakePlayer(ctx,{position:29.508});roomGlobals(ctx,p,{targetOffsetSec:0,host:true,uncertaintyMs:10});
+    let starts=0,startedAt=-Infinity;const events=[];
+    ctx.watchFusionPlayout.status=()=>({source:'live',reference:'linked-tab',uncertaintyMs:10});
+    ctx.WatchFusionHostSeekPolicy={sourceBlocker:()=>starts<=3&&ctx.clock()-startedAt>=550&&ctx.clock()-startedAt<1450?'host-source-unverified':null};
+    ctx.watchFusionViewerArbiter.snapshot=()=>({timelineErrorMs:(30+ctx.clock()/1000-p.position)*1000,timelineObservedAtMs:ctx.clock()});
+    ctx.watchFusionRoomSyncLog={note:(kind,detail)=>events.push({kind,...detail})};
+    p.setPlaybackRate=r=>{p.calls.push(['rate',r]);if(r!==1){starts++;startedAt=ctx.clock();}p.rate=r;};
+    vm.runInContext(read('public/client/zero-converge.js'),ctx);ctx.advance(45000);
+    assert.ok(Math.abs(75-p.position)*1000<=25,`residual ${Math.round((75-p.position)*1000)}ms`);
+    assert.ok(events.filter(e=>e.kind==='zero-actuator-finished'&&e.reason==='reference-changed').length>=3);
+    assert.ok(events.filter(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified').length>=3);
+    assert.equal(p.rate,1);assert.ok(starts<=8&&p.calls.every(([k])=>k==='rate'));
+    // New drift on the same video, after established lock.
+    p.position-=.22;ctx.advance(30000);
+    assert.ok(Math.abs(105-p.position)*1000<=25);assert.equal(p.rate,1);assert.ok(starts<=12);
+  });
+  await check('WF06I-02:interrupted pulse cannot learn from a displaced reference or player',()=>{
+    for(const mode of ['shifted-target','new-player','new-segment']){
+      const ctx=world(),p=fakePlayer(ctx,{position:29.508});roomGlobals(ctx,p,{targetOffsetSec:0,host:true,uncertaintyMs:10});
+      let start=-Infinity,veto=false,shift=0;const events=[];
+      ctx.watchFusionPlayout.status=()=>({source:'live',reference:'linked-tab',uncertaintyMs:10});
+      ctx.WatchFusionHostSeekPolicy={sourceBlocker:()=>veto?'host-source-unverified':null};
+      ctx.watchFusionYouTubeTarget=()=>30+ctx.clock()/1000+shift;
+      ctx.watchFusionViewerArbiter.snapshot=()=>({timelineErrorMs:(ctx.watchFusionYouTubeTarget()-p.position)*1000,timelineObservedAtMs:ctx.clock()});
+      ctx.watchFusionRoomSyncLog={note:(kind,detail)=>events.push({kind,...detail})};
+      p.setPlaybackRate=r=>{if(r!==1)start=ctx.clock();p.rate=r;};
+      vm.runInContext(read('public/client/zero-converge.js'),ctx);
+      for(let i=0;i<60&&start===-Infinity;i++)ctx.advance(100);
+      assert.ok(Number.isFinite(start));ctx.advance(550);veto=true;ctx.advance(100);
+      if(mode==='shifted-target')shift=.2;else if(mode==='new-player')ctx.ytPlayer={...p};else ctx.state.playoutSegment++;
+      ctx.advance(1200);veto=false;ctx.advance(3600);
+      assert.ok(!events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'),mode);
+      assert.equal(ctx.WatchFusionZeroConverge.diagnostics().hostRateRecheck.measuredImprovement,false,mode);
+    }
+  });
+
   await check('V13108G-01:trace-attempt-1-worse-landing-stops-the-actuator-instead-of-retrying', () => {
     const {H, notes, kinds} = host();
     const t1 = drive(H, {errorMs: 327}, 2000, 12000);

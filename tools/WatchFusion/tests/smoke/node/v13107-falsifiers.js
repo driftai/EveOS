@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const read = rel => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
-function world(extra = {}) {
+export function world(extra = {}) {
   let now = 0, seq = 0; const timers = new Map();
   const ctx = {Math, JSON, Number, String, Array, Object, Error, console, Promise, Set, Map, ...extra};
   ctx.Date = class extends Date { static now() { return 1.7e12 + now; } };
@@ -44,7 +44,7 @@ function world(extra = {}) {
   ctx.clock = () => now;
   return ctx;
 }
-function fakePlayer(ctx, {rates = [.75, 1, 1.25], position = 30, state = 1, muted = false} = {}) {
+export function fakePlayer(ctx, {rates = [.75, 1, 1.25], position = 30, state = 1, muted = false} = {}) {
   const p = {position, rate: 1, state, muted, volume: 100, calls: [], last: 0, videoId: 'AAAAAAAAAAA', rates};
   ctx.tick = now => { const dt = (now - p.last) / 1000; p.last = now; if (p.state === 1) p.position += dt * p.rate; };
   Object.assign(p, {getCurrentTime: () => p.position, getPlaybackRate: () => p.rate, getAvailablePlaybackRates: () => p.rates,
@@ -55,7 +55,7 @@ function fakePlayer(ctx, {rates = [.75, 1, 1.25], position = 30, state = 1, mute
     setVolume: v => { p.volume = v; }, getVolume: () => p.volume});
   return p;
 }
-function roomGlobals(ctx, player, {targetOffsetSec, uncertaintyMs = 110, host = false, owns = () => false} = {}) {
+export function roomGlobals(ctx, player, {targetOffsetSec, uncertaintyMs = 110, host = false, owns = () => false} = {}) {
   Object.assign(ctx, {roomId: 'ROOM', ytPlayer: player, ytPlayerReady: true, playerInitializing: false, primingPlayer: false, applyingRemote: false,
     state: {source: {videoId: 'AAAAAAAAAAA'}, playback: {paused: false, ended: false, rate: 1}, presentationEpoch: 1, playoutSegment: 1, linkedSourceActive: true},
     estimatedServerNow: () => ctx.Date.now(), isHost: () => host,
@@ -64,6 +64,90 @@ function roomGlobals(ctx, player, {targetOffsetSec, uncertaintyMs = 110, host = 
 }
 
 export async function runV13107Checks(check) {
+  await check('WF06G-01:same-player clock veto during measured verification earns one clean rearm',()=>{
+    const ctx=world(),p=fakePlayer(ctx,{position:29.62});
+    roomGlobals(ctx,p,{targetOffsetSec:0,host:true,uncertaintyMs:12});
+    ctx.watchFusionPlayout.status=()=>({source:'live',reference:'linked-tab',uncertaintyMs:12});
+    let starts=0,vetoUntil=-1;const events=[];
+    ctx.WatchFusionHostSeekPolicy={sourceBlocker:()=>ctx.clock()<vetoUntil?'host-source-disagrees':null};
+    ctx.watchFusionViewerArbiter.snapshot=()=>({timelineErrorMs:(30+ctx.clock()/1000-p.position)*1000,timelineObservedAtMs:ctx.clock()});
+    ctx.watchFusionRoomSyncLog={note:(kind,detail)=>events.push({kind,...detail})};
+    p.setPlaybackRate=r=>{p.calls.push(['rate',r]);if(r!==1)starts++;
+      else if(starts===4 && p.rate!==1){vetoUntil=ctx.clock()+9000;}p.rate=r;};
+    p.getCurrentTime=()=>p.position+(p.rate!==1&&(starts===2||starts===3)?.055:0);
+    vm.runInContext(read('public/client/zero-converge.js'),ctx);ctx.advance(8000);
+    assert.equal(ctx.WatchFusionZeroConverge.diagnostics().hostRateRecheck.measuredImprovement,true);
+    p.position=30+ctx.clock()/1000-.075;ctx.advance(25000);
+    assert.equal(starts,4);assert.ok(events.some(e=>e.kind==='zero-actuator-verification-lost'&&e.reason==='verification-context-changed'));
+    p.position=30+ctx.clock()/1000-.214;ctx.advance(90000);
+    assert.equal(events.filter(e=>e.kind==='zero-actuator-measurement-rearmed').length,1);
+    assert.ok(Math.abs(30+ctx.clock()/1000-p.position)*1000<=25);assert.equal(p.rate,1);
+    assert.ok(p.calls.every(([kind])=>kind==='rate'));
+  });
+  await check('WF06F-01:533ms host resume lag converges without a seek or hold',()=>{
+    const ctx=world(),p=fakePlayer(ctx,{position:29.467});
+    roomGlobals(ctx,p,{targetOffsetSec:0,host:true,uncertaintyMs:12});
+    ctx.watchFusionPlayout.status=()=>({source:'live',reference:'linked-tab',uncertaintyMs:12});
+    ctx.WatchFusionHostSeekPolicy={sourceBlocker:()=>null};
+    ctx.watchFusionViewerArbiter.snapshot=()=>({timelineErrorMs:(30+ctx.clock()/1000-p.position)*1000,timelineObservedAtMs:ctx.clock()});
+    vm.runInContext(read('public/client/zero-converge.js'),ctx);ctx.advance(30000);
+    assert.ok(Math.abs(60-p.position)*1000<=25);assert.equal(p.rate,1);
+    assert.ok(p.calls.some(([kind,r])=>kind==='rate'&&r>1));
+    assert.ok(p.calls.every(([kind])=>kind==='rate'));
+  });
+  await check('WF06F-02:extended host catchup still requires same-source dual-clock evidence',()=>{
+    for(const mode of ['contradicted','uncertain','stale','disagree','too-large','ahead']){
+      const offset=mode==='too-large'?.751:mode==='ahead'?-.533:.533;
+      const ctx=world(),p=fakePlayer(ctx,{position:30-offset});
+      roomGlobals(ctx,p,{targetOffsetSec:0,host:true,uncertaintyMs:12});
+      ctx.watchFusionPlayout.status=()=>({source:'live',reference:'linked-tab',uncertaintyMs:mode==='uncertain'?36:12,mirrorContradicted:mode==='contradicted'});
+      ctx.WatchFusionHostSeekPolicy={sourceBlocker:()=>mode==='disagree'?'host-source-disagrees':null};
+      ctx.watchFusionViewerArbiter.snapshot=()=>({timelineErrorMs:offset*1000,timelineObservedAtMs:ctx.clock()-(mode==='stale'?601:0)});
+      vm.runInContext(read('public/client/zero-converge.js'),ctx);ctx.advance(30000);
+      assert.equal(p.calls.length,0,mode);assert.equal(p.rate,1,mode);
+    }
+  });
+  await check('WF06F-03:ordinary TV audio gestures cannot restart a paused or buffering decoder',()=>{
+    for(const state of [2,3]){
+      const ctx=world(),p=fakePlayer(ctx,{muted:true,state});roomGlobals(ctx,p,{targetOffsetSec:0});
+      let applications=0;
+      Object.assign(ctx,{autoplayWasBlocked:true,userGesturePrimeUsed:false,authoritativeRoomAudio:()=>({volume:57,muted:false}),
+        applyRoomAudioState:()=>{applications++;p.unMute();return true;}});
+      vm.runInContext(read('public/client/room-audio-unlock.js'),ctx);ctx.advance(500);
+      for(let i=0;i<4;i++){
+        for(const kind of ['pointerdown','keydown','click'])for(const fn of ctx.windowListeners.get(kind)||[])fn({isTrusted:true,target:{closest:()=>null}});
+        ctx.advance(1000);
+      }
+      assert.equal(applications,0);assert.equal(p.state,state);assert.equal(p.calls.length,0);
+      p.state=1;ctx.advance(100);
+      for(const fn of ctx.windowListeners.get('click')||[])fn({isTrusted:true,target:{closest:()=>null}});
+      assert.equal(applications,1);assert.equal(p.muted,false);assert.ok(p.calls.every(([kind])=>kind==='unmute'));
+    }
+  });
+  await check('WF06F-06:explicit room-audio button can recover blocked pause but not buffering or a paused room',()=>{
+    const ctx=world(),p=fakePlayer(ctx,{muted:true,state:2});roomGlobals(ctx,p,{targetOffsetSec:0});
+    Object.assign(ctx,{autoplayWasBlocked:true,userGesturePrimeUsed:false,authoritativeRoomAudio:()=>({volume:57,muted:false}),
+      applyRoomAudioState:()=>{p.unMute();return true;}});
+    vm.runInContext(read('public/client/room-audio-unlock.js'),ctx);ctx.advance(500);
+    const button=ctx.nodes.get('watchfusionEnableRoomAudio');assert.equal(button.hidden,false);
+    p.state=3;button.click();assert.equal(p.calls.length,0);
+    p.state=2;ctx.state.playback.paused=true;button.click();assert.equal(p.calls.length,0);
+    ctx.state.playback.paused=false;button.click();assert.deepEqual(p.calls,[['unmute'],['play']]);
+  });
+  await check('WF06F-07:repeated room audio toggles preserve player motion rate and transport segment',()=>{
+    const ctx=world({location:{hostname:'localhost',search:''},URLSearchParams,URL}),p=fakePlayer(ctx);ctx.testPlayer=p;
+    vm.runInContext(read('public/client/core.js'),ctx);
+    vm.runInContext("roomId='ROOM';session={publicId:'TV'};ytPlayer=testPlayer;ytPlayerReady=true;state={hostId:'HOST',presentationEpoch:1,playoutSegment:5,linkedSourceActive:true,source:{videoId:'AAAAAAAAAAA'},playback:{paused:false,rate:1,volume:57,muted:false}};",ctx);
+    vm.runInContext(read('public/client/room-audio-unlock.js'),ctx);
+    p.rate=1.25;const start=p.position;
+    for(let i=0;i<8;i++){
+      vm.runInContext(`state.playback.muted=${i%2===0};applyRoomAudioState();`,ctx);
+      ctx.advance(500);assert.equal(p.muted,i%2===0);assert.equal(p.rate,1.25);assert.equal(p.state,1);
+      assert.equal(vm.runInContext('state.playoutSegment',ctx),5);
+    }
+    assert.equal(p.volume,57);assert.ok(Math.abs(p.position-start-5)<.001);
+    assert.ok(p.calls.every(([kind])=>kind==='unmute'));
+  });
   await check('WF06C-01:quiet precise host trims a stable 32ms offset without waiting for drift',()=>{
     const ctx=world(),p=fakePlayer(ctx,{position:29.968});
     roomGlobals(ctx,p,{targetOffsetSec:0,host:true,uncertaintyMs:10});

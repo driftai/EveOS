@@ -29,7 +29,7 @@
   let manualRestartAt = -Infinity;
   const rebuilds = [];
   // Recovery owns a short, local decoder warmup; never refill action budgets here.
-  let warm = null;
+  let warm = null, rejoinCandidate = null, rejoinSpent = false;
   function isSettling(raw, at) { return !!warm && raw === warm.scope && !document.hidden && Number.isFinite(at) && at >= warm.at && at-warm.at < 12000; }
   function settling({scope: raw, nowMs: at, ready, playing, buffering, position, rate = 1} = {}) {
     if (!warm) return false;
@@ -51,7 +51,7 @@
   const dwellScope = raw => String(raw ?? '').split(':').slice(0, 3).join(':');
   function enterScope(next) {
     if (next === scope) return;
-    warm = null; scope = next; since = 0; steps = 0; lastStepAt = -Infinity; liveSeenAt = -Infinity;
+    warm = null; rejoinCandidate = null; rejoinSpent = false; scope = next; since = 0; steps = 0; lastStepAt = -Infinity; liveSeenAt = -Infinity;
     healthySince = 0; healthyAt = -1; healthyPosition = null; healthyProgressMs = 0;
     healthOffsets = [];
     pausedAt = -1; wasRoomPaused = false; outcome = 'scope-change';
@@ -162,7 +162,7 @@
     const recent = rebuilds.filter(t => nowMs - t < 600000);
     const rebuild = steps === 1 && recent.length < MAX_REBUILDS_PER_10_MIN && typeof input.rebuild === 'function';
     if (steps === 1 && !rebuild) { steps = 2; outcome = 'rebuild-budget-spent'; return false; }
-    steps++; lastStepAt = nowMs; since = 0;
+    steps++; lastStepAt = nowMs; since = 0; rejoinCandidate = null; rejoinSpent = false;
     warm = {scope:input.scope,at:nowMs,sample:null,progress:0};
     try {
       if (rebuild) { rebuilds.push(nowMs); input.rebuild(); outcome = 'player-rebuilt-once'; }
@@ -170,6 +170,26 @@
       window.watchFusionRoomSyncLog?.note?.('tv-decoder-' + (rebuild ? 'rebuild' : 'reload'), {positionMs: Math.round(Number(input.drift) * 1000)});
       return true;
     } catch { warm = null; outcome = 'recovery-failed'; return false; }
+  }
+  // A decoder reload/rebuild is not permission to immediately seek the newly
+  // advancing player again. For offsets <=5 s, require a quiet, qualified window; permit at
+  // most one ordinary rejoin per decoder recovery step, never a fresh ladder.
+  function allowAutomaticRejoin({nowMs, error, io, lead} = {}) {
+    if (!steps || Math.abs(error) > 5 || (io?.follower !== true && !io?.hostLinked) || io.linkedSourceActive?.() !== true) return true;
+    const precision = io.referenceUncertaintyMs?.(), pos = io.current?.(), target = io.target?.(nowMs);
+    if (rejoinSpent || document.hidden || io.state?.() !== 1 || io.referenceTrusted?.() !== true ||
+        io.sourceReferenceQualified?.(100) !== true || io.mirrorContradicted?.() || io.sourceBuffering?.() ||
+        ![nowMs,error,pos,target,precision,lead,io.baseRate].every(Number.isFinite) || io.baseRate <= 0 || precision < 0 || precision > 70 ||
+        io.buffered?.(target+lead) !== true) { rejoinCandidate = null; return false; }
+    const c = rejoinCandidate, dt = c ? nowMs-c.at : 0;
+    if (c && dt === 0) return false;
+    if (!c || dt < 0 || dt > 1000 || Math.abs(c.initialError-error) > .14 ||
+        pos-c.pos < dt/1000*io.baseRate*.5 || pos-c.pos > dt/1000*io.baseRate*1.5+.025) {
+      rejoinCandidate = {at:nowMs,since:nowMs,pos,initialError:error}; return false;
+    }
+    c.at=nowMs; c.pos=pos;
+    if (nowMs-c.since < 8000 || nowMs-lastStepAt < 12000) return false;
+    rejoinSpent=true; rejoinCandidate=null; return true;
   }
   // The same thing a manual URL reload does for the player, without leaving the room.
   function rebuildPlayer(videoId, startSeconds) {
@@ -181,7 +201,7 @@
     ytPlayer = null; ytPlayerReady = false; playerPrimed = false; playerInitializing = false;
     ensurePlayer(videoId, startSeconds);
   }
-  window.WatchFusionDecoderRescue = {version: 'adaptive-room-04c', consider, observeTransport, rebuildPlayer, settling, isSettling,
+  window.WatchFusionDecoderRescue = {version: 'adaptive-room-06h', consider, observeTransport, rebuildPlayer, settling, isSettling, allowAutomaticRejoin,
     diagnostics: () => ({scope, attempted: steps > 0, steps, outcome, healthyProgressMs: Math.round(healthyProgressMs),
       rearmCount, healCount, lastRearmDwellMs, pauseObserved: wasRoomPaused})};
 })();

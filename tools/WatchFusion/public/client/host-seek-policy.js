@@ -61,7 +61,7 @@
     function fineHold(error,io,model){
       const now = io.now();
       holdReason = '';
-      if (!io.hostLinked || error >= -.10 || error < -2.5) { candidate = null; return false; }
+      if (!io.hostLinked || io.background?.() || error >= -.10 || error < -2.5) { candidate = null; return false; }
       const holdMs = (-error/io.baseRate - releaseLatency(io,model))*1000;
       holdReason = (io.hostHoldBlocker ? io.hostHoldBlocker() : io.hostFineHoldTrusted?.() ? null : 'host-source-unverified') ||
         (blocked ? 'host-auto-seek-guarded' : fineHolds >= 2 ? 'host-hold-budget-used'

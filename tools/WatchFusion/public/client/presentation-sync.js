@@ -73,7 +73,7 @@
       hostCorrection: window.WatchFusionHostPeerRecovery?.diagnostics?.()?.outcome === 'host-peer-rejoin' ? 'Peers corroborated · host rejoin' : hostServo?.outcome ?? null, hostRecovery: isHost() ? {...(window.WatchFusionHostPeerRecovery?.diagnostics?.()??{}),linkedSource:window.WatchFusionHostSourceConverge?.diagnostics?.()??null} : null, sensor: window.WatchFusionSensorProvenance?.describe?.({direct, media, now:performance.now(), clock:window.watchPartyClock.offsetBound?.(), source:isHost()&&window.watchFusionLinkedTab?.publishing?.()?window.watchFusionLinkedTab.metadata?.():null}) ?? null,
       startupWaitMs: !direct && Number.isFinite(diagnostics?.startup?.startDelayMs) ? diagnostics.startup.startDelayMs : null, startupPhase:direct?'direct-ready':diagnostics?.arbiter?.locked&&diagnostics?.startup?.transitionPhase==='decoder-confirmed'?'fine-locked':diagnostics?.startup?.transitionPhase||'source-awaiting',
       filteredDriftMs: Number.isFinite(diagnostics?.filteredDriftSec) ? Math.round(diagnostics.filteredDriftSec * 1000) : null, audioReadiness:(()=>{const a=window.WatchFusionRoomAudioUnlock?.diagnostics?.();const room=typeof authoritativeRoomAudio==='function'?authoritativeRoomAudio():null;if(room&&(room.muted||room.volume<=0))return 'room-muted';if(a?.needsTap)return 'needs-gesture';if(a?.probing)return 'verifying';return volume>.01&&(direct?!media.muted:media.isMuted?.()===false)?'player-unmuted':autoplayWasBlocked?'autoplay-blocked':'unknown';})(),
-      decoderRecovery: !direct && !isHost() ? {outcome:window.WatchFusionDecoderRescue?.diagnostics?.()?.outcome,steps:window.WatchFusionDecoderRescue?.diagnostics?.()?.steps,healthyProgressMs:window.WatchFusionDecoderRescue?.diagnostics?.()?.healthyProgressMs,stallMs:diagnostics?.startup?.stalledMs,stallSteps:diagnostics?.arbiter?.stallSteps,arbiterReason:diagnostics?.arbiter?.reason,replayLoads:diagnostics?.replayLoads} : null,
+      decoderRecovery: !direct ? {outcome:window.WatchFusionDecoderRescue?.diagnostics?.()?.outcome,steps:window.WatchFusionDecoderRescue?.diagnostics?.()?.steps,healthyProgressMs:window.WatchFusionDecoderRescue?.diagnostics?.()?.healthyProgressMs,stallMs:diagnostics?.startup?.stalledMs,stallSteps:diagnostics?.arbiter?.stallSteps,arbiterReason:diagnostics?.arbiter?.reason,replayLoads:diagnostics?.replayLoads} : null,
       seekHealth: diagnostics?.seekGuard ? {reason:diagnostics.seekGuard.reason, attempts:diagnostics.seekGuard.attempts,
         failures:diagnostics.seekGuard.failures, overshoots:diagnostics.seekGuard.overshoots,
         cooldownRemainingMs:diagnostics.seekGuard.cooldownRemainingMs,
@@ -185,8 +185,9 @@
 
   async function report(onTiming, roomKey) {
     updatePanel();
-    if (!key || requestPending || document.hidden || (!onTiming && !panel.open)) return;
-    if (panel.open || onTiming) trackVideoFrames();
+    const backgroundHost = document.hidden && !!onTiming && isHost() && state?.linkedSourceActive === true && mode()==='youtube' && !state.playback.paused && !state.playback.ended;
+    if (!key || requestPending || (document.hidden && !backgroundHost) || (!onTiming && !panel.open)) return;
+    if (!document.hidden && (panel.open || onTiming)) trackVideoFrames();
     const report = timing(), trace = window.watchFusionRoomSyncLog?.wantsSample();
     const active = key, controller = new AbortController();
     requestPending = true;

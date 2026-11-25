@@ -71,7 +71,7 @@
     if (elapsed >= 0 && elapsed < 150) return false;
     const expected = elapsed * rate / 1000, advance = currentTime - coherent?.position;
     coherent = {sampledAt, position:currentTime, page, segment, rate, kind};
-    return elapsed >= 150 && elapsed <= 1000 && advance >= expected * .5 && advance <= expected * 1.5;
+    return elapsed >= 150 && elapsed <= 1800 && advance >= expected * .5 && advance <= expected * 1.5;
   }
   function rebase(plan, metadata, page) {
     const playout = window.watchFusionPlayout, c = playout?.status?.();

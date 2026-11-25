@@ -36,7 +36,8 @@
     node = document.createElement('button'); node.id = ID; node.type = 'button'; node.className = 'secondary';
     node.textContent = 'Enable room audio'; node.hidden = true; node.title = 'This browser needs one tap before it can play sound';
     node.addEventListener('click', () => {
-      if (!scope || !ytPlayer) return;
+      const audio = typeof authoritativeRoomAudio === 'function' ? authoritativeRoomAudio() : null;
+      if (!scope || !ytPlayer || owned() || state?.playback?.paused || state?.playback?.ended || !audio || audio.muted || audio.volume <= 0 || ![1,2].includes(ytPlayer.getPlayerState?.())) return;
       userGesturePrimeUsed = true; autoplayWasBlocked = false; needsTap = false;
       try { applyRoomAudioState(ytPlayer, true); if (state?.playback && !state.playback.paused && ytPlayer?.getPlayerState?.() !== 1) ytPlayer.playVideo?.(); } catch { needsTap = true; }
       probe = needsTap ? null : {at: performance.now(), kind:'tap', blockedAt:blockedEvents};
@@ -104,7 +105,7 @@
     }
     const wanted = !!next && !audio.muted && audio.volume > 0;
     const initialBlocked = wanted && autoplayWasBlocked && !userGesturePrimeUsed;
-    if (ui) ui.hidden = !wanted || !(needsTap || (initialBlocked && tried));
+    if (ui) ui.hidden = !wanted || !(needsTap || (initialBlocked && (tried || ytPlayer?.getPlayerState?.() === 2)));
     if (!wanted || !ytPlayer || !ytPlayerReady || playerInitializing || primingPlayer || state?.playback?.paused) {
       mismatchSince = 0; if (!wanted && next) reason = 'room-audio-applied'; return;
     }
@@ -157,14 +158,15 @@
     if (event.isTrusted === false || owned() || !scope || !ytPlayer || !ytPlayerReady || playerInitializing || primingPlayer || probe || event.repeat
         || event.target?.closest?.('#' + ID)) return;
     const at=performance.now(); if(at-lastGestureAt<850)return;
-    if (!needsTap && !autoplayWasBlocked) return;
+    // Generic clicks/remote keys are audio gestures, not transport authority.
+    // A paused/buffering decoder belongs to playback recovery or the explicit button.
+    if ((!needsTap && !autoplayWasBlocked) || ytPlayer.getPlayerState?.() !== 1) return;
     lastGestureAt=at;
     const audio = typeof authoritativeRoomAudio === 'function' ? authoritativeRoomAudio() : null;
     if (!audio || audio.muted || audio.volume <= 0 || state?.playback?.paused) return;
     userGesturePrimeUsed = true; autoplayWasBlocked = false; needsTap = false;
     try {
       if (applyRoomAudioState(ytPlayer, true) !== true) throw Error('room audio unavailable');
-      if (ytPlayer.getPlayerState?.() !== 1) ytPlayer.playVideo?.();
       probe = {at:performance.now(),kind:'tap',blockedAt:blockedEvents}; reason = 'room-audio-gesture-verifying';
       window.watchFusionRoomSyncLog?.note?.('room-audio-reapplied', {reason:'member-gesture'});
     } catch { probe = null; needsTap = true; reason = 'room-audio-gesture-failed'; }

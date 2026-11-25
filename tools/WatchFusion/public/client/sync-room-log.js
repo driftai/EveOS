@@ -13,7 +13,7 @@
   let burstUntil = -Infinity, lastHealthKey = '', lastHealthCritical = false;
   let entries = [], events = [], roomScope = '', lastPeers = new Map(), lastKey = '', lastAt = 0, requestAt = -Infinity;
   let lastRendered = '', lastSegmentKey = '', segmentSequence = 0;
-  let observedSong = 0, lastSongKey = '';
+  let observedSong = 0, lastSongKey = '', trackSummaries=[];
   let plateauScope = '', plateauSamples = [];
   const finite = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : null;
   const memberName = id => (state?.members || []).find(m => m.id === id)?.name || 'Viewer';
@@ -270,24 +270,30 @@
       row.outputs !== entries.at(-1)?.outputs || row.roster?.reporting !== entries.at(-1)?.roster?.reporting || rows.some(p=>{const q=entries.at(-1)?.peers?.find(x=>x.device===p.device);return q&&(q.startupPhase!==p.startupPhase||q.audioReadiness!==p.audioReadiness||q.decoderRecovery?.outcome!==p.decoderRecovery?.outcome||q.decoderRecovery?.steps!==p.decoderRecovery?.steps||((q.action==='tv-decoder-settling')!==(p.action==='tv-decoder-settling')));});
     if (!changed && now - lastAt < (performance.now() < burstUntil ? 500 : lastHealthCritical ? 1100 : 4500)) return;
     lastKey = key; lastAt = now;
-    row.localRuntime=runtimeEvidence(); entries.push(row); prune();
+    row.localRuntime=runtimeEvidence(); entries.push(row); summarizeTrack(row); prune();
     const local=rows.find(p=>p.freeze), health=local?.freeze;
     const healthKey=health ? [health.state,health.guard,health.owner].join(':') : '';
     if (healthKey && healthKey !== lastHealthKey) note('sync-health-state', {reason:health.state, guard:health.guard || 'none', owner:health.owner, playerErrorMs:health.playerErrorMs, heldMs:health.heldMs});
     lastHealthKey=healthKey; lastHealthCritical=!!health && ['buffering','arbiter-owned','reported-position-held','host-seek-blocked','source-evidence-unverified','rate-capability-unavailable'].includes(health.state);
     render();
   }
+  // Keep sampled outcomes per observed video even if detailed rows expire. Unknown is never a pass.
+  function summarizeTrack(row) {
+    if (!row.song?.observedSong) return;
+    let t=trackSummaries.at(-1); if(t?.observedSong!==row.song.observedSong){t={observedSong:row.song.observedSong,title:row.song.title,firstAt:row.at,lastAt:row.at,samples:0,within25:0,within50:0,qualifiedWithin50:0,above100:0,unmeasured:0,unready:0,maxSpreadMs:null,firstWithin50At:null,maxSampleGapMs:0};trackSummaries.push(t);if(trackSummaries.length>32)trackSummaries.shift();}
+    t.maxSampleGapMs=Math.max(t.maxSampleGapMs,Date.parse(row.at)-Date.parse(t.lastAt));t.lastAt=row.at;t.samples++;
+    const v=row.timelineSpreadMs; if(!Number.isFinite(v))t.unmeasured++;else{if(v<=25)t.within25++;if(v<=50){t.within50++;t.firstWithin50At??=row.at;}if(v>100)t.above100++;t.maxSpreadMs=Math.max(t.maxSpreadMs??0,v);}
+    if(row.timelinePlayerCount<(row.roster?.members??row.peers.length)||row.peers.some(p=>!p.playing||p.buffering||p.reportAgeMs===null||p.reportAgeMs>1500||p.sensor?.timelineState!=='advancing'||p.sensor?.clockState!=='bounded'))t.unready++;else if(Number.isFinite(v)&&v<=50)t.qualifiedWithin50++;
+  }
   function refreshScope() {
     const scope = currentScope();
     if (scope === roomScope) return;
     roomScope = scope;
-    entries = []; events = []; droppedSnapshots=droppedEvents=0;
+    entries = []; events = []; trackSummaries=[]; droppedSnapshots=droppedEvents=0;
     lastPeers.clear();
     lastKey = lastRendered = '';lastSegmentKey='';segmentSequence=0;lastHealthKey='';lastHealthCritical=false;observedSong=0;lastSongKey='';plateauScope='';plateauSamples=[];
     window.WatchFusionFreezeTelemetry?.reset?.();
-    lastAt = 0;
-    requestAt = -Infinity;
-    area.value = '';
+    lastAt = 0; requestAt = -Infinity; area.value = '';
   }
   function prune(full=false) {
     const at=Date.now(), n=entries.length, e=events.length;
@@ -298,7 +304,7 @@
   }
   function note(kind, detail={}) {
     refreshScope();
-    if(!roomScope || !/^(?:ui-intent|source-(?:play|pause|volume|track-transition|seek-confirmed|seek-unconfirmed|seek-retry|transport-unconfirmed|transport-retry|command-timeout|volume-unconfirmed)|embedded-control|mirror-(?:request|applied|expired|anchor-rebased)|room-transition|host-rejoin-(?:gated|triggered|accepted|rejected|settled|incomplete|verifying|retry-armed|budget-exhausted|drift-returned)|playlist-(?:transition|resume-attempt|resume-confirmed|resume-blocked|resume-expired|pause-preserved|pause-deferred|preview-guarded)|solo-sync-one-rejoin|zero-converge-pulse|zero-actuator-(?:finished|verified|verification-lost|sample-rejected|measurement-rearmed)|runtime-(?:visibility|freeze|resume|timer-gap)|host-zero-(?:pulse-gated|rate-recheck-verified)|host-hold-(?:started|result)|tv-next-release-model-adjusted|tv-decoder-(?:reload|rebuild|rearmed|recovered|budget-spent|manual-restart)|room-audio-(?:unlocked|reapplied|needs-tap|deferred|retry-pending)|startup-prime-result|source-stall-held|host-link-(?:lost|resumed|restore-attempt|denied|suppressed)|host-source-(?:rejoin-triggered|rejoin-accepted|rejoin-refused|settled|landing-incomplete|backoff|contradicted)|mirror-drift-observing|rejoin-landing|sync-health-state)$/.test(kind)) return;
+    if(!roomScope || !/^(?:ui-intent|source-(?:play|pause|volume|track-transition|seek-confirmed|seek-unconfirmed|seek-retry|transport-unconfirmed|transport-retry|command-timeout|volume-unconfirmed)|embedded-control|mirror-(?:request|applied|expired|anchor-rebased)|room-transition|host-rejoin-(?:gated|triggered|accepted|rejected|settled|incomplete|verifying|retry-armed|budget-exhausted|drift-returned)|playlist-(?:transition|resume-attempt|resume-confirmed|resume-blocked|resume-expired|pause-preserved|pause-deferred|preview-guarded)|solo-sync-one-rejoin|zero-converge-pulse|zero-actuator-(?:finished|verified|verification-lost|sample-rejected|measurement-rearmed)|runtime-(?:visibility|freeze|resume|timer-gap)|host-zero-(?:pulse-gated|rate-recheck-verified)|host-hold-(?:started|result)|tv-next-release-model-adjusted|tv-decoder-(?:reload|rebuild|rearmed|recovered|budget-spent|manual-restart)|room-audio-(?:unlocked|reapplied|needs-tap|deferred|retry-pending)|startup-prime-result|source-stall-held|host-link-(?:lost|resumed|restore-attempt|denied|suppressed)|host-source-(?:rejoin-triggered|rejoin-accepted|rejoin-refused|settled|landing-incomplete|backoff|contradicted)|mirror-drift-observing|rejoin-landing|correction-deadline-missed|host-background-direct-rejoin|sync-health-state)$/.test(kind)) return;
     recordSegment();
     const fields={};
     for(const key of ['action','reason','playing','paused','positionMs','sampleAgeMs','sourceAgeMs','volumePct','rate','sequence','ackLatencyMs','roundTripMs','reference','hostErrorMs','peerErrorMs','gapMs','peerCount','observedPeerCount','observedPeerErrorMs','peerSpreadMs','dwellMs','attempts','status','backoffMs','muted','generation','step','errorMs','driftMs','beforeMs','residualMs','progressMs','expectedMs','leadMs','landedShortMs','releaseLeadMs','releaseErrMs','holdMs','startLatencyMs','mirrorDriftMs','sourcePhaseMs','clockGapMs','clockEvidence','durationMs','playerErrorMs','heldMs','owner','guard','hidden','phaseMs','extraMs','targetProgressMs']) {
@@ -353,16 +359,15 @@
     refreshScope();
     prune(true);
     return {format:'WatchFusion room sync trace v3',generatedAt:new Date().toISOString(),windowMs:MAX_AGE,
-      disclosure:'Player timing, source-supplied song titles and durations, user control intents and redacted transitions only; no audio, URLs, tokens or microphone measurements. Titles are included only when the user copies this local log. Player target error does not measure speaker-output latency; clock bounds include unknown asymmetry.',
-      diagnosticsVersion:'v13.10.8x-room-recovery',traceVersion:'adaptive-room-06d1-trace',retention:{maxSnapshots:MAX_ENTRIES,maxEvents:MAX_EVENTS,droppedSnapshots,droppedEvents},localRuntime:runtimeEvidence(),localActuator:localActuatorEvidence(),snapshots:entries,events};
+      disclosure:'Player timing, source-supplied song titles and durations, user control intents and redacted transitions only; no audio, URLs, tokens or microphone measurements. Titles are included only when the user copies this local log. Up to 32 per-video sampled summaries survive detailed-row expiry; cleared on room change or Clear. Player target error does not measure speaker-output latency; clock bounds include unknown asymmetry.',
+      diagnosticsVersion:'v13.10.8x-room-recovery',traceVersion:'adaptive-room-06i-trace',retention:{maxSnapshots:MAX_ENTRIES,maxEvents:MAX_EVENTS,droppedSnapshots,droppedEvents},localRuntime:runtimeEvidence(),localActuator:localActuatorEvidence(),trackSummaries:trackSummaries.map(t=>({...t})),snapshots:entries,events};
   }
   function exported() { return JSON.stringify(exportPayload(),null,2); }
   // Cooperative 30-minute copy avoids blocking/stringifying the whole trace or filling the live textarea.
   // export() retains the same redacted schema.
   async function cooperativeExport() {
     const payload=exportPayload();
-    const rows=payload.snapshots.slice(), transitions=payload.events.slice();
-    const header=JSON.stringify({...payload,snapshots:undefined,events:undefined});
+    const rows=payload.snapshots.slice(), transitions=payload.events.slice(); const header=JSON.stringify({...payload,snapshots:undefined,events:undefined});
     const chunks=[header.slice(0,-1),',"snapshots":['];
     const yieldToPlayback=()=>new Promise(resolve=>setTimeout(resolve,0));
     for(let i=0;i<rows.length;i++) {
@@ -428,7 +433,7 @@
     }
   }
   copy?.addEventListener('click', () => void copyLog());
-  clear?.addEventListener('click', () => {entries=[];events=[];droppedSnapshots=droppedEvents=0;lastPeers.clear();lastKey='';lastRendered='';observedSong=0;lastSongKey='';render();});
+  clear?.addEventListener('click', () => {entries=[];events=[];trackSummaries=[];droppedSnapshots=droppedEvents=0;lastPeers.clear();lastKey='';lastRendered='';observedSong=0;lastSongKey='';render();});
   panel.addEventListener('toggle', render);
   for(const [event,kind] of [['visibilitychange','visibility'],['freeze','freeze'],['resume','resume']]) document.addEventListener?.(event,()=>note('runtime-'+kind,{hidden:document.hidden===true}));
   window.watchFusionRoomSyncLog = {export:exported, wantsSample, observe, note};

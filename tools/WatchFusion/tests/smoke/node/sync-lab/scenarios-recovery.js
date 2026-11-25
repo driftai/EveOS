@@ -3,6 +3,8 @@
 // startup gate warmed forever and both viewers fell ~1 s/s behind the room.
 import { createRoomLab, summarize } from './room-lab.js';
 import { PROFILES } from './fake-youtube.js';
+import fs from 'node:fs';
+import vm from 'node:vm';
 
 async function pair() {
   const lab = await createRoomLab();
@@ -14,7 +16,138 @@ async function pair() {
 const arbiterOf = device => device.diagnostics()?.arbiter || {};
 const settled = (device, from, to, p95 = 200) => { const s = summarize(device, from, to); return {ok: s.p95AbsMs <= p95, summary: s}; };
 
+// Exercise the actual arbiter, including callbacks delivered after cancellation.
+function deadlineFixture({host=false, background=false}={}) {
+  let now=0, pos=29, playing=true, valid=true, speed=1; const timers=[],ops=[];
+  const ctx={Math,Number,JSON,Map,Set,console,performance:{now:()=>now}};ctx.window=ctx.globalThis=ctx;
+  ctx.setTimeout=(fn,ms)=>{timers.push({fn,due:now+ms});return timers.length;};ctx.clearTimeout=()=>{};
+  for(const script of ['viewer-release-evidence','viewer-timing-math','host-seek-policy','viewer-sync-arbiter'])vm.runInNewContext(fs.readFileSync(new URL('../../../../public/client/'+script+'.js',import.meta.url),'utf8'),ctx);
+  const arb=ctx.WatchFusionViewerSyncArbiter.createViewerSyncArbiter({timers:{setTimeout:ctx.setTimeout,clearTimeout:ctx.clearTimeout}});
+  const io={baseRate:1,hostLinked:host,follower:!host,linkedSourceActive:()=>true,background:()=>background,valid:()=>valid,
+    now:()=>now,target:()=>30+now/1000,current:()=>pos,state:()=>playing?1:2,availableRates:()=>[1],buffered:()=>true,
+    referenceTrusted:()=>true,sourceReferenceQualified:()=>true,hostFineHoldTrusted:()=>true,referenceUncertaintyMs:()=>10,
+    sourceBuffering:()=>false,mirrorContradicted:()=>false,seek:p=>{pos=p;ops.push('seek');},pause:()=>{playing=false;ops.push('pause');},play:()=>{playing=true;ops.push('play');},rate:r=>{speed=r;ops.push('rate:'+r);}};
+  const scope='room:video:epoch:1'; const at=t=>{if(playing)pos+=(t-now)/1000*speed;now=t;};
+  arb.tick(scope,now,io);
+  return {arb,io,timers,ops,at,scope,playing:()=>playing,invalidate:()=>valid=false};
+}
+
 export const RECOVERY_SCENARIOS = {
+  async 'SYNC-50:per-video summaries retain unready and unsynchronized outcomes after detail expiry'() {
+    let now=1700000000000;const elem={value:'',textContent:'',open:false,addEventListener(){}};
+    class ClockDate extends Date {constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
+    const ctx={Date:ClockDate,document:{getElementById:()=>elem},performance:{now:()=>now},estimatedServerNow:()=>now,roomId:'room',session:{memberId:'h'},isHost:()=>true,state:{source:{videoId:'A',title:'First'},presentationEpoch:1,playoutSegment:1,hostId:'h',playback:{rate:1},members:[{id:'h',name:'Host'},{id:'tv',name:'TV'}]}};ctx.window=ctx.globalThis=ctx;
+    vm.runInNewContext(fs.readFileSync(new URL('../../../../public/client/sync-room-log.js',import.meta.url),'utf8'),ctx);
+    const log=ctx.watchFusionRoomSyncLog,peer=(member,error)=>({member,sampledAt:now-10,positionMs:60000+error,roomPositionMs:60000,targetPositionMs:60000,ready:true,playing:true,buffering:false,rate:1,rttMs:10,audible:true,sensor:{domain:'player-timeline',heldMs:0,audibleOutput:'player',clockBoundMs:6,clockState:'bounded',timelineState:'advancing'}});
+    const observe=rows=>log.observe(rows,{reference:'linked-tab',source:'live',sourceReferenceAt:now-20},{members:2,reporting:rows.length});
+    observe([peer('h',0),peer('tv',20)]);now+=5000;observe([peer('h',0)]);now+=5000;observe([peer('h',0),peer('tv',230)]);
+    now+=1800001;ctx.state.source={videoId:'B',title:'Second'};ctx.state.playoutSegment++;observe([peer('h',0),peer('tv',0)]);
+    const r=JSON.parse(log.export()),t=r.trackSummaries?.[0];return {ok:r.snapshots.length===1&&r.trackSummaries?.length===2&&t.samples===3&&t.within50===1&&t.qualifiedWithin50===1&&t.unready===1&&t.unmeasured===1&&t.above100===1,detail:{retained:r.snapshots.length,first:t}};
+  },
+  async 'SYNC-46:interrupted decoder progress is not a verified release'() {
+    const ctx={};ctx.window=ctx.globalThis=ctx;vm.runInNewContext(fs.readFileSync(new URL('../../../../public/client/viewer-release-evidence.js',import.meta.url),'utf8'),ctx);
+    function run(interrupt){const e=ctx.WatchFusionReleaseEvidence.createReleaseEvidence();let pos=20,state=1;e.start(0);const io={state:()=>state,current:()=>pos,baseRate:1,referenceTrusted:()=>true,sourceBuffering:()=>false};
+      for(let t=200;t<=2600;t+=200){state=interrupt&&t===1000?3:1;if(state===1)pos+=.2;e.observe(t,io);}
+      return e.qualified({releaseVerified:true,releasedAt:0},2600);}
+    const clean=run(false),interrupted=run(true);return {ok:clean&&!interrupted,detail:{clean,interrupted}};
+  },
+  async 'SYNC-47:hidden host rejects expired linked reference and reacquires without a seek'() {
+    const lab=await createRoomLab({seed:47,sourceNoiseMs:0,fineTrim:true});const h=lab.addViewer('host',PROFILES.laptop),tv=lab.addViewer('tv',{...PROFILES.variableTv,quantumMs:0});try{
+      h.ctx.document.hidden=true;await lab.run(5000);const fresh=h.ctx.watchFusionPlayout.status()?.reference==='linked-tab';
+      lab.linkedSource(false);await lab.run(5000);const stale=h.ctx.watchFusionPlayout.status();
+      lab.linkedSource(true);await lab.run(5000);const restored=h.ctx.watchFusionPlayout.status()?.reference==='linked-tab';
+      const detail={fresh,expired:stale===null,restored,hostSeeks:h.player.stats.seeks,tvSeeks:tv.player.stats.seeks,spread:Math.abs(h.errorMs()-tv.errorMs())};
+      return {ok:fresh&&stale===null&&restored&&detail.hostSeeks===0&&detail.tvSeeks===0&&detail.spread<=50,detail};
+    }finally{lab.close();}
+  },
+  async 'SYNC-48:host terminal decoder rescue restores playback without disturbing a healthy TV'() {
+    const lab=await createRoomLab({seed:48,sourceNoiseMs:0,fineTrim:true});const h=lab.addViewer('host',PROFILES.laptop),tv=lab.addViewer('tv',{...PROFILES.variableTv,quantumMs:0});try{
+      await lab.run(20000);const at=lab.clock.now(), before=tv.player.stats.seeks;
+      h.player.wedge('never');const load=h.player.loadVideoById.bind(h.player);h.player.loadVideoById=(args)=>{h.player.wedge('never',0);load(args);};
+      await lab.run(70000);const a=h.samples.filter(x=>x.at>=at+50000),b=tv.samples.filter(x=>x.at>=at+50000),healthy=tv.samples.filter(x=>x.at>=at);
+      const detail={hostLoads:h.player.stats.loads,hostSeeks:h.player.stats.seeks,tvSeeks:tv.player.stats.seeks-before,tvLoads:tv.player.stats.loads,hostMax:Math.max(...a.map(x=>Math.abs(x.errorMs))),roomMax:Math.max(...a.map((x,j)=>Math.abs(x.errorMs-b[j].errorMs))),bad:a.filter(x=>x.frozen||x.state!==1).length,tvBad:healthy.filter(x=>x.frozen||x.state!==1||Math.abs(x.errorMs)>50).length};
+      return {ok:detail.hostLoads===1&&detail.hostSeeks<=5&&detail.tvSeeks===0&&detail.tvLoads===0&&detail.hostMax<=50&&detail.roomMax<=50&&detail.bad===0&&detail.tvBad===0,detail};
+    }finally{lab.close();}
+  },
+  async 'SYNC-49:coherent fresh mirror samples tolerate slower cadence without weakening source identity'() {
+    let now=10000;const c={segment:1,sourcePhaseMs:4,phaseMs:4,anchorAt:now,anchorPositionMs:30000,rate:1};const ctx={Date:{now:()=>now},performance:{now:()=>now},estimatedServerNow:()=>now,watchFusionPlayout:{status:()=>c,hasSourceReference:()=>true}};ctx.window=ctx.globalThis=ctx;
+    vm.runInNewContext(fs.readFileSync(new URL('../../../../public/client/mirror-convergence-gate.js',import.meta.url),'utf8'),ctx);
+    const gate=ctx.WatchFusionMirrorConvergenceGate,plan={publish:true,reason:'drift',drift:1.1},sample=(age=0)=>({pageUrl:'p',sampledAt:now-age,currentTime:30.004+(now-age-10000)/1000,rate:1});
+    gate.defer(plan,sample(),'p');const first=gate.rebase(plan,sample(),'p');now+=1200;const coherent=gate.rebase(plan,sample(),'p');gate.defer(plan,sample(),'p');gate.rebase(plan,sample(),'p');now+=1200;const stale=gate.rebase(plan,sample(600),'p');
+    return {ok:!first&&coherent&&!stale&&gate.diagnostics().published===0,detail:{first,coherent,stale}};
+  },
+  async 'SYNC-43:late or stale rejoin callbacks cannot certify or restart the wrong player'() {
+    const late=deadlineFixture();late.arb.rejoinNow(0,late.io,'manual');
+    late.at(100);late.arb.tick(late.scope,100,late.io);late.at(200);late.arb.tick(late.scope,200,late.io);
+    const timer=late.timers.at(-1);if(!timer)return {ok:false,detail:{reason:'no scheduled release'}};
+    late.at(timer.due+700);timer.fn();const lateState=late.arb.snapshot();
+    const stale=deadlineFixture();stale.arb.rejoinNow(0,stale.io,'manual');stale.at(100);stale.arb.tick(stale.scope,100,stale.io);stale.at(200);stale.arb.tick(stale.scope,200,stale.io);
+    const old=stale.timers.at(-1);stale.invalidate();stale.at(old.due+600);old.fn();
+    const detail={lateReason:lateState.reason,latePlaying:late.playing(),postRelease:lateState.postRelease,staleOps:stale.ops,staleOwned:stale.arb.owns()};
+    return {ok:late.playing()&&lateState.reason==='release-deadline-missed'&&!lateState.postRelease&&!stale.ops.includes('play')&&!stale.arb.owns(),detail};
+  },
+  async 'SYNC-44:qualified hidden host recovery never schedules a timed pause and has one seek per video'() {
+    const h=deadlineFixture({host:true,background:true});const first=h.arb.rejoinNow(0,h.io,'host-source');
+    h.at(1000);h.arb.tick('room:video:epoch:2',1000,h.io);h.io.current=()=>0;
+    const second=h.arb.rejoinNow(1000,h.io,'host-source');
+    return {ok:first&&!second&&h.playing()&&h.ops.join(',')==='seek'&&h.timers.length===0,detail:{first,second,ops:h.ops,reason:h.arb.snapshot().reason}};
+  },
+  async 'SYNC-45:background linked host retains only fresh timing and short videos reacquire both players'() {
+    const lab=await createRoomLab({seed:45,sourceNoiseMs:0,fineTrim:true});
+    const host=lab.addViewer('host',PROFILES.laptop),tv=lab.addViewer('tv',{...PROFILES.variableTv,quantumMs:0});
+    const tracks=[];try {
+      for(let i=0;i<3;i++) {
+        if(i)lab.nextTrack('WF06H-track-'+i);
+        const t0=lab.clock.now(), hs=host.player.stats.seeks, vs=tv.player.stats.seeks;
+        host.ctx.document.hidden=true;host.ctx.document.visibilityState='hidden';
+        // Clamp client timeouts while the player/clock continue independently.
+        host.ctx.setTimeout=(fn,ms)=>lab.clock.setTimeout(fn,Math.ceil((lab.clock.now()+Math.max(0,ms))/1000)*1000-lab.clock.now());
+        await lab.run(5000);const fresh=host.ctx.watchFusionPlayout.status()?.reference==='linked-tab';
+        host.player.wedge('seek');
+        await lab.run(25000);const hiddenError=Math.abs(host.errorMs());
+        host.ctx.document.hidden=false;host.ctx.document.visibilityState='visible';host.ctx.setTimeout=lab.clock.setTimeout;
+        await lab.run(150000);
+        const a=host.samples.filter(x=>x.at>=t0+45000),b=tv.samples.filter(x=>x.at>=t0+45000);
+        const detail={fresh,hiddenError,maxHost:Math.max(...a.map(x=>Math.abs(x.errorMs))),maxTv:Math.max(...b.map(x=>Math.abs(x.errorMs))),maxSpread:Math.max(...a.map((x,j)=>Math.abs(x.errorMs-b[j].errorMs))),bad:a.concat(b).filter(x=>x.frozen||x.state!==1).length,hostSeeks:host.player.stats.seeks-hs,tvSeeks:tv.player.stats.seeks-vs,samples:a.length};tracks.push(detail);
+      }
+      return {ok:tracks.every(t=>t.fresh&&t.hiddenError<=700&&t.maxHost<=50&&t.maxTv<=50&&t.maxSpread<=50&&t.bad===0&&t.hostSeeks<=3&&t.tvSeeks<=1&&t.samples>=540),detail:{tracks}};
+    }finally{lab.close();}
+  },
+
+  async 'SYNC-42:rate-capable TV waits for qualified timing instead of seeking into a decoder freeze'() {
+    const lab=await createRoomLab({seed:42,sourceNoiseMs:0,fineTrim:true});
+    const store=new Map([['watchfusion.viewerSyncModel.v1',JSON.stringify({rateHonored:false,rateRejections:2,rateGain:.71})]]);
+    const host=lab.addViewer('host',PROFILES.laptop);
+    const tv=lab.addViewer('tv',{...PROFILES.variableTv,quantumMs:0},{offsetSec:.648,store});
+    const start=lab.clock.now(), playout=tv.ctx.watchFusionPlayout, qualified=playout.hasSourceReference;
+    // The source timeline still advances; authority qualification is delayed/intermittent.
+    playout.hasSourceReference=(...a)=>lab.clock.now()-start>=12000&&qualified(...a);
+    tv.player.freezeAfterNextSeeks(6,120000);
+    try {
+      await lab.run(12000);const early={seeks:tv.player.stats.seeks,rates:tv.player.stats.rateRequests.filter(r=>r!==1).length};
+      await lab.run(48000);
+      const h=host.samples.filter(s=>s.at>=start+25000), v=tv.samples.filter(s=>s.at>=start+25000);
+      const gap=Math.max(...h.map((s,i)=>Math.abs(s.errorMs-v[i].errorMs)));
+      const detail={early,gap,hostMax:Math.max(...h.map(s=>Math.abs(s.errorMs))),tvMax:Math.max(...v.map(s=>Math.abs(s.errorMs))),seeks:tv.player.stats.seeks,loads:tv.player.stats.loads,hostSeeks:host.player.stats.seeks,rates:tv.player.stats.rateRequests,frozen:v.filter(s=>s.frozen||s.state!==1).length};
+      return {ok:early.seeks===0&&early.rates===0&&gap<=50&&detail.hostMax<=25&&detail.tvMax<=50&&detail.seeks===0&&detail.loads===0&&detail.hostSeeks===0&&detail.frozen===0&&tv.player.getPlaybackRate()===1,detail};
+    } finally {lab.close();}
+  },
+  async 'SYNC-41:resume with 533ms host and 600ms TV latency regains fine lock without seeks'() {
+    const lab=await createRoomLab({seed:41,sourceNoiseMs:0,fineTrim:true});
+    const saved=()=>new Map([['watchfusion.viewerSyncModel.v1',JSON.stringify({rateHonored:false,rateRejections:2,rateGain:.71})]]);
+    try {
+      const host=lab.addViewer('host',PROFILES.laptop,{store:saved()});
+      const tv=lab.addViewer('tv',{...PROFILES.variableTv,quantumMs:0},{store:saved()});
+      await lab.run(15000);lab.pause();await lab.run(25000);
+      host.player.options.startLatencyMs=533;tv.player.options.startLatencyMs=600;
+      const start=lab.clock.now();lab.resume();await lab.run(60000);
+      const end=lab.clock.now(), h=summarize(host,start+20000,end), v=summarize(tv,start+20000,end);
+      const tail=tv.samples.filter(s=>s.at>=start+20000);
+      const gap=Math.max(...host.samples.filter(s=>s.at>=start+20000).map((s,i)=>Math.abs(s.errorMs-tail[i].errorMs)));
+      const detail={host:h,tv:v,gap,hostRates:host.player.stats.rateRequests,tvRates:tv.player.stats.rateRequests,hostSeeks:host.player.stats.seeks,tvSeeks:tv.player.stats.seeks};
+      return {ok:gap<=50 && h.maxAbsMs<=25 && v.maxAbsMs<=25 && h.frozenMs===0&&v.frozenMs===0&&[host,tv].every(d=>d.player.stats.seeks===0&&d.player.stats.loads===0&&d.player.getPlaybackRate()===1),detail};
+    } finally {lab.close();}
+  },
   async 'SYNC-33:Sync me restarts an exhausted buffered TV in the same room'() {
     const lab=await createRoomLab({seed:33,sourceNoiseMs:0});
     try {

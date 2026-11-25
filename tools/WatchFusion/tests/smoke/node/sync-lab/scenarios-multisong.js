@@ -34,7 +34,99 @@ async function acquiredRoom(offsetSec, seed, noiseMs, requireReverse) {
   } finally {lab.close();}
 }
 
+// Trace-shaped fault injection: first rate proof is inconclusive and the
+// mirror veto arrives after real progress. No synthetic correction outcomes.
+async function partialRateRoom({multiple=false, rejects=false, vetoMs=2500, seed=37}={}) {
+  const lab=await createRoomLab({seed,sourceNoiseMs:0,fineTrim:true});
+  const saved=()=>new Map([['watchfusion.viewerSyncModel.v1',JSON.stringify({rateHonored:false,rateRejections:2,rateGain:1})]]);
+  const host=lab.addViewer('host',PROFILES.laptop,{store:saved()});
+  const tv=lab.addViewer('tv',{...PROFILES.variableTv,quantumMs:0,honorsRate:!rejects},{offsetSec:rejects?.36:.597,store:saved()});
+  const evidence=tv.ctx.WatchFusionReleaseEvidence, mirror=tv.ctx.WatchFusionMirrorConvergenceGate;
+  let first=true, vetoUntil=-1, interrupted=false;
+  tv.ctx.WatchFusionReleaseEvidence={...evidence,classifyRateProbe:(...args)=>
+    first&&!rejects?'unverified':evidence.classifyRateProbe(...args)};
+  const originalMirror=mirror.contradicted;
+  mirror.contradicted=()=>lab.clock.now()<vetoUntil||originalMirror();
+  const tracks=[];
+  let duringVetoRate=0, vetoSamples=0;
+  try {
+    for(let i=0;i<(multiple?4:1);i++) {
+      if(i){lab.nextTrack('WF-06E-track-'+i);tv.player.options.startLatencyMs=[0,637,590,720][i];tv.player.stall([0,637,590,720][i]);}
+      first=i===0;interrupted=false;vetoUntil=-1;
+      const ratesAt=tv.player.stats.rateRequests.length,hostRatesAt=host.player.stats.rateRequests.length;
+      const seeksAt=tv.player.stats.seeks,loadsAt=tv.player.stats.loads,started=lab.clock.now();
+      const hostSeeksAt=host.player.stats.seeks,hostLoadsAt=host.player.stats.loads;
+      await lab.run(40000,250,now=>{
+        if(first&&!interrupted&&!rejects&&tv.player.getPlaybackRate()>1&&tv.errorMs()<=362){
+          vetoUntil=now+vetoMs;interrupted=true;
+        }
+        if(interrupted&&now>=vetoUntil)first=false;
+        if(interrupted&&now<vetoUntil-250&&now>=vetoUntil-vetoMs+750){
+          vetoSamples++;if(tv.player.getPlaybackRate()!==1)duringVetoRate++;
+        }
+      });
+      await lab.run(30000);
+      const tail=tv.samples.filter(s=>s.at>=started+40000);
+      const hostTail=host.samples.filter(s=>s.at>=started+40000);
+      const detail={interrupted,rates:tv.player.stats.rateRequests.slice(ratesAt),
+        hostRates:host.player.stats.rateRequests.length-hostRatesAt,
+        maxGapMs:Math.max(...tail.map((s,j)=>Math.abs(s.errorMs-hostTail[j].errorMs))),
+        maxTvMs:Math.max(...tail.map(s=>Math.abs(s.errorMs))),maxHostMs:Math.max(...hostTail.map(s=>Math.abs(s.errorMs))),
+        seeks:tv.player.stats.seeks-seeksAt,loads:tv.player.stats.loads-loadsAt,
+        hostSeeks:host.player.stats.seeks-hostSeeksAt,hostLoads:host.player.stats.loads-hostLoadsAt,
+        frozen:tail.filter(s=>s.frozen||s.state!==1).length+hostTail.filter(s=>s.frozen||s.state!==1).length,
+        reason:tv.diagnostics().arbiter.reason,attempts:tv.diagnostics().arbiter.tvRateRecheck.attempts,
+        rate:tv.player.getPlaybackRate()};
+      tracks.push(detail);
+    }
+    const good=tracks.every(t=>t.maxGapMs<=50&&t.maxTvMs<=50&&t.maxHostMs<=50&&t.seeks===0&&t.loads===0&&t.rate===1&&t.rates.length<=12&&t.hostRates===0&&t.hostSeeks===0&&t.hostLoads===0&&t.frozen===0);
+    return {ok:rejects?tracks[0].rates.filter(r=>r!==1).length===1&&tracks[0].rate===1&&tracks[0].seeks===0&&tracks[0].loads===0&&tracks[0].reason==='tv-rate-trial-spent'&&tracks[0].hostRates===0&&tracks[0].hostSeeks===0&&tracks[0].hostLoads===0:good&&tracks[0].interrupted&&tracks[0].rates.filter(r=>r>1).length===2&&vetoSamples>0&&duringVetoRate===0,detail:{tracks,vetoSamples,duringVetoRate}};
+  } finally {lab.close();}
+}
+
+// Test the actual position of every member, not its reported lock state.
+async function interruptedFineLockRoom(){
+  const lab=await createRoomLab({seed:51,sourceNoiseMs:0,fineTrim:true});
+  const saved=()=>new Map([['watchfusion.viewerSyncModel.v1',JSON.stringify({rateHonored:false,rateRejections:2,rateGain:.71})]]);
+  const host=lab.addViewer('host',PROFILES.laptop,{offsetSec:.492,rttMs:10,store:saved()});
+  const tv=lab.addViewer('tv',{...PROFILES.variableTv,quantumMs:0},{offsetSec:.303,rttMs:30,store:saved()});
+  const policy=host.ctx.WatchFusionHostSeekPolicy, original=policy.sourceBlocker;
+  const hostSet=host.player.setPlaybackRate;let hostPulses=0,startedAt=-Infinity;
+  host.player.setPlaybackRate=r=>{if(r!==1){hostPulses++;startedAt=lab.clock.now();}hostSet(r);};
+  host.ctx.WatchFusionHostSeekPolicy={...policy,sourceBlocker:t=>hostPulses<=3&&lab.clock.now()-startedAt>=550&&lab.clock.now()-startedAt<1450?'host-source-unverified':original(t)};
+  const evidence=tv.ctx.WatchFusionReleaseEvidence, tvSet=tv.player.setPlaybackRate;
+  let first=true,delayed=false,restoreTimer=null,overshoot=0;
+  // First TV probe is inconclusive, and the decoder applies rate restoration late.
+  // Actual progress and overshoot are still measured independently by the lab.
+  tv.ctx.WatchFusionReleaseEvidence={...evidence,classifyRateProbe:(...args)=>first?'unverified':evidence.classifyRateProbe(...args)};
+  tv.player.setPlaybackRate=r=>{
+    if(r!==1){lab.clock.clearTimeout(restoreTimer);tvSet(r);return;}
+    if(first&&tv.player.getPlaybackRate()>1&&!delayed){delayed=true;restoreTimer=lab.clock.setTimeout(()=>{tvSet(1);first=false;overshoot=tv.errorMs();},650);return;}
+    if(delayed&&first)return;
+    tvSet(r);
+  };
+  const stages=[];
+  const settle=async(label)=>{
+    const from=lab.clock.now();await lab.run(45000);
+    const rates=host.player.stats.rateRequests.length+tv.player.stats.rateRequests.length;await lab.run(30000);
+    const hs=host.samples.filter(s=>s.at>=from+45000),ts=tv.samples.filter(s=>s.at>=from+45000);
+    stages.push({label,samples:hs.length,maxHost:Math.max(...hs.map(s=>Math.abs(s.errorMs))),maxTv:Math.max(...ts.map(s=>Math.abs(s.errorMs))),maxGap:Math.max(...hs.map((s,i)=>Math.abs(s.errorMs-ts[i].errorMs))),unready:hs.filter(s=>s.frozen||s.state!==1).length+ts.filter(s=>s.frozen||s.state!==1).length,lateRateCommands:host.player.stats.rateRequests.length+tv.player.stats.rateRequests.length-rates});
+  };
+  try{
+    await settle('interrupted-acquisition');
+    host.player.jump(-.22);tv.player.jump(-.303);await settle('same-video-disturbance-1');
+    tv.player.jump(.18);await settle('same-video-disturbance-2');
+    const detail={stages,hostPulses,delayed,overshoot,hostSeeks:host.player.stats.seeks,tvSeeks:tv.player.stats.seeks,hostLoads:host.player.stats.loads,tvLoads:tv.player.stats.loads,hostRates:host.player.stats.rateRequests,tvRates:tv.player.stats.rateRequests};
+    return {ok:delayed&&overshoot< -100&&hostPulses>=3&&hostPulses<=10&&detail.tvRates.length<=12&&stages.every(s=>s.samples>=120&&s.maxHost<=50&&s.maxTv<=50&&s.maxGap<=50&&s.unready===0&&s.lateRateCommands===0)&&[host,tv].every(d=>d.player.stats.seeks===0&&d.player.stats.loads===0&&d.player.getPlaybackRate()===1),detail};
+  }finally{lab.close();}
+}
+
 export const MULTISONG_SCENARIOS = {
+  async 'SYNC-51:interrupted fine acquisition and repeated same-video drift recover actual room lock'(){return interruptedFineLockRoom();},
+  async 'SYNC-37:partially effective TV trial recovers a subsecond plateau'() {return partialRateRoom();},
+  async 'SYNC-38:four successive tracks preserve tight lock after partial convergence'() {return partialRateRoom({multiple:true});},
+  async 'SYNC-39:mirror veto restores base speed and defers the finish until fresh evidence'() {return partialRateRoom({vetoMs:12000,seed:39});},
+  async 'SYNC-40:unresponsive advertised rate does not earn repeated trials'() {return partialRateRoom({rejects:true});},
   async 'SYNC-35:790ms acquisition preserves near-zero room lock for three minutes'() {
     return acquiredRoom(.790,42,8,false);
   },
