@@ -286,7 +286,7 @@ test.describe('Adaptive playback drift regression', () => {
   test('unsolicited room snapshots preserve measured server clock latency', async ({ page }) => {
     await page.goto('/');
     const result = await page.evaluate(() => {
-      const midpoint = Date.now();
+      const midpoint = Date.now() - 10;
       updateServerClock(midpoint, midpoint - 10, midpoint + 10);
       state = { revision: 1, source: {}, playback: {}, members: [], messages: [] };
       applyIncomingRoomState({

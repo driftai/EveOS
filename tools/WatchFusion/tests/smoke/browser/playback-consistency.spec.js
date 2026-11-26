@@ -196,11 +196,11 @@ test('millisecond viewer drift never speeds the phone up', async ({ page }) => {
 test('server clock sensor replaces one bad sample with low-latency median', async ({ page }) => {
   await page.goto('/');
   const result = await page.evaluate(() => {
-    const clock = window.watchPartyClock;
-    clock.update(2050, 1000, 1100); // +1000 ms offset, 100 ms RTT outlier
-    clock.update(2015, 2000, 2010); // +10 ms offset, 10 ms RTT
-    clock.update(3018, 3000, 3012); // +12 ms offset, 12 ms RTT
-    clock.update(4017, 4000, 4010); // +12 ms offset, 10 ms RTT
+    const clock = window.watchPartyClock, anchor = Date.now() - 4010;
+    clock.update(anchor+2050, anchor+1000, anchor+1100); // +1000 ms offset, 100 ms RTT outlier
+    clock.update(anchor+2015, anchor+2000, anchor+2010); // +10 ms offset, 10 ms RTT
+    clock.update(anchor+3018, anchor+3000, anchor+3012); // +12 ms offset, 12 ms RTT
+    clock.update(anchor+4017, anchor+4000, anchor+4010); // +12 ms offset, 10 ms RTT
     return { offset: clock.offsetMs(), rtt: clock.rttMs(), samples: clock.sampleCount() };
   });
   expect(result.samples).toBeGreaterThanOrEqual(4);

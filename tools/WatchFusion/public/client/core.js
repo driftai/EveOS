@@ -180,53 +180,53 @@ function observeYouTubeAudio() {
 }
 function medianNumber(values) {
   if (!values.length) return 0;
-  const sorted = values.slice().sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
+  const sorted = values.slice().sort((a, b) => a - b), mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
+function clockScope() { return [typeof roomId==='undefined'?'':roomId,typeof session==='undefined'?'':session?.memberId,typeof transportBaseUrl==='undefined'?'':transportBaseUrl].join('|'); }
+function clockCurrent(r) { return !!r && !r.invalid && r.scope===clockScope() && Math.abs(Date.now()-r.local-(performance.now()-r.mono))<=2+Math.max(0,performance.now()-r.mono)*5e-4; }
 function updateServerClock(serverTime, sentAt, receivedAt, receivedByServer) {
   const precise = receivedByServer != null;
-  const t0 = Number(sentAt), t1 = Number(receivedByServer ?? serverTime);
-  const t2 = Number(serverTime), t3 = Number(receivedAt);
-  if (![t0, t1, t2, t3].every(Number.isFinite) || t1 <= 0 || t2 < t1 || t3 < t0) return;
-  const rtt = (t3 - t0) - (t2 - t1);
-  if (rtt < 0 || t3 - t0 > 5000) return;
-  const localNow = Date.now(), monoNow = performance.now();
-  if (serverClockReference && Math.abs(localNow - serverClockReference.local - (monoNow - serverClockReference.mono)) > 100) {
-    serverClockSamples = [];
+  const t0 = Number(sentAt), t1 = Number(receivedByServer ?? serverTime), t2 = Number(serverTime), t3 = Number(receivedAt);
+  if (![t0,t1,t2,t3].every(Number.isFinite) || t1<=0 || t2<t1 || t3<t0) return;
+  const rtt=(t3-t0)-(t2-t1), localNow=Date.now(), monoNow=performance.now(), scope=clockScope();
+  if (rtt<0 || t3-t0>5000 || t3>localNow || localNow-t3>5000) return;
+  if (serverClockReference && !serverClockReference.invalid && !clockCurrent(serverClockReference)) {
+    const stepped=serverClockReference.scope===scope; serverClockSamples=[];serverClockReference.invalid=true;serverClockRttMs=Infinity;
+    if(stepped)return; // the exchange may straddle a wall-clock step
   }
-  if (!precise && serverClockSamples.some(sample => sample.precise && t3 - sample.at < 30000)) return;
-  if (precise && !serverClockSamples.some(sample => sample.precise)) serverClockSamples = [];
-  const offset = ((t1 - t0) + (t2 - t3)) / 2;
-  serverClockSamples = serverClockSamples.filter(sample => t3 - sample.at < 45000 && t3 >= sample.at);
-  serverClockSamples.push({ rtt, offset, at: t3, precise });
-  if (serverClockSamples.length > 12) serverClockSamples.shift();
-  // Prefer low-delay exchanges and reject isolated asymmetric samples.
-  const sorted = [...serverClockSamples].sort((a, b) => a.rtt - b.rtt);
-  serverClockRttMs = sorted[0].rtt;
-  const lowLatency = sorted.filter(sample => sample.rtt <= serverClockRttMs + Math.max(8, serverClockRttMs / 4)).slice(0, 5);
-  serverClockOffsetMs = medianNumber(lowLatency.map(sample => sample.offset));
-  serverClockReference = { local: localNow, mono: monoNow, boundMs: Math.max(...lowLatency.map(s => s.rtt)) / 2, spreadMs: Math.max(...lowLatency.map(s => s.offset)) - Math.min(...lowLatency.map(s => s.offset)), newestAt: Math.max(...lowLatency.map(s => s.at)), samples: lowLatency.length, precise: lowLatency.every(s => s.precise) };
+  if (serverClockSamples.some(s=>s.at>t3 || (s.at===t3 && s.sent===t0))) return;
+  if (!precise && serverClockSamples.some(s=>s.precise && t3-s.at<30000)) return;
+  if (precise && !serverClockSamples.some(s=>s.precise)) serverClockSamples=[];
+  const offset=((t1-t0)+(t2-t3))/2;
+  serverClockSamples=[...serverClockSamples.filter(s=>t3-s.at<45000 && t3>=s.at),
+    {rtt,offset,at:t3,precise,sent:t0,lo:t2-t3,hi:t1-t0}].slice(-12);
+  const fresh=serverClockSamples.filter(s=>s.precise && localNow-s.at<=15000);
+  const sorted=[...(fresh.length?fresh:serverClockSamples)].sort((a,b)=>a.rtt-b.rtt);serverClockRttMs=sorted[0].rtt;
+  const low=sorted.filter(s=>s.rtt<=serverClockRttMs+Math.max(8,serverClockRttMs/4)).slice(0,5);
+  let used=low, boundMs=Math.max(...low.map(s=>s.rtt/2+2+(localNow-s.at)*5e-4)), intervalCoherent=null;
+  serverClockOffsetMs=medianNumber(low.map(s=>s.offset));
+  // Each four-timestamp exchange brackets offset despite asymmetric delay. Expand for timestamp granularity and 500ppm drift.
+  if(fresh.length>=3){
+    const intervals=fresh.map(s=>{const pad=2+(localNow-s.at)*5e-4;return [s.lo-pad,s.hi+pad];});
+    const lo=Math.max(...intervals.map(v=>v[0])),hi=Math.min(...intervals.map(v=>v[1]));
+    used=fresh;intervalCoherent=lo<=hi;
+    if(intervalCoherent){serverClockOffsetMs=(lo+hi)/2;boundMs=(hi-lo)/2;}
+    else {boundMs=Math.max(...intervals.flat().map(v=>Math.abs(v-serverClockOffsetMs)));} // never certify a contradictory fit
+  }
+  serverClockReference={local:localNow,mono:monoNow,scope,boundMs,spreadMs:Math.max(...used.map(s=>s.offset))-Math.min(...used.map(s=>s.offset)),newestAt:Math.max(...used.map(s=>s.at)),samples:used.length,precise:used.every(s=>s.precise),intervalCoherent};
 }
-function estimatedServerNow() {
-  const reference = serverClockReference;
-  return reference ? reference.local + (performance.now() - reference.mono) + serverClockOffsetMs : Date.now();
-}
+function estimatedServerNow() { const r=serverClockReference; return r?r.local+(performance.now()-r.mono)+serverClockOffsetMs:Date.now(); }
 window.watchPartyClock = {
-  offsetMs: () => serverClockOffsetMs,
-  rttMs: () => Number.isFinite(serverClockRttMs) ? serverClockRttMs : null,
-  precise: () => serverClockSamples.some(sample => sample.precise && Date.now() - sample.at < 15000),
-  witnessReady() {
-    const reference = serverClockReference, now = Date.now();
-    return !!reference?.precise && reference.samples >= 3 && reference.boundMs <= 45 && reference.spreadMs <= 2 * reference.boundMs + 2 &&
-      now >= reference.newestAt && now - reference.newestAt <= 15000 && this.serverAt(now) !== null;
-  },
-  sampleCount: () => serverClockSamples.length, offsetBound: () => Number.isFinite(serverClockReference?.boundMs) ? { boundMs: serverClockReference.boundMs, spreadMs: serverClockReference.spreadMs, ageMs: Date.now() - serverClockReference.newestAt, samples: serverClockReference.samples, precise: serverClockReference.precise } : null,
-  now: estimatedServerNow,
-  serverAt: localTime => serverClockReference
-    && Math.abs(Date.now() - serverClockReference.local - (performance.now() - serverClockReference.mono)) <= 100
-    ? Number(localTime) + serverClockOffsetMs : null,
-  update: updateServerClock
+  offsetMs:()=>serverClockOffsetMs,
+  rttMs:()=>Number.isFinite(serverClockRttMs)?serverClockRttMs:null,
+  precise:()=>clockCurrent(serverClockReference)&&serverClockReference.intervalCoherent!==false&&serverClockSamples.some(s=>s.precise&&Date.now()-s.at<15000),
+  witnessReady(){const r=serverClockReference,now=Date.now();return clockCurrent(r)&&r.precise&&r.samples>=3&&r.boundMs<=45&&r.intervalCoherent!==false&&(r.intervalCoherent===true||r.spreadMs<=2*r.boundMs+2)&&now>=r.newestAt&&now-r.newestAt<=15000;},
+  fineAllowanceMs(){const r=serverClockReference,at=Date.now();
+    return this.witnessReady()&&r.intervalCoherent===true&&serverClockSamples.filter(s=>s.precise&&at>=s.at&&at-s.at<=15000).length>=3?Math.ceil(r.boundMs+(at-r.newestAt)*5e-4+1):null;},
+  sampleCount:()=>serverClockSamples.length, offsetBound:()=>{const r=serverClockReference;return clockCurrent(r)&&Number.isFinite(r.boundMs)?{boundMs:r.boundMs,spreadMs:r.spreadMs,ageMs:Date.now()-r.newestAt,samples:r.samples,precise:r.precise,intervalCoherent:r.intervalCoherent}:null;},
+  now:estimatedServerNow, serverAt:localTime=>clockCurrent(serverClockReference)?Number(localTime)+serverClockOffsetMs:null,
+  update:updateServerClock
 };
 function playbackAuthorityKey(roomState = state) {
   const source = roomState?.source || {};

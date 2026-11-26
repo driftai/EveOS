@@ -37,6 +37,7 @@ export async function runRoomLogChecks(check) {
   await runActivityChecks(check);
   await runCopyIsolationChecks(check);
   await run06jhChecks(check);
+  await run06jiChecks(check);
 }
 
 // 06j: identical media samples against different private target leases are not a room comparison.
@@ -281,5 +282,104 @@ async function run06jhChecks(check){
     h.p.setPlaybackRate=r=>{if(r===1&&h.p.rate!==1&&h.starts()-startsAt<=3)h.p.position=h.ctx.watchFusionYouTubeTarget()-.079;original(r);};
     for(let i=0;i<2;i++){startsAt=h.starts();h.p.position=h.ctx.watchFusionYouTubeTarget()-.079;h.ctx.advance(125000);assert.ok(h.error()<=50,`episode ${i} residual ${h.error()}`);assert.ok(h.starts()-startsAt>=4&&h.starts()-startsAt<=6);assert.equal(h.p.rate,1);}
     assert.equal(h.events.filter(e=>e.reason==='fresh-stable-evidence').length,2);
+  });
+}
+
+// Clock intersection uses the actual core block, not a simulated replacement estimator.
+async function run06jiChecks(check){
+  function clockFixture(){
+    const c=world({roomId:'A',session:{memberId:'m'},transportBaseUrl:''}),core=clientSource('core');
+    vm.runInContext(core.slice(core.indexOf('let serverClockOffsetMs'),core.indexOf('const isTryCloudflare'))+
+      core.slice(core.indexOf('function medianNumber'),core.indexOf('function playbackAuthorityKey')),c);
+    const api=c.watchPartyClock;
+    const sample=(lo,hi)=>{c.advance(1000);const t3=c.Date.now(),t0=t3-(hi-lo);api.update(t3+lo,t0,t3,t3+lo);};
+    return {c,api,sample};
+  }
+  await check('WF06JI-01:asymmetric exchanges intersect without claiming RTT itself improved',()=>{
+    const {api,sample}=clockFixture();sample(80,120);sample(50,102);sample(98,158);
+    const b=api.offsetBound();assert.equal(b.intervalCoherent,true);assert.equal(b.samples,3);assert.ok(b.boundMs<5);
+    assert.ok(Math.abs(api.offsetMs()-100)<1);assert.equal(api.rttMs(),40);assert.equal(api.witnessReady(),true);assert.ok(api.fineAllowanceMs()<=6);
+    const c=world();vm.runInContext(clientSource('sensor-provenance'),c);
+    assert.equal(c.WatchFusionSensorProvenance.clockBound(b).clockState,'bounded');
+  });
+  await check('WF06JI-02:unchanging path asymmetry remains uncertain',()=>{
+    const {api,sample}=clockFixture();for(let i=0;i<8;i++)sample(80,126);
+    const b=api.offsetBound();assert.ok(b.boundMs>=23);assert.ok(b.boundMs>=Math.abs(api.offsetMs()-80));assert.equal(api.rttMs(),46);assert.ok(api.fineAllowanceMs()>=23);
+  });
+  await check('WF06JI-03:contradictory intervals never certify precision',()=>{
+    const {api,sample}=clockFixture();sample(80,100);sample(81,101);sample(140,160);
+    const b=api.offsetBound();assert.equal(b.intervalCoherent,false);assert.equal(api.witnessReady(),false);assert.equal(api.precise(),false);assert.equal(api.fineAllowanceMs(),null);
+    const c=world();vm.runInContext(clientSource('sensor-provenance'),c);assert.equal(c.WatchFusionSensorProvenance.clockBound(b).clockState,'unstable');
+  });
+  await check('WF06JI-04:duplicate stale and cross-room clock evidence cannot qualify a new scope',()=>{
+    const {c,api,sample}=clockFixture();sample(80,100);const t=c.Date.now();for(let i=0;i<5;i++)api.update(t+80,t-20,t,t+80);
+    assert.equal(api.sampleCount(),1);sample(82,102);sample(85,105);assert.equal(api.witnessReady(),true);
+    c.advance(16000);assert.equal(api.witnessReady(),false);assert.equal(api.fineAllowanceMs(),null);c.roomId='B';assert.equal(api.offsetBound(),null);assert.equal(api.serverAt(c.Date.now()),null);
+    sample(400,420);assert.equal(api.sampleCount(),1);assert.equal(api.witnessReady(),false);
+  });
+  await check('WF06JI-10:wall clock step revokes precision but preserves coarse monotonic playback time',()=>{
+    const {c,api,sample}=clockFixture();sample(80,120);sample(50,102);sample(98,158);const before=api.now();
+    const previousDate=c.Date.now;c.Date.now=()=>previousDate()+20;
+    assert.equal(api.serverAt(c.Date.now()),null);assert.equal(api.offsetBound(),null);assert.equal(api.precise(),false);assert.equal(api.fineAllowanceMs(),null);
+    sample(60,100);assert.ok(Math.abs(api.now()-before-1000)<.001);assert.equal(api.witnessReady(),false);
+    sample(30,82);sample(78,138);sample(60,100);assert.equal(api.witnessReady(),true);assert.ok(Math.abs(api.offsetMs()-80)<2);
+  });
+  const viewer=(offset,mode='good')=>{
+    const c=world(),p=fakePlayer(c,{position:30-offset}),events=[];let witness=null, bound=3, trusted=true;
+    const sourceBound=mode==='tight'?2:4;if(mode==='tight')bound=1;
+    roomGlobals(c,p,{targetOffsetSec:0,host:false,uncertaintyMs:4});
+    c.watchFusionPlayout.status=()=>({source:'live',reference:'linked-tab',uncertaintyMs:sourceBound,sourcePhaseMs:0,anchorPositionMs:30000,anchorAt:1.7e12,rate:1,phaseMs:0});
+    c.watchFusionPlayout.hasSourceReference=()=>trusted;
+    c.watchPartyClock={precise:()=>true,rttMs:()=>30,witnessReady:()=>trusted,offsetBound:()=>({intervalCoherent:true,precise:true,samples:5,boundMs:bound,ageMs:30})};
+    if(mode==='legacy')c.watchPartyClock.offsetBound=()=>({boundMs:15,spreadMs:2,ageMs:50,samples:4,precise:true});else c.watchPartyClock.fineAllowanceMs=()=>trusted?Math.ceil(bound+30*5e-4+1):null;
+    c.watchFusionViewerArbiter.snapshot=()=>p.rate!==1&&witness?witness:{timelineErrorMs:(c.watchFusionYouTubeTarget()-p.position)*1000,timelineObservedAtMs:c.clock()};
+    c.watchFusionRoomSyncLog={note:(kind,detail)=>events.push({kind,...detail})};
+    p.setPlaybackRate=r=>{p.calls.push(['rate',r]);if(r!==1)witness=c.watchFusionViewerArbiter.snapshot();p.rate=r;};
+    if(mode==='ignored')c.tick=at=>{p.position=30-offset+at/1000;};
+    if(mode==='wide')bound=28;
+    vm.runInContext(clientSource('zero-converge'),c);
+    return {c,p,events,widen:()=>{bound=28;},veto:()=>{trusted=false;},error:()=>Math.abs(c.watchFusionYouTubeTarget()-p.position)*1000};
+  };
+  await check('WF06JI-05:qualified 30ms viewer plateau is reduced in either direction',()=>{
+    for(const e of [.030,-.030]){const x=viewer(e);x.c.advance(18000);assert.ok(x.error()<=18,`residual ${x.error()}`);assert.equal(x.p.rate,1);
+      assert.ok(x.events.some(v=>v.reason==='viewer-precision-step-complete'));assert.ok(x.events.some(v=>v.kind==='zero-actuator-verified'&&v.reason==='verified'));assert.ok(x.p.calls.every(([k])=>k==='rate'));}
+  });
+  await check('WF06JI-09:stronger evidence permits two measured steps into the near-zero band',()=>{
+    const x=viewer(.030,'tight');x.c.advance(18000);assert.ok(x.error()<=6,`residual ${x.error()}`);assert.equal(x.p.rate,1);
+    assert.equal(x.events.filter(v=>v.kind==='zero-actuator-verified'&&v.reason==='verified').length,2);
+  });
+  await check('WF06JI-06:uncertainty larger than correction margin does not authorize the new precision lane',()=>{
+    const x=viewer(.030,'wide'),legacy=viewer(.030,'legacy');x.c.advance(20000);legacy.c.advance(20000);
+    assert.deepEqual(x.p.calls,legacy.p.calls);assert.ok(!x.events.some(v=>v.reason==='viewer-precision-step-complete'));
+    assert.ok(Math.abs(x.error()-legacy.error())<.001);
+  });
+  await check('WF06JI-07:viewer precision trim cannot credit ignored rate or repeatedly exhaust playback',()=>{
+    const x=viewer(.030,'ignored');x.c.advance(180000);assert.equal(x.p.rate,1);assert.ok(x.p.calls.length>0&&x.p.calls.length<=6);
+    assert.ok(!x.events.some(v=>v.kind==='zero-actuator-verified'&&v.reason==='verified'));
+  });
+  await check('WF06JI-08:reference loss during small viewer pulse releases rate without proof',()=>{
+    const x=viewer(.030);x.c.advance(2250);assert.equal(x.p.rate,1.25);x.veto();x.c.advance(50);assert.equal(x.p.rate,1);
+    x.c.advance(9000);assert.ok(!x.events.some(v=>v.kind==='zero-actuator-verified'&&v.reason==='verified'));
+  });
+  await check('WF06JIA-01:legacy clock interface retains reverse correction and does not require precision authority',()=>{
+    const x=viewer(-.038,'legacy');x.c.advance(20000);assert.ok(x.error()<=25,`reverse residual ${x.error()}`);
+    assert.ok(x.p.calls.some(([kind,rate])=>kind==='rate'&&rate===.75));assert.equal(x.p.rate,1);
+    assert.ok(x.p.calls.every(([kind])=>kind==='rate'));assert.ok(!x.events.some(v=>v.reason==='viewer-precision-step-complete'));
+  });
+  await check('WF06JIA-02:clock interval widening during a small precision pulse releases without credit',()=>{
+    const x=viewer(.030);x.c.advance(2250);assert.equal(x.p.rate,1.25);x.widen();x.c.advance(50);assert.equal(x.p.rate,1);
+    assert.ok(x.events.some(v=>v.reason==='micro-reference-or-timer-unverified'));
+    assert.ok(!x.events.some(v=>v.kind==='zero-actuator-verified'&&v.reason==='verified'));
+  });
+  await check('WF06JIB-01:clock rejects invalid receive timestamps and accepts the same valid coarse median fixture',()=>{
+    const {c,api}=clockFixture();api.update(2050,1000,1100);const now=c.Date.now();api.update(now,now-10,now+10);
+    assert.equal(api.sampleCount(),0);assert.equal(api.rttMs(),null);assert.equal(api.fineAllowanceMs(),null);
+    const anchor=now-4010;api.update(anchor+2050,anchor+1000,anchor+1100);api.update(anchor+2015,anchor+2000,anchor+2010);
+    api.update(anchor+3018,anchor+3000,anchor+3012);api.update(anchor+4017,anchor+4000,anchor+4010);
+    assert.ok(api.sampleCount()>=4);assert.ok(api.rttMs()<=12);assert.ok(Math.abs(api.offsetMs()-12)<5);assert.equal(api.fineAllowanceMs(),null);
+  });
+  await check('WF06JIB-02:completed 20ms coarse exchange retains latency without precision authority',()=>{
+    const {c,api}=clockFixture();const midpoint=c.Date.now()-10;api.update(midpoint,midpoint-10,midpoint+10);
+    assert.equal(api.rttMs(),20);assert.ok(Math.abs(api.offsetMs())<=1);assert.equal(api.fineAllowanceMs(),null);
   });
 }

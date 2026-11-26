@@ -77,7 +77,9 @@ export async function runV13108fChecks(check) {
     // carry the median. The real error is then larger than minimum-RTT/2, which is what v13.10.8e reported.
     const skew = clockLab(); skew.exchange(2, 2); for (let i = 0; i < 4; i++) skew.exchange(1, 11);
     const skewError = Math.abs(skew.clock.offsetMs() - skew.trueOffset), skewBound = provenance().clockBound(skew.clock.offsetBound());
-    assert.ok(skewError > skew.clock.rttMs() / 2, `fixture: error ${skewError} vs min-RTT/2 ${skew.clock.rttMs() / 2}`);
+    const legacyMedianError = Math.abs((1 - 11) / 2); // four skewed midpoints dominated the old median
+    assert.ok(legacyMedianError > skew.clock.rttMs() / 2, 'the original fixture still falsifies minimum-RTT/2 for the old estimator');
+    assert.ok(skewError <= skew.clock.rttMs() / 2 && skewError < legacyMedianError, 'interval fit must improve this asymmetric fixture');
     assert.ok(skewError <= skewBound.clockBoundMs, 'the reported bound still covers it');
     const lab = clockLab();
     for (let i = 0; i < 5; i++) lab.exchange(1, 40);

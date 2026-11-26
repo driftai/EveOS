@@ -57,15 +57,15 @@
     if (playerAudible === null || !sourceKnown) return 'unknown';
     return playerAudible && sourceAudible ? 'both' : playerAudible ? 'player' : sourceAudible ? 'source-tab' : 'none';
   }
-  // Clock: every exchange brackets the true server offset within ±rtt/2 whatever the path asymmetry, so the median of
-  // the exchanges used is within ±max(rtt used)/2, plus oscillator drift since the newest one. That is a bound, not a
-  // measured accuracy: the asymmetry inside it stays unknown. Minimum RTT/2 under-states it and is never reported.
-  // Offsets further apart than the bound allows mean the clock moved or reset: 'unstable'. Diagnostic only.
+  // Four-timestamp offset intervals include path asymmetry; their intersection can tighten a conditional bound.
+  // Clock fit includes timestamp granularity and modeled oscillator drift, not measured speaker accuracy.
+  // Preserve the legacy spread check for callers without interval evidence; contradictory fits are unstable.
+  // The remaining asymmetry inside the bound is unknown. Diagnostic only.
   function clockBound(c) {
     if (!c || !Number.isFinite(c.boundMs) || !Number.isFinite(c.ageMs)) return {clockBoundMs: null, clockState: 'unknown'};
-    const clockBoundMs = Math.ceil(c.boundMs + Math.max(0, c.ageMs) * 1e-4) + 1;
-    const clockState = c.ageMs > 15000 ? 'stale' : !c.precise ? 'coarse' : !(c.samples >= 3) ? 'thin'
-      : !(c.spreadMs <= 2 * c.boundMs + 2) ? 'unstable' : 'bounded';
+    const clockBoundMs = Math.ceil(c.boundMs + Math.max(0, c.ageMs) * (c.intervalCoherent == null ? 1e-4 : 5e-4)) + 1;
+    const clockState = c.ageMs > 15000 ? 'stale' : c.intervalCoherent === false ? 'unstable' : !c.precise ? 'coarse' : !(c.samples >= 3) ? 'thin'
+      : c.intervalCoherent !== true && !(c.spreadMs <= 2 * c.boundMs + 2) ? 'unstable' : 'bounded';
     return {clockBoundMs, clockState};
   }
   // input: {direct, media, now, clock, source}: clock is watchPartyClock.offsetBound(); source is the linked tab's
