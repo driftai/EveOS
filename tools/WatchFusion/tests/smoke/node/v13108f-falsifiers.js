@@ -48,15 +48,16 @@ function roomLog() {
   let now = 100000;
   const ctx = {document: {getElementById: id => nodes[id] || null}, navigator: {}, performance: {now: () => now},
     roomId: 'room-1', session: {memberId: 'h'}, isHost: () => true,
-    state: {presentationEpoch: 1, playoutSegment: 6, hostId: 'h', playback: {rate: 1},
+    state: {presentationEpoch: 1, playoutSegment: 6, hostId: 'h', playback: {rate: 1, position:60, projectedAt:now-10},
       members: [{id: 'h', name: 'Laptop-Side'}, {id: 'tv', name: 'TV'}, {id: 'ph', name: 'Phone'}]},
     estimatedServerNow: () => now, setTimeout, console, Date, JSON, Math, Object, Number, Array, String, RegExp};
   ctx.window = ctx;
+  vm.runInNewContext(read('public/client/precision-policy.js'), ctx);
   vm.runInNewContext(read('public/client/sync-room-log.js'), ctx, {filename: 'sync-room-log.js'});
   return {log: ctx.window.watchFusionRoomSyncLog, advance: ms => { now += ms; }, at: () => now};
 }
 const sensor = (audibleOutput, clock = {clockBoundMs: 6, clockState: 'bounded'}) => ({domain: 'player-timeline', heldMs: 0, audibleOutput, ...clock});
-const peer = (member, at, targetError, audibleOutput = 'player', extra = {}) => ({member, sampledAt: at - 10, positionMs: 60000 + targetError,
+const peer = (member, at, targetError, audibleOutput = 'player', extra = {}) => ({member, playoutSegment:6, sampledAt: at - 10, positionMs: 60000 + targetError,
   roomPositionMs: 60000, targetPositionMs: 60000, ready: true, playing: true, buffering: false, rttMs: 10, rate: 1,
   audible: audibleOutput === 'player' || audibleOutput === 'both', sensor: sensor(audibleOutput), ...extra});
 const snap = rows => { const {log, at} = roomLog(); log.observe(rows(at()), {reference: 'peer-cohort', source: 'live'}); return JSON.parse(log.export()).snapshots.at(-1); };

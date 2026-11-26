@@ -12,7 +12,8 @@
   'use strict';
   if (typeof window === 'undefined') return;
   const STALL_DWELL_MS = 6000, BUFFER_DWELL_MS = 9000, MIN_DRIFT_SEC = 2.5, RETRY_AFTER_MS = 15000;
-  const TRUST_GRACE_MS = 6000, MAX_REBUILDS_PER_10_MIN = 2;
+  const TRUST_GRACE_MS = 6000, MAX_REBUILDS_PER_10_MIN = 2, FAILED_RELOAD_MS = 8000;
+  const CHECKPOINT_KEY = "wf.decoder-recovery.v1", CHECKPOINT_MS = 600000;
   // R14v: decoder health is not proof of 0 ms room/speaker phase.  The TV in
   // the November 21 physical run advanced for >3 minutes with a stable ~170 ms
   // player-timeline offset. Give ONE additional decoder budget after a full
@@ -49,19 +50,45 @@
   // not restart the dwell or refill the budget. Dwell and budget belong to room:video:epoch; the budget
   // refills only after the player has been healthy for 30 s.
   const dwellScope = raw => String(raw ?? '').split(':').slice(0, 3).join(':');
-  function enterScope(next) {
+  // Persist consumed local recovery budgets, not timing samples, jobs or audio permission.
+  // Same-tab reloads may continue a failed ladder only after new playback evidence.
+  function checkpoint(nowMs) {
+    if (!scope || !Number.isFinite(nowMs)) return;
+    try {
+      const at=Date.now(), wall=t=>Number.isFinite(t)?at-(nowMs-t):null;
+      sessionStorage.setItem(CHECKPOINT_KEY,JSON.stringify({scope,at,steps,last:wall(lastStepAt),manual:wall(manualRestartAt),spent:rejoinSpent,
+        rebuilds:rebuilds.map(wall).filter(t=>t!==null&&at-t<CHECKPOINT_MS),resume:resumeRearms.map(wall),heal:healRearms.map(wall)}));
+    } catch {}
+  }
+  function restoreCheckpoint(nowMs) {
+    try {
+      const c=JSON.parse(sessionStorage.getItem(CHECKPOINT_KEY)), at=Date.now();
+      if (!c || !Number.isFinite(nowMs) || !Number.isFinite(c.at) || at-c.at<0 || at-c.at>=CHECKPOINT_MS) return;
+      const mono=t=>Number.isFinite(t)&&at-t>=0&&at-t<CHECKPOINT_MS?nowMs-(at-t):-Infinity;
+      const recent=(xs,n)=>Array.isArray(xs)?xs.map(mono).filter(Number.isFinite).slice(-n):[];
+      rebuilds.push(...recent(c.rebuilds,MAX_REBUILDS_PER_10_MIN));resumeRearms=recent(c.resume,1);healRearms=recent(c.heal,1);
+      manualRestartAt=mono(c.manual);
+      if(c.scope!==scope || ![1,2].includes(c.steps) || !Number.isFinite(mono(c.last))) return;
+      steps=c.steps;lastStepAt=mono(c.last);rejoinSpent=c.spent===true;outcome='recovery-budget-restored';
+      window.watchFusionRoomSyncLog?.note?.('tv-decoder-resumed',{step:steps,reason:outcome});
+    } catch {}
+  }
+  function enterScope(next, nowMs) {
     if (next === scope) return;
+    const first=!scope;
     warm = null; rejoinCandidate = null; rejoinSpent = false; scope = next; since = 0; steps = 0; lastStepAt = -Infinity; liveSeenAt = -Infinity;
     healthySince = 0; healthyAt = -1; healthyPosition = null; healthyProgressMs = 0;
     healthOffsets = [];
     pausedAt = -1; wasRoomPaused = false; outcome = 'scope-change';
+    if(first)restoreCheckpoint(nowMs);
+    checkpoint(nowMs);
   }
   // Called for TV followers from playback-sync, even while the room is paused.
   // It does not command the player and cannot rearm during a playing segment.
   function observeTransport({scope: raw, nowMs, paused} = {}) {
     const next = raw ? dwellScope(raw) : '';
     if (!next || !Number.isFinite(nowMs)) return false;
-    enterScope(next);
+    enterScope(next,nowMs);
     if (paused === true) {
       warm = null;
       if (!wasRoomPaused) { pausedAt = nowMs; wasRoomPaused = true; }
@@ -78,7 +105,7 @@
     healthySince = 0; healthyAt = -1; healthyPosition = null; healthyProgressMs = 0;
     healthOffsets = [];
     resumeRearms.push(nowMs); rearmCount++; lastRearmDwellMs = Math.round(dwell);
-    outcome = 'long-pause-resume-budget-rearmed';
+    outcome = 'long-pause-resume-budget-rearmed'; checkpoint(nowMs);
     window.watchFusionRoomSyncLog?.note?.('tv-resume-rearmed', {pauseMs: Math.round(dwell), count: rearmCount});
     return true;
   }
@@ -112,7 +139,7 @@
         healthyProgressMs >= HEALTH_PROGRESS_MS && spread <= HEALTH_JITTER_SEC &&
         nowMs - lastStepAt >= HEALED_MS) {
       steps = 0; lastStepAt = -Infinity; outcome = 'healed-advancing-stable-offset';
-      healRearms.push(nowMs); healCount++;
+      healRearms.push(nowMs); healCount++; checkpoint(nowMs);
       window.watchFusionRoomSyncLog?.note?.('tv-decoder-recovered',
         {progressMs: Math.round(healthyProgressMs), offsetMs: Math.round(drift*1000)});
     }
@@ -122,7 +149,7 @@
         input.trusted !== true || input.sourceBuffering || typeof input.rebuild !== 'function' ||
         (input.buffering && !(Math.abs(input.drift) >= MIN_DRIFT_SEC))) return false;
     if (nowMs - manualRestartAt < RETRY_AFTER_MS) return true;
-    manualRestartAt = lastStepAt = nowMs;
+    manualRestartAt = lastStepAt = nowMs; checkpoint(nowMs);
     since = 0;
     try {
       input.rebuild();
@@ -131,13 +158,27 @@
     } catch { outcome = 'manual-restart-failed'; }
     return true;
   }
+  function qualifiesStall({io, media, videoId, nowMs, stalledMs, exhausted, buffering} = {}) {
+    if (buffering || !exhausted || !(stalledMs >= STALL_DWELL_MS) || document.hidden ||
+        !io?.follower || !io.linkedSourceActive?.() || !io.sourceReferenceQualified?.(100) ||
+        io.mirrorContradicted?.() || media?.getVideoData?.()?.video_id !== videoId) return false;
+    const precision=io.referenceUncertaintyMs?.();
+    return Number.isFinite(precision) && precision >= 0 && precision <= 70 &&
+      window.WatchFusionSensorProvenance?.describe?.({media,now:nowMs})?.timelineState === 'held';
+  }
   function consider(input = {}) {
     const nextScope = input.scope ? dwellScope(input.scope) : '';
-    enterScope(nextScope);
     const nowMs = Number(input.nowMs);
+    enterScope(nextScope,nowMs);
     if (input.trusted) liveSeenAt = nowMs;
     const wedged = input.buffering ? true : !!(input.exhausted && input.playing);
     if (input.manual) return restartAfterSync(input, nowMs, wedged);
+    const provenStall = input.qualifiedStall === true && input.trusted === true && !input.sourceBuffering &&
+      !document.hidden && !input.buffering && input.exhausted === true && input.playing === true &&
+      Number.isFinite(input.stalledMs) && input.stalledMs >= STALL_DWELL_MS && Number.isFinite(input.position) && Number.isFinite(input.drift);
+    const failedReload = provenStall && steps === 1 && nowMs-lastStepAt >= FAILED_RELOAD_MS;
+    const prequalified = provenStall && steps === 0;
+    if (input.fastOnly && !failedReload) return false;
     observeHealth(input, nowMs, wedged);
     if (!scope || !wedged || document.hidden || !Number.isFinite(nowMs)) { since = 0; return false; }
     // A one-report "frozen" blink of the linked source is not a frozen room.
@@ -156,18 +197,21 @@
       if (outcome !== 'terminal-recovery-spent') input.onSpent?.();
       outcome = 'terminal-recovery-spent'; return false;
     }
-    if (!since) { since = nowMs; outcome = 'confirming-wedged-decoder'; return false; }
-    if (nowMs - since < (input.buffering ? BUFFER_DWELL_MS : STALL_DWELL_MS)) return false;
-    if (steps === 1 && nowMs - lastStepAt < RETRY_AFTER_MS) { outcome = 'verifying-decoder-reload'; return false; }
+    if (!failedReload && !prequalified) {
+      if (!since) { since = nowMs; outcome = 'confirming-wedged-decoder'; return false; }
+      if (nowMs - since < (input.buffering ? BUFFER_DWELL_MS : STALL_DWELL_MS)) return false;
+      if (steps === 1 && nowMs - lastStepAt < RETRY_AFTER_MS) { outcome = 'verifying-decoder-reload'; return false; }
+    }
     const recent = rebuilds.filter(t => nowMs - t < 600000);
     const rebuild = steps === 1 && recent.length < MAX_REBUILDS_PER_10_MIN && typeof input.rebuild === 'function';
-    if (steps === 1 && !rebuild) { steps = 2; outcome = 'rebuild-budget-spent'; return false; }
+    if (steps === 1 && !rebuild) { steps = 2; outcome = 'rebuild-budget-spent'; checkpoint(nowMs); return false; }
     steps++; lastStepAt = nowMs; since = 0; rejoinCandidate = null; rejoinSpent = false;
     warm = {scope:input.scope,at:nowMs,sample:null,progress:0};
     try {
-      if (rebuild) { rebuilds.push(nowMs); input.rebuild(); outcome = 'player-rebuilt-once'; }
-      else { input.reload(); outcome = 'one-decoder-reload'; }
-      window.watchFusionRoomSyncLog?.note?.('tv-decoder-' + (rebuild ? 'rebuild' : 'reload'), {positionMs: Math.round(Number(input.drift) * 1000)});
+      if (rebuild) { rebuilds.push(nowMs); checkpoint(nowMs); input.rebuild(); outcome = 'player-rebuilt-once'; }
+      else { checkpoint(nowMs); input.reload(); outcome = 'one-decoder-reload'; }
+      window.watchFusionRoomSyncLog?.note?.('tv-decoder-' + (rebuild ? 'rebuild' : 'reload'), {positionMs: Math.round(Number(input.drift) * 1000),step:steps,
+        reason:failedReload?'verified-reload-failure':prequalified?'verified-stall-exhausted':'ordinary-dwell'});
       return true;
     } catch { warm = null; outcome = 'recovery-failed'; return false; }
   }
@@ -189,7 +233,7 @@
     }
     c.at=nowMs; c.pos=pos;
     if (nowMs-c.since < 8000 || nowMs-lastStepAt < 12000) return false;
-    rejoinSpent=true; rejoinCandidate=null; return true;
+    rejoinSpent=true; rejoinCandidate=null; checkpoint(nowMs); return true;
   }
   // The same thing a manual URL reload does for the player, without leaving the room.
   function rebuildPlayer(videoId, startSeconds) {
@@ -201,7 +245,7 @@
     ytPlayer = null; ytPlayerReady = false; playerPrimed = false; playerInitializing = false;
     ensurePlayer(videoId, startSeconds);
   }
-  window.WatchFusionDecoderRescue = {version: 'adaptive-room-06h', consider, observeTransport, rebuildPlayer, settling, isSettling, allowAutomaticRejoin,
+  window.WatchFusionDecoderRescue = {version: 'adaptive-room-06jc', consider, qualifiesStall, observeTransport, rebuildPlayer, settling, isSettling, allowAutomaticRejoin,
     diagnostics: () => ({scope, attempted: steps > 0, steps, outcome, healthyProgressMs: Math.round(healthyProgressMs),
       rearmCount, healCount, lastRearmDwellMs, pauseObserved: wasRoomPaused})};
 })();

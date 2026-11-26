@@ -361,13 +361,19 @@
       if (prior && !finishing){reason='per-video-trial-spent';candidate=null;return null;}
       const precision=io.referenceUncertaintyMs?.();
       const largeLag = error >= .35;
+      // Moderate residuals after a release can qualify sooner, but only with raw
+      // continuous media progress, not the extrapolated arbiter phase alone.
+      const pos=io.current?.(), target=io.target?.(nowMs), early=!finishing&&error>=.25&&error<.35&&
+        Number.isFinite(pos)&&Number.isFinite(target)&&Math.abs(target-pos-error)<=.045&&quietStallMs>=5000&&quietRejoinMs>=6000;
+      const dt=(nowMs-candidate?.lastAt)/1000, advancing=!!candidate&&dt>0&&dt<=1&&Math.abs(pos-candidate.pos-dt*io.baseRate)<=.06&&Math.abs(target-candidate.target-dt*io.baseRate)<=.035;
+      const fast=early&&(!candidate||candidate.fast&&advancing);
       const eligible=key.split(':').length===3 && rateHonored===false && !!alternate &&
         io.follower===true && io.hostLinked!==true && io.linkedSourceActive?.()===true &&
         io.sourceReferenceQualified?.(100)===true && io.state?.()===1 &&
         io.referenceTrusted?.()===true && io.sourceBuffering?.()!==true && io.mirrorContradicted?.()!==true &&
         Number.isFinite(precision)&&precision>=0&&precision<=35 &&
         Number.isFinite(error)&&error>=-.43&&error<=2.5&&Math.abs(error)>=.115 &&
-        Number.isFinite(nowMs)&&quietStallMs>=(largeLag?5000:20000)&&quietRejoinMs>=(largeLag?6000:25000);
+        Number.isFinite(nowMs)&&quietStallMs>=((largeLag||fast)?5000:20000)&&quietRejoinMs>=((largeLag||fast)?6000:25000);
       if(!eligible){
         // An advancing, rate-advertising TV must not fall through to a seek just
         // because fresh source evidence or post-release quiet time is missing.
@@ -375,12 +381,12 @@
           io.follower===true && !io.hostLinked && io.linkedSourceActive?.()===true && io.state?.()===1;
         reason=waiting?'rate-trial-awaiting-qualified-reference':!alternate?'no-advertised-rate-actuator':'source-motion-or-quiet-time-not-qualified';candidate=null;return null;
       }
-      if(!candidate || candidate.scope!==scope || candidate.rate!==alternate || Math.sign(candidate.error)!==Math.sign(error) ||
+      if(!candidate || candidate.scope!==scope || candidate.rate!==alternate || candidate.fast!==fast || Math.sign(candidate.error)!==Math.sign(error) ||
           Math.abs(candidate.error-error)>.035 || nowMs-candidate.lastAt>1000 || nowMs<candidate.lastAt){
-        candidate={scope,rate:alternate,error,at:nowMs,lastAt:nowMs,samples:1};reason='stable-rate-trial-dwell';return null;
+        candidate={scope,rate:alternate,error,at:nowMs,lastAt:nowMs,samples:1,fast,pos,target};reason='stable-rate-trial-dwell';return null;
       }
-      candidate.samples++;candidate.lastAt=nowMs;
-      const dwellMs=finishing ? 4000 : largeLag ? 2500 : 10000;
+      candidate.samples++;candidate.lastAt=nowMs;candidate.pos=pos;candidate.target=target;
+      const dwellMs=finishing ? 4000 : (largeLag||fast) ? 2500 : 10000;
       if(nowMs-candidate.at<dwellMs || candidate.samples<8){reason='stable-rate-trial-dwell';return null;}
       spent.set(key,{scope,error,finish:finishing});
       candidate=null;attempts++;reason=finishing?'single-advertised-rate-finish':'single-advertised-rate-trial';

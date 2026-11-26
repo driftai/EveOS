@@ -1,7 +1,8 @@
 function installUserGesturePrime() {
   if (!roomId || userGesturePrimeInstalled) return;
   userGesturePrimeInstalled = true;
-  const handler = async () => {
+  const handler = async event => {
+    if (event?.target?.closest?.('#syncRoomLog')) return;
     if (!roomId || !ytPlayer || !ytPlayerReady || !pendingVideoId || !autoplayWasBlocked) return;
     const wasApplyingRemote = applyingRemote;
     suppressAudioPersistence = true;

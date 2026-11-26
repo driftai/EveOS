@@ -138,7 +138,11 @@ function relayLinkedPlayout(stream, raw = {}) {
 function metadata(value = {}) {
   const pageUrl = /^https?:\/\//i.test(String(value.pageUrl || '')) ? text(value.pageUrl, 2048) : '';
   const relayReceivedAt = Date.now();
-  return { title: text(value.title), group: text(value.group), pageUrl, paused: !!value.paused, ended: !!value.ended, buffering: value.buffering === true,
+  // Relay the exact timestamp already used by the independent source coordinator.
+  const qualifiedStamp = Number.isFinite(value.serverSampledAt) && Number.isFinite(value.uncertaintyMs) &&
+    value.uncertaintyMs >= 0 && value.uncertaintyMs <= 75 && value.serverSampledAt > 0 &&
+    relayReceivedAt - value.serverSampledAt >= -50 && relayReceivedAt - value.serverSampledAt <= 1500;
+  return { ...(qualifiedStamp ? {serverSampledAt:value.serverSampledAt, uncertaintyMs:value.uncertaintyMs} : {}), title: text(value.title), group: text(value.group), pageUrl, paused: !!value.paused, ended: !!value.ended, buffering: value.buffering === true,
     sampledAt: Math.max(0, Number(value.sampledAt) || 0),
     ...(typeof value.tabMuted === 'boolean' ? {tabMuted:value.tabMuted} : {}), ...(typeof value.sourcePlayerSilenced === 'boolean' ? {sourcePlayerSilenced:value.sourcePlayerSilenced} : {}),
     publisherReceivedAt: Math.max(0, Number(value.publisherReceivedAt) || 0),

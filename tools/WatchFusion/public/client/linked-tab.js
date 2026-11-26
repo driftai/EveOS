@@ -7,11 +7,10 @@
   const pendingControls=new Map();
   const VOLUME_ECHO_TTL_MS = 3000;
   let queuedVolume = null, volumeTimer = null, confirmedVolume = null, zeroVolumeSince = 0, trackTransitions = 0;
-  // Focus stays after mouse-up: protect only the active pointer drag, not future source updates.
-  let volumePointerHeld = false;
+  let volumePointerHeld = false, audioIntentAt = 0, volumeRestorePage = '';
+  function pinnedVolume(){return roomProof() && isHost() && state?.roomAudioPinned === true && Number.isFinite(state.playback?.volume) ? (state.playback.muted ? 0 : state.playback.volume/100) : null;}
   $('liveVolume')?.addEventListener('pointerdown',()=>{volumePointerHeld=true;});
   for(const kind of ['pointerup','pointercancel','blur'])window.addEventListener(kind,()=>{volumePointerHeld=false;});
-  // A peer object is not proof that its socket is open or its join was acknowledged.
   let peerCreatedAt = 0, lastLinkedSampleAt = 0, recoveryWindowAt = 0;
   let recoveryCount = 0, lastRecoveryAt = -Infinity;
   function peerReady(){return peer?.socket?.readyState === 1 && !!peer.viewerId;}
@@ -98,7 +97,7 @@
     if(document.activeElement!==$('liveSeek')){$('liveSeek').max=metadata.duration||0;$('liveSeek').value=metadata.currentTime||0;}
     if(document.activeElement!==$('liveRate'))$('liveRate').value=String(metadata.rate||1);
     const volume = $('liveVolume');
-    if (!volumePointerHeld) volume.value = queuedVolume ?? pendingControls.get('volume')?.value ?? metadata.volume ?? confirmedVolume ?? ((state?.playback?.volume ?? playerAudioPrefs.volume ?? 100) / 100);
+    if (!volumePointerHeld) volume.value = queuedVolume ?? pendingControls.get('volume')?.value ?? pinnedVolume() ?? metadata.volume ?? confirmedVolume ?? ((state?.playback?.volume ?? playerAudioPrefs.volume ?? 100) / 100);
     for(const button of controls.querySelectorAll('[data-live-action]'))button.disabled=!canControl();
     for(const id of ['liveSeek','liveRate','liveVolume'])$(id).disabled=!canControl();
     $('liveStop').hidden=false;$('linkTabBtn').textContent='Unlink playing tab';$('linkTabBtn').setAttribute('aria-pressed','true');
@@ -110,7 +109,7 @@
     if(state?.source?.kind!=='live')$('liveControls').hidden=true;
     $('liveListen').hidden=false;$('liveStats').hidden=false;
   }
-  function control(action,value){
+  function control(action,value,explicitRoomVolume=false){
     if(!peer||!canControl()){status('Linked source unavailable · use Reconnect to restore controls.');return false;}
     if (action === 'toggle') {
       const transport = applyPendingControls(lastMetadata,{});
@@ -120,6 +119,10 @@
     if(action==='pause')window.WatchFusionPlaylistContinuity?.manualPause?.(undefined,true);
     const numeric = ['prev','next'].includes(action) ? 0 : Number(value);
     if (!Number.isFinite(numeric)) return false;
+    if (action === 'volume' && explicitRoomVolume && roomProof()) {
+      volumeRestorePage=lastMetadata.pageUrl||'';audioIntentAt=Math.max(Date.now(),audioIntentAt+1);
+      void command('volume',{linkedSource:roomProof(),volume:Math.round(numeric*100),muted:numeric===0,audioIntentAt}).then(ok=>{if(!ok)status('Room volume not confirmed · try again.');else renderControls();}).catch(()=>status('Room volume not confirmed · try again.'));
+    } else if (action === 'volume' && pinnedVolume() !== null) return true;
     if (action === 'volume' && (pendingControls.get('volume')?.value ?? lastMetadata.volume) === numeric) return true;
     if (action === 'play' || action === 'pause') pendingControls.delete(action === 'play' ? 'pause' : 'play');
     if (['seek','play','pause','rate','volume'].includes(action)) {
@@ -143,7 +146,7 @@
       volumeTimer = null;
       const requested = queuedVolume;
       queuedVolume = null;
-      if (requested !== null) control('volume',requested);
+      if (requested !== null) control('volume',requested,true);
     };
     if (commit) flush();
     else if (volumeTimer === null) volumeTimer = setTimeout(flush,120);
@@ -154,9 +157,7 @@
     queuedVolume = null;
   }
 
-  // A source-tab command travels through two peers. Do not silently assume a
-  // volume adjustment succeeded: retry it only twice, until source telemetry
-  // confirms the requested level. Do not retry play/pause/seek commands.
+  // Source volume gets at most two acknowledgement retries.
   function retryVolumeControl() {
     if (!active() || !peer || !canControl() || document.hidden) return;
     const pending=pendingControls.get('volume');
@@ -171,7 +172,6 @@
     if (pending.queued || pending.retries >= 2 || performance.now()-pending.lastSent < 650) return;
     if(deliver('volume',pending.value,pending))pending.retries++;
   }
-  // One bounded retry, only for an unacknowledged explicit seek. Never chase continuously.
   function retrySeekControl() {
     if (!active() || !peer || !canControl() || document.hidden) return;
     const pending = pendingControls.get('seek');
@@ -189,7 +189,6 @@
     pending.retries++;
     window.watchFusionRoomSyncLog?.note?.('source-seek-retry',{positionMs:Math.round(pending.value*1000)});
   }
-  // Explicit play and pause commands are idempotent: retry at most once.
   function retryTransportControl() {
     if (!active() || !peer || !canControl() || document.hidden) return;
     for (const action of ['play','pause']) {
@@ -242,11 +241,8 @@
   }
   function followLocal(metadata,force=false){
     if(!state?.source || (roomProof() && !isHost()))return;
-    // A linked room mirrors source state into the room; its viewer arbiter alone owns
-    // the host player. Do not also reapply source play/seek/rate each sample.
+    // The linked-room viewer arbiter owns host transport.
     if(roomId && state.linkedSourceActive === true && state.source.videoId && followsRoomPlayback())return;
-    // YouTube's own follow function suppresses echo only if it really modifies the player.
-    // Blanket suppression on every metadata tick could swallow a genuine host Play click.
     if(state.source.videoId||state.source.kind==='youtube'){
       window.watchFusionYoutubeFollow?.(metadata,{force});return;
     }
@@ -265,8 +261,8 @@
     const gate=roomId?mirrorGuard()?.gate?.(mirrorAuthority()):null;
     if(gate?.rebind){void rebindAfterHandoff();return false;}
     if(gate&&!gate.allow)return false;
-    // Do not republish an old source position while its explicit seek is unconfirmed.
     if (pendingControls.has('seek')) return false;
+    const pinned=window.watchFusionLinkedTab?.pinnedVolume?.();if(Number.isFinite(pinned))metadata={...metadata,volume:pinned,muted:pinned===0};
     const sourceVolume = metadata.muted === true ? 0 : metadata.volume;
     const audio = Number.isFinite(sourceVolume) ? {volume:Math.round(sourceVolume * 100),muted:sourceVolume === 0} : {};
     if (roomId && mirrorInFlight) {
@@ -333,7 +329,7 @@
     resolvingUrl='';
     if(ok){
       loadedPageUrl=value;lastMirrorAnchor=null;queuedMirror=null;
-      if (lastMetadata.pageUrl !== value) clearVolumeDraft();
+      if (lastMetadata.pageUrl !== value && !roomProof()) clearVolumeDraft();
       for (const action of pendingControls.keys()) if (action !== 'volume') pendingControls.delete(action);
       if (lastMetadata.pageUrl === value) {
         renderControls(lastMetadata);followLocal(lastMetadata,true);scheduleMirror(lastMetadata,true);
@@ -350,7 +346,6 @@
     if (incoming > 0 || pendingControls.get('volume')?.value === 0) {
       zeroVolumeSince = 0; confirmedVolume = incoming; return incoming;
     }
-    // Muting can report effective 0 while the YouTube slider retains its level.
     if (sample.muted === true && confirmedVolume > 0) return confirmedVolume;
     if (confirmedVolume > 0 && (!zeroVolumeSince || now - zeroVolumeSince < 750)) {
       if (!zeroVolumeSince) zeroVolumeSince = now;
@@ -362,7 +357,7 @@
     const now = Date.now(), sync = window.WatchFusionLinkedPlaybackSync;
     lastTransportTiming=sync?.transportTiming?.(metadata,now)||null;
     if(roomId&&link?.roomId!==roomId)return;
-    const sample = sync?.relaySample(metadata, now, window.watchPartyClock?.serverAt?.(now));
+    const sample = sync?.relaySample(metadata, now, window.watchPartyClock?.serverAt?.(now), window.watchPartyClock?.witnessReady?.() ? 45 : null);
     if (!sample || metadata.status?.startsWith('Waiting for playable media')) return;
     if (metadata.pageUrl === lastSampleUrl && Number(metadata.sampledAt) <= lastSampleAt) return;
     lastSampleAt = Number(metadata.sampledAt);
@@ -371,7 +366,7 @@
     window.WatchFusionPlaylistContinuity?.onTransition?.(previous,sample,{eligible:!!(roomProof()&&isHost())});
     if (previous.pageUrl && previous.pageUrl !== sample.pageUrl) {
       trackTransitions++;
-      clearVolumeDraft(); pendingControls.delete('volume');
+      volumeRestorePage=''; if(!roomProof()){clearVolumeDraft();pendingControls.delete('volume');}
       confirmedVolume = null; zeroVolumeSince = 0;
     }
     lastMetadata = { ...lastMetadata, ...sample, sourcePlayerSilenced:typeof sample.sourcePlayerSilenced==='boolean'?sample.sourcePlayerSilenced:null, volume:reconcileSourceVolume(sample, previous, now) };if(previous.pageUrl&&previous.pageUrl!==sample.pageUrl)window.watchFusionRoomSyncLog?.note?.('source-track-transition',{sequence:trackTransitions,sourceAgeMs:Math.round(now-Number(sample.sampledAt))});
@@ -381,6 +376,11 @@
     if(previous.pageUrl===sample.pageUrl && Number.isFinite(previous.volume) && Number.isFinite(sample.volume) &&
         Math.abs(previous.volume-sample.volume)>.03)
       window.watchFusionRoomSyncLog?.note?.('source-volume',{volumePct:Math.round(sample.volume*100)});
+    const target=pendingControls.get('volume')?.value ?? pinnedVolume();
+    if(Number.isFinite(target)&&queuedVolume===null&&Number.isFinite(sample.volume)&&Math.abs(sample.volume-target)>.03&&volumeRestorePage!==sample.pageUrl&&roomProof()&&canControl()){
+      volumeRestorePage=sample.pageUrl;const at=performance.now();const pending={value:target,at,sampledAt:now,lastSent:at,retries:0};pendingControls.set('volume',pending);deliver('volume',target,pending);
+      window.watchFusionRoomSyncLog?.note?.('room-audio-reapplied',{volumePct:Math.round(target*100),reason:'source-track-volume'});
+    }
     const pendingSeek = pendingControls.get('seek');
     const display = applyPendingControls(lastMetadata,sample);
     window.WatchFusionPlaylistContinuity?.observe?.(sample,{eligible:!!(roomProof()&&isHost()),connected:peerReady(),pending:pendingControls.has('play'),send:()=>control('play',Number(sample.currentTime)||0)});
@@ -394,7 +394,6 @@
     if(sample.tabMuted===false&&sample.paused===false)status('Linked tab is still playing sound · WatchFusion asked the extension to mute it. If you hear two copies, reload EveOS Bridge in chrome://extensions.');
     const pageUrl=String(lastMetadata.pageUrl||'');
     if(pageUrl&&pageUrl!==loadedPageUrl){void followUrl(pageUrl);return;}
-    // Do not optimistically seek the host preview ahead of unacknowledged source.
     if (!pendingControls.has('seek')) followLocal(display,!!seekConfirmed);
     scheduleMirror(lastMetadata,!!seekConfirmed);
   }
@@ -418,7 +417,7 @@
       setStatus(error.message);return false;
     }
     recoveryWindowAt=performance.now();recoveryCount=0;lastRecoveryAt=-Infinity;
-    link=created;loadedPageUrl='';resolvingUrl='';pendingUrl='';lastMetadata={};lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();confirmedVolume=null;zeroVolumeSince=0;resolveRevision++;
+    volumeRestorePage='';link=created;loadedPageUrl='';resolvingUrl='';pendingUrl='';lastMetadata={};lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();confirmedVolume=null;zeroVolumeSince=0;resolveRevision++;
     const pairing=new URL(location.origin);pairing.hash=`live=${created.id}.${created.publisherToken}`;
     $('livePairLink').value=pairing.href;$('livePairHelp').hidden=false;$('findMediaPanel').hidden=false;renderControls({});
     status('Pair the source tab. WatchFusion will resolve its URL and keep only playback state attached.');connectPeer();
@@ -431,9 +430,9 @@
     if(stopped?.state&&stopped.state.roomId===roomId&&applyIncomingRoomState(stopped.state))render();
     $('livePairHelp').hidden=true;restoreUi();if(!options.quiet)setStatus('Source tab unlinked · the page was restored to normal.');return true;
   }
-  function reconnect(){if(!link)return start();mirrorGuard()?.reset?.();pendingControls.clear();confirmedVolume=null;zeroVolumeSince=0;lastMirrorAnchor=null;recoveryCount=0;lastRecoveryAt=-Infinity;connectPeer();status('Reconnecting source · refreshing controls…');return true;}
+  function reconnect(){if(!link)return start();mirrorGuard()?.reset?.();volumeRestorePage='';pendingControls.clear();confirmedVolume=null;zeroVolumeSince=0;lastMirrorAnchor=null;recoveryCount=0;lastRecoveryAt=-Infinity;connectPeer();status('Reconnecting source · refreshing controls…');return true;}
   $('linkTabBtn').onclick=()=>{void(active()?stop():start());};
-  window.watchFusionLinkedTab={active,promoteToRoom,publishing:()=>!!(roomProof()&&state?.linkedSourceActive),applying:()=>applying || performance.now()<playbackEchoUntil || window.WatchFusionHostPeerRecovery?.suppressEcho?.()===true,setApplying,suppressPlaybackEcho,control,queueVolume,start,stop,reconnect,render:renderControls,
+  window.watchFusionLinkedTab={active,pinnedVolume,promoteToRoom,publishing:()=>!!(roomProof()&&state?.linkedSourceActive),applying:()=>applying || performance.now()<playbackEchoUntil || window.WatchFusionHostPeerRecovery?.suppressEcho?.()===true,setApplying,suppressPlaybackEcho,control,queueVolume,start,stop,reconnect,render:renderControls,
     metadata:()=>lastMetadata,pendingControl:action=>active() &&
       performance.now() - (pendingControls.get(action)?.at ?? -Infinity) <= (action === 'volume' ? VOLUME_ECHO_TTL_MS : action === 'seek' ? SEEK_ACK_TTL_MS : CONTROL_ECHO_TTL_MS),
     diagnostics:()=>({transport:lastTransportTiming,peerReady:peerReady(),recoveryCount,lastLinkedSampleAt,mirrorGuard:mirrorGuard()?.diagnostics?.()})};

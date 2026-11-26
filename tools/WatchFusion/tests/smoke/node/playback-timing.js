@@ -17,6 +17,27 @@ export async function runPlaybackTimingChecks(check) {
   const timingContext = {}; timingContext.window = timingContext; vm.createContext(timingContext);
   vm.runInContext(linkedPlayback, timingContext);
   const sync = timingContext.WatchFusionLinkedPlaybackSync;
+  await check('WF06JE-03:publisher timestamp survives the actual relay and removes a 1s clock-domain mirror error', () => {
+    const source = fs.readFileSync(path.join(CLIENT,'../../src/server/live-streams.js'),'utf8');
+    const ctx = {Date:{now:()=>20000},text:v=>String(v??'')}; vm.createContext(ctx);
+    vm.runInContext(source.slice(source.indexOf('function metadata('),source.indexOf('export function attachLiveStreams')),ctx);
+    const raw={sampledAt:90000,publisherSentAt:90100,serverSampledAt:18900,uncertaintyMs:12,currentTime:10,rate:1};
+    const meta=ctx.metadata(raw);assert.equal(meta.serverSampledAt,18900);assert.equal(meta.uncertaintyMs,12);
+    const sample=sync.relaySample(meta,40000,20035,5);
+    assert.equal(sample.sampledAt,38865);assert.equal(sample.relayAgeGapMs,1000);assert.equal(sample.sampleClock,'server-qualified');
+    const isolated={}; isolated.window=isolated; vm.runInNewContext(linkedPlayback,isolated);
+    const planner=isolated.WatchFusionLinkedPlaybackSync;
+    const anchor={position:11.135,sampledAt:40000,rate:1,paused:false,volume:meta.volume};
+    assert.equal(planner.mirrorPlan(sample,anchor,{now:40000}).publish,false);
+    const legacy=sync.relaySample(meta,40000,20035);assert.equal(legacy.sampleClock,'relay-bounded');
+    assert.equal(planner.mirrorPlan(legacy,anchor,{now:40000}).reason,'drift');
+    for(const value of [{...raw,serverSampledAt:15000},{...raw,serverSampledAt:20100},{...raw,uncertaintyMs:76}])assert.equal(ctx.metadata(value).serverSampledAt,undefined);
+  });
+  await check('WF06JE-04:canonical timestamp cannot bypass clock and age validation',()=>{
+    const m={sampledAt:90000,publisherSentAt:90100,relayReceivedAt:20000,currentTime:10,serverSampledAt:18900,uncertaintyMs:12};
+    assert.equal(sync.relaySample(m,40000,20035,46).sampleClock,'relay-bounded');
+    for(const [meta,serverAt] of [[{...m,serverSampledAt:20040},20035],[{...m,serverSampledAt:19990},20035],[m,21000],[{...m,publisherSentAt:89999},20035]])assert.equal(sync.relaySample(meta,40000,serverAt,5),null);
+  });
   await check('TIMING-20:linked sample clock domains and expiry', () => {
     const meta = { sampledAt: 90000, publisherSentAt: 90100, relayReceivedAt: 20000, currentTime: 10 };
     const sample = sync.relaySample(meta, 40000, 20035);
@@ -85,14 +106,28 @@ export async function runPlaybackTimingChecks(check) {
     assert.equal(api.now(), 9010, 'projection continues on a monotonic clock');
     assert.equal(api.serverAt(local), null, 'wall-clock step cannot stamp commands with the old offset');
 
-    const room = vm.createContext({roomId:'TEST', state:{revision:5, roomId:'TEST', serverTime:900}});
+    const room = vm.createContext({roomId:'TEST', session:{memberId:'fixture-member'},
+      state:{revision:5, roomId:'TEST', serverTime:900}, performance:{now:()=>mono}});
     const connection = readClient('room-connection.js'), realtime = readClient('realtime.js');
-    vm.runInContext(connection.slice(connection.indexOf('function applyIncomingRoomState'), connection.indexOf('function startSseEvents'))
+    vm.runInContext(connection.slice(0, connection.indexOf('async function join'))
+      + connection.slice(connection.indexOf('function applyIncomingRoomState'), connection.indexOf('function startSseEvents'))
       + realtime.slice(realtime.indexOf('let realtimeRevision'), realtime.indexOf('function websocketUrl')), room);
+    const receipt = () => vm.runInContext('lastRoomStateReceipt', room);
+    assert.equal(receipt(), null);
     assert.equal(room.acceptRealtimeState({revision:4, roomId:'TEST', serverTime:950}), false);
     assert.equal(room.acceptRealtimeState({revision:5, roomId:'TEST', serverTime:850}), false);
     assert.equal(room.acceptRealtimeState({revision:6, roomId:'OTHER', serverTime:950}), false);
+    assert.equal(receipt(), null, 'rejected snapshots must not establish focus health');
     assert.equal(room.acceptRealtimeState({revision:6, roomId:'TEST', serverTime:950}), true);
+    assert.equal(receipt().room, 'TEST'); assert.equal(receipt().member, 'fixture-member');
+    assert.equal(receipt().at, mono);
+    const accepted = receipt(); mono += 16000;
+    assert.equal(room.acceptRealtimeState({revision:5, roomId:'TEST', serverTime:960}), false);
+    assert.equal(room.acceptRealtimeState({revision:6, roomId:'TEST', serverTime:940}), false);
+    assert.equal(room.acceptRealtimeState({revision:7, roomId:'OTHER', serverTime:960}), false);
+    assert.equal(receipt(), accepted, 'rejected snapshots cannot refresh a stale connection');
+    assert.equal(room.acceptRealtimeState({revision:7, roomId:'TEST', serverTime:960}), true);
+    assert.equal(receipt().at, mono);
   });
 
   await check('TIMING-24:room routes preserve authority and zero-position transitions', async () => {

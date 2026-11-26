@@ -4,8 +4,7 @@
   const MIRROR_DRIFT_SEC=0.75;
   const sourceDrift = createDriftSensor({ minAgeMs: 650, maxSpread: .09 });
   let lastMirrorSampleAt = 0;
-
-  function relaySample(metadata, receivedAt, serverAt) {
+  function relaySample(metadata, receivedAt, serverAt, receiverToleranceMs = null) {
     const sampledAt = Number(metadata.sampledAt);
     const sentAt = Number(metadata.publisherSentAt);
     const relayedAt = Number(metadata.relayReceivedAt);
@@ -21,9 +20,19 @@
     const boundedAge = publisherAge + relayAge;
     const age = sentAt > 0 && sameClockAge >= boundedAge && sameClockAge <= MAX_SAMPLE_AGE_MS
       && sameClockAge - boundedAge <= 100 ? sameClockAge : boundedAge;
-    return { ...metadata, sampledAt: receivedAt - age };
+    // A qualified publisher clock includes the otherwise unmeasured publisher-to-relay leg.
+    // Match the server coordinator's sample instant; never promote an impossible timestamp.
+    const precise = Number.isFinite(receiverToleranceMs) && receiverToleranceMs >= 0 && receiverToleranceMs <= 45 &&
+      Number.isFinite(serverAt) && Number.isFinite(metadata.serverSampledAt) && metadata.serverSampledAt > 0 &&
+      Number.isFinite(metadata.uncertaintyMs) && metadata.uncertaintyMs >= 0 && metadata.uncertaintyMs <= 75 && hasRelayClock;
+    if (precise) {
+      const canonicalAge = serverAt - metadata.serverSampledAt, tolerance = receiverToleranceMs + metadata.uncertaintyMs;
+      if (canonicalAge < 0 || canonicalAge > MAX_SAMPLE_AGE_MS || canonicalAge < boundedAge - tolerance ||
+          relayedAt - metadata.serverSampledAt < -50 || relayedAt - metadata.serverSampledAt > 1500) return null;
+      return {...metadata, sampledAt:receivedAt-canonicalAge, sampleClock:'server-qualified', relayAgeGapMs:Math.round(canonicalAge-age)};
+    }
+    return { ...metadata, sampledAt: receivedAt - age, sampleClock:'relay-bounded', relayAgeGapMs:null };
   }
-
   function createDriftSensor({ minAgeMs, maxSpread }) {
     let samples = [];
     function reset() { samples = []; }
@@ -42,7 +51,6 @@
     }
     return { sample, reset };
   }
-
   function createMediaConvergence() {
     const sensor = createDriftSensor({ minAgeMs: 600, maxSpread: .08 });
     let correcting = false;
@@ -57,7 +65,6 @@
     }
     return { rate, reset };
   }
-
   function projectedPosition(metadata={},now=Date.now()){
     const position=Math.max(0,Number(metadata.currentTime)||0);
     if(metadata.paused || metadata.ended)return position;
@@ -65,7 +72,6 @@
     if(!Number.isFinite(sampledAt)||age<0||age>MAX_SAMPLE_AGE_MS)return position;
     return position+(age/1000)*Math.min(2,Math.max(.25,Number(metadata.rate)||1));
   }
-
   function youtubePlan(metadata={},playerState,currentTime,options={}){
     const target=projectedPosition(metadata,Number(options.now)||Date.now());
     const current=Math.max(0,Number(currentTime)||0),drift=target-current,absolute=Math.abs(drift);
@@ -78,7 +84,6 @@
       play:!paused&&playerState!==PLAYING&&playerState!==BUFFERING
     };
   }
-
   function mediaPlan(metadata={},currentTime,options={}){
     const target=projectedPosition(metadata,Number(options.now)||Date.now());
     const current=Math.max(0,Number(currentTime)||0),drift=target-current,absolute=Math.abs(drift);
@@ -91,7 +96,6 @@
       paused
     };
   }
-
   function mirrorPlan(metadata={},anchor=null,options={}){
     const now=Number(options.now)||Date.now();
     const target=projectedPosition(metadata,now);
@@ -127,7 +131,6 @@
     }
     return {publish:false,reason:'steady',target,drift,anchor};
   }
-
   function positionJumped(position,sample,now=performance.now()){
     if(!sample||!Number.isFinite(Number(sample.position))||!Number.isFinite(Number(sample.at)))return false;
     const elapsed=now-Number(sample.at);
@@ -135,7 +138,6 @@
     const expected=Number(sample.position)+(sample.playing?(elapsed/1000)*Math.min(2,Math.max(.25,Number(sample.rate)||1)):0);
     return Math.abs((Number(position)||0)-expected)>1.5;
   }
-
   function transportTiming(metadata={},now=Date.now()){
     const sampledAt=Number(metadata.sampledAt)||0,publisherReceivedAt=Number(metadata.publisherReceivedAt)||0;
     const publisherSentAt=Number(metadata.publisherSentAt)||0,relayReceivedAt=Number(metadata.relayReceivedAt)||0;
@@ -150,7 +152,6 @@
       sampleAgeMs:bounded(Number(now)||viewerReceivedAt,sampledAt)
     };
   }
-
   // Bounded automatic catch-up. A stalling YouTube TV must never enter a
   // seek/reload chase. One retry is allowed only after observed real playback.
   function createAutoRoomGovernor() {
@@ -161,7 +162,6 @@
     let scope = '', attempts = 0, lastSeekAt = -1;
     let lastAt = -1, lastPosition = null, progressSec = 0;
     let reason = 'idle', aligned = false;
-
     function reset(nextScope = '') {
       scope = nextScope;
       attempts = 0;

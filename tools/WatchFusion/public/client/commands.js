@@ -231,7 +231,7 @@ function hostPlaybackEventAllowed(playerState) {
 // attached source. Keep native iframe controls working outside correction jobs.
 function linkedRoomViewerCorrectionActive(){
   return !!(roomId && state?.linkedSourceActive === true && followsRoomPlayback() &&
-    (window.watchFusionViewerArbiter?.owns?.() || window.watchFusionHostZeroCenter?.isApplying?.() ||
+    (applyingRemote || playerInitializing || primingPlayer || window.watchFusionViewerArbiter?.owns?.() || window.watchFusionHostZeroCenter?.isApplying?.() ||
      window.WatchFusionZeroConverge?.isApplying?.()));
 }
 function onYouTubeStateChange(event) {
@@ -239,7 +239,7 @@ function onYouTubeStateChange(event) {
   if (linked?.active?.() && (!roomId || isHost())) { // v13.10.7: solo embedded controls drive the source too
     window.watchFusionYoutubeStability?.observe?.(event.data);
     const previewGuard=window.WatchFusionPlaylistContinuity?.guardPreviewEvent?.(event.data,linked.metadata?.(),ytPlayer?.getVideoData?.()?.video_id,state?.source?.videoId);
-    if (linked.applying?.() || linkedRoomViewerCorrectionActive() || primingPlayer || previewGuard) return;
+    if (linked.applying?.() || linkedRoomViewerCorrectionActive() || primingPlayer || previewGuard) {linkedYoutubePositionSample=null;return;}
     const paused = event.data === YT.PlayerState.PAUSED;
     const position = Number(ytPlayer?.getCurrentTime?.()) || 0;
     if (paused || event.data === YT.PlayerState.PLAYING) {
@@ -290,7 +290,8 @@ function onYouTubeRateChange() {
 }
 function onYouTubeVolumeChange(){
   if(window.watchFusionLinkedTab?.active?.()&&(!roomId||isHost())&&!window.watchFusionLinkedTab?.applying?.()){
-    // Browser autoplay/preview muting is not an explicit source-volume command.
+    // A decoder reset is not a new room-volume intent.
+    if(roomId && state?.roomAudioPinned){applyRoomAudioState();return;}
     if(ytPlayer?.isMuted?.())return;
     const observed=Number(ytPlayer?.getVolume?.());if(!Number.isFinite(observed)||observed<=0)return;
     window.watchFusionLinkedTab.control('volume',observed/100);return;

@@ -52,6 +52,14 @@
     };
     return null;
   }
+  // Read-only projection: compare every current-segment report at the same server instant.
+  function comparisonPosition(peer, now, segment) {
+    const age = now - peer.sampledAt;
+    if (segment == null || peer.playoutSegment !== segment || !peer.ready || !peer.playing || peer.buffering || peer.correcting === true ||
+        !finite(peer.sampledAt) || !finite(age) || age < 0 || age > 1500 || !finite(peer.positionMs) ||
+        !finite(peer.rate) || peer.rate <= 0) return null;
+    return peer.positionMs + age * peer.rate;
+  }
   function zone(errorMs) {
     if (!finite(errorMs)) return 'unmeasured';
     const magnitude = Math.abs(errorMs);
@@ -74,6 +82,6 @@
   }
   globalThis.WatchFusionPrecisionPolicy = Object.freeze({
     version:'v13.10.6', LOCK_MS, ACTION_MS, HARD_REJOIN_MS,
-    peerCandidate, witness, trustedHostReference, zone, label
+    peerCandidate, witness, trustedHostReference, comparisonPosition, zone, label
   });
 })();

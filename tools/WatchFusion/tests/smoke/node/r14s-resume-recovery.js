@@ -9,14 +9,15 @@ import {fileURLToPath} from 'node:url';
 const ROOT = process.env.WF_R14S_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const read = p => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const SCOPE = 'ROOM:AAAAAAAAAAA:4:20';
-function lab() {
+function lab(store = new Map(), wallBase = 1000000) {
+  let wall = wallBase; class ClockDate extends Date {static now(){return wall;}}
   let hidden = false;
   const actions = [], notes = [];
   const ctx = {window: {watchFusionRoomSyncLog:{note:(kind, detail)=>notes.push([kind,detail])}},
-    document:{get hidden(){return hidden;}}, Number, Math, Date, console};
+    document:{get hidden(){return hidden;}}, sessionStorage:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,v)}, Number, Math, Date:ClockDate, console};
   vm.runInNewContext(read('public/client/tv-decoder-rescue.js'), ctx);
   const rescue = ctx.window.WatchFusionDecoderRescue;
-  const input = (t, opts = {}) => ({scope:SCOPE, nowMs:t, buffering:true, playing:false, exhausted:false,
+  const input = (t, opts = {}) => (wall=wallBase+t,{scope:SCOPE, nowMs:t, buffering:true, playing:false, exhausted:false,
     trusted:true, sourceBuffering:false, drift:-12, position:0,
     reload:()=>actions.push('reload'),rebuild:()=>actions.push('rebuild'),...opts});
   const wedge = (from,to,opts={})=>{for(let t=from;t<=to;t+=250)rescue.consider(input(t,opts));};
@@ -25,6 +26,38 @@ function lab() {
 function exhaust(L) { L.wedge(0,55000); assert.deepEqual(L.actions,['reload','rebuild']); assert.equal(L.rescue.diagnostics().steps,2); }
 
 export async function runR14sRecoveryChecks(check) {
+  const proven = {playing:true,buffering:false,exhausted:true,qualifiedStall:true,stalledMs:6500,drift:7};
+  await check('WF06JC-01:verified exhausted stall reuses evidence and failed reload escalates before old delay',()=>{
+    const L=lab(); assert.equal(L.rescue.consider(L.input(7000,proven)),true);assert.deepEqual(L.actions,['reload']);
+    for(let t=7250;t<15000;t+=250)assert.equal(L.rescue.consider(L.input(t,{...proven,fastOnly:true})),false);
+    assert.equal(L.rescue.consider(L.input(15000,{...proven,fastOnly:true})),true);
+    assert.deepEqual(L.actions,['reload','rebuild']);assert.equal(L.notes.at(-1)[1].reason,'verified-reload-failure');
+    for(let t=15250;t<45000;t+=250)L.rescue.consider(L.input(t,{...proven,fastOnly:true}));
+    assert.deepEqual(L.actions,['reload','rebuild']);
+  });
+  await check('WF06JC-02:reload failure shortcut cannot act on hidden stale buffering or unproven motion',()=>{
+    for(const bad of [{qualifiedStall:false},{trusted:false},{sourceBuffering:true},{stalledMs:5999},{playing:false},{buffering:true},{position:NaN}]){
+      const L=lab();L.rescue.consider(L.input(7000,proven));
+      for(let t=15000;t<22000;t+=250)assert.equal(L.rescue.consider(L.input(t,{...proven,...bad,fastOnly:true})),false);
+      assert.deepEqual(L.actions,['reload']);
+    }
+    const L=lab();L.rescue.consider(L.input(7000,proven));L.setHidden(true);assert.equal(L.rescue.consider(L.input(15000,{...proven,fastOnly:true})),false);
+    L.setHidden(false);for(let t=15000;t<30000;t+=250)L.rescue.consider(L.input(t,{...proven,fastOnly:true,exhausted:false,stalledMs:0,position:t/1000}));
+    assert.deepEqual(L.actions,['reload']);
+  });
+  await check('WF06JC-03:same tab refresh retains attempted ladder but requires fresh failure proof',()=>{
+    const store=new Map(), A=lab(store);A.rescue.consider(A.input(7000,proven));
+    const B=lab(store,1009000); B.rescue.consider(B.input(0,{...proven,stalledMs:0,fastOnly:true}));
+    assert.equal(B.rescue.diagnostics().steps,1);assert.equal(B.notes[0][0],'tv-decoder-resumed');assert.deepEqual(B.actions,[]);
+    assert.equal(B.rescue.consider(B.input(6000,{...proven,fastOnly:true})),true);assert.deepEqual(B.actions,['rebuild']);
+    const C=lab(store,1016000);C.rescue.consider(C.input(0,{...proven,stalledMs:0,fastOnly:true}));assert.equal(C.rescue.diagnostics().steps,2);
+    C.wedge(7000,45000,proven);assert.deepEqual(C.actions,[]);
+    const D=lab(store,1020000);D.rescue.consider(D.input(0,{...proven,scope:'OTHER:BBBBBBBBBBB:5:1',stalledMs:0,fastOnly:true}));assert.equal(D.rescue.diagnostics().steps,0);
+  });
+  await check('WF06JC-04:expired or reversed wall clock never resurrects decoder recovery state',()=>{
+    for(const base of [999000,1708000]){const store=new Map(),A=lab(store);A.rescue.consider(A.input(7000,proven));const B=lab(store,base);B.rescue.consider(B.input(0,{...proven,stalledMs:0,fastOnly:true}));assert.equal(B.rescue.diagnostics().steps,0);assert.deepEqual(B.actions,[]);}
+  });
+
   await check('R14S-01:terminal-after-two-steps-stays-spent-while-source-remains-playing',()=>{
     const L=lab(); exhaust(L);L.wedge(60000,120000);
     assert.deepEqual(L.actions,['reload','rebuild']);

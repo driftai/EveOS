@@ -16,12 +16,13 @@ function logLab(){
   const nodes=new Map(),get=id=>{if(!nodes.has(id))nodes.set(id,el());return nodes.get(id);};
   class ClockDate extends Date{static now(){return now;}}
   const ctx={document:{getElementById:get},navigator:{},roomId:'r',session:{memberId:'host',publicId:'host'},
-    state:{presentationEpoch:1,playoutSegment:2,source:{videoId:'song1'},hostId:'host',linkedSourceActive:true,playback:{rate:1,paused:false},members:[{id:'host',name:'Laptop-Side'},{id:'tv',name:'Tv-side'}]},
+    state:{presentationEpoch:1,playoutSegment:2,source:{videoId:'song1'},hostId:'host',linkedSourceActive:true,playback:{rate:1,paused:false,position:now/1000,projectedAt:now},members:[{id:'host',name:'Laptop-Side'},{id:'tv',name:'Tv-side'}]},
     performance:{now:()=>now},estimatedServerNow:()=>now,Date:ClockDate,JSON,Math,Number,Map,Set,Object,console};
   ctx.isHost=()=>true;ctx.watchFusionLinkedTab={active:()=>true,metadata:()=>meta};ctx.window=ctx;
+  vm.runInNewContext(read('public/client/precision-policy.js'), ctx);
   vm.runInNewContext(read('public/client/sync-room-log.js'),ctx,{filename:'sync-room-log.js'});
-  const peer=(member,error,extra={})=>({member,ready:true,playing:true,buffering:false,sampledAt:now-10,
-    positionMs:now+(error??0),roomPositionMs:now,targetPositionMs:now,rate:1,mode:'youtube',
+  const peer=(member,error,extra={})=>({member,playoutSegment:ctx.state.playoutSegment,ready:true,playing:true,buffering:false,sampledAt:now-10,
+    positionMs:now-10+(error??0),roomPositionMs:now-10,targetPositionMs:now-10,rate:1,mode:'youtube',
     sensor:{domain:'player-timeline',clockState:'bounded',clockBoundMs:15,heldMs:1,cadenceMs:50,audibleOutput:'player',timelineState:'advancing',timelineRatePct:100},
     startupPhase:'fine-locked',recentCorrection:'locked',...extra});
   const observe=(peers,options={})=>{

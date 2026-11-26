@@ -107,5 +107,28 @@
         Number(yt?.getPlaybackRate?.()) || 1);
     } catch {}
   }, POLL_MS);
-  root.WatchFusionSensorProvenance = {describe, track, audibleOutput, cadence, clockBound};
+  // Diagnostic only: membership, execution availability, and source following are independent.
+  function activityEvidence({local, localKnown, hidden, paused, linked, rows, expectedViewers, previous, spread, gapMs}) {
+    const advancing = p => !!p && Number.isFinite(p.comparisonOffsetMs) && p.playing && !p.buffering &&
+      p.sensor?.timelineState === 'advancing' && ['decoder-confirmed','fine-locked','direct-ready'].includes(p.startupPhase);
+    const active = advancing(local), sourceLive = linked?.mode === 'live-linked-source';
+    const viewers = rows.filter(p=>p.role==='viewer'), measured = viewers.filter(p=>advancing(p) &&
+      p.sensor?.clockState==='bounded' && Number.isFinite(p.sourceErrorMs));
+    const maxViewerSourceErrorMs = measured.length ? Math.max(...measured.map(p=>Math.abs(p.sourceErrorMs))) : null;
+    const expected = Number.isInteger(expectedViewers) && expectedViewers>=0 ? expectedViewers : null;
+    const complete = sourceLive && expected>0 && measured.length===expected && viewers.length===expected;
+    const sourceContinuity = paused ? 'room-paused' : !linked ? 'not-linked' : !sourceLive ? 'source-unverified' :
+      maxViewerSourceErrorMs>100 ? 'viewer-source-outside-100' : !complete ? 'viewer-source-unmeasured' :
+      maxViewerSourceErrorMs>50 ? 'viewer-source-monitoring' : 'viewer-source-within-50';
+    const returning = previous?.localParticipation==='background-inactive' || previous?.localParticipation==='foreground-reacquiring' || (previous?.visibility==='hidden' && gapMs>10000 && !active);
+    const aligned = active && sourceLive && Number.isFinite(local.sourceErrorMs) && Math.abs(local.sourceErrorMs)<=50 &&
+      (expected===0 || (Number.isFinite(spread) && spread<=50));
+    const localParticipation = paused ? 'room-paused' : !localKnown || typeof hidden!=='boolean' ? 'unverified' :
+      hidden ? (active?'background-active':'background-inactive') : returning && !aligned ? 'foreground-reacquiring' :
+      active ? 'foreground-active' : 'foreground-unavailable';
+    return {visibility:typeof hidden==='boolean'?(hidden?'hidden':'visible'):'unverified',localParticipation,
+      sourceContinuity,sourceLive,expectedViewers:expected,reportingViewers:viewers.length,measuredViewers:sourceLive?measured.length:0,
+      maxViewerSourceErrorMs:sourceLive?maxViewerSourceErrorMs:null,coverageGapMs:Number.isFinite(gapMs)&&gapMs>=0?Math.round(gapMs):null};
+  }
+  root.WatchFusionSensorProvenance = {describe, track, audibleOutput, cadence, clockBound, activityEvidence};
 })();

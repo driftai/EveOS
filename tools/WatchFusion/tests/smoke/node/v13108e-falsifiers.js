@@ -45,16 +45,17 @@ function roomLog(hostDiag = {}) {
   let now = 100000;
   const ctx = {document: {getElementById: id => nodes[id] || null}, navigator: {}, performance: {now: () => now},
     roomId: 'room-1', session: {memberId: 'h'}, isHost: () => true,
-    state: {presentationEpoch: 1, playoutSegment: 6, hostId: 'h', playback: {rate: 1},
+    state: {presentationEpoch: 1, playoutSegment: 6, hostId: 'h', playback: {rate: 1, position:60, projectedAt:now-10},
       members: [{id: 'h', name: 'Laptop-Side'}, {id: 'tv', name: 'TV'}, {id: 'ph', name: 'Phone'}]},
     estimatedServerNow: () => now, setTimeout, console, Date, JSON, Math, Object, Number, Array, String, RegExp};
   ctx.window = ctx;
   ctx.WatchFusionHostPeerRecovery = {diagnostics: () => ({outcome: 'source-not-trusted', stage: 'observe', attempts: 0, peerCount: 0})};
   ctx.WatchFusionHostSourceConverge = {diagnostics: () => ({outcome: 'solo-source-verifying', stage: 'verifying', attempts: 1, witnesses: 8, errorMs: -341, ...hostDiag})};
+  vm.runInNewContext(read('public/client/precision-policy.js'), ctx);
   vm.runInNewContext(read('public/client/sync-room-log.js'), ctx, {filename: 'sync-room-log.js'});
   return {log: ctx.window.watchFusionRoomSyncLog, advance: ms => { now += ms; }, at: () => now};
 }
-const peer = (member, at, targetError, extra = {}) => ({member, sampledAt: at - 10, positionMs: 60000 + targetError, roomPositionMs: 60000,
+const peer = (member, at, targetError, extra = {}) => ({member, playoutSegment:6, sampledAt: at - 10, positionMs: 60000 + targetError, roomPositionMs: 60000,
   targetPositionMs: 60000, ready: true, playing: true, buffering: false, rttMs: 10, rate: 1, audible: true,
   sensor: {domain: 'player-timeline', heldMs: 0, clockBoundMs: 5, clockState: 'bounded', audibleOutput: 'player'}, ...extra});
 
@@ -133,6 +134,77 @@ export async function runV13108eChecks(check) {
     assert.equal(s.groupPhase, 'unmeasured-single-player', 'a silent player cannot vouch for audible alignment');
   });
 
+  await check('WF06JB-01:explicit room volume survives stale source mirrors and consecutive tracks', async () => {
+    const request=await routes(),r=await room(request,'jb01');
+    const {handleLiveRoute}=await import(pathToFileURL(path.join(ROOT,'src/server/live-streams.js')).href);
+    const live=async(parts,body)=>{
+      const req=Object.assign(Readable.from([Buffer.from(JSON.stringify(body))]),{method:'POST',headers:{'x-member-id':r.host.memberId}});
+      const res={writeHead(code){this.status=code;},end(text){this.body=JSON.parse(text);}};
+      await handleLiveRoute(req,res,parts);assert.ok(res.status<300,JSON.stringify(res.body));return res.body;
+    };
+    const link=await live(['api','live'],{}),proof={id:link.id,token:link.publisherToken};let didStop=false;
+    try {
+      await live(['api','live',link.id,'room'],{publisherToken:link.publisherToken,roomId:r.id,mode:'linked-tab'});
+      const mirror=extra=>r.cmd({type:'mirror',linkedSource:proof,position:40,paused:false,rate:1,...extra});
+      const intent=(volume,at,muted=volume===0)=>r.cmd({type:'volume',linkedSource:proof,volume,muted,audioIntentAt:at});
+      const first=(await mirror({volume:16})).body.state;
+      assert.equal(first.playback.volume,16);
+      const pinned=(await intent(73,100)).body.state;
+      assert.equal(pinned.playback.volume,73);assert.equal(pinned.roomAudioPinned,true);
+      assert.equal(pinned.playback.updatedAt,first.playback.updatedAt);assert.equal(pinned.playoutSegment,first.playoutSegment);
+      for(const [video,reset] of [['AAAAAAAAAAA',20],['BBBBBBBBBBB',19],['CCCCCCCCCCC',17]]){
+        assert.equal((await r.cmd({type:'source',input:video,linkedSource:proof})).body.state.playback.volume,73);
+        const next=(await mirror({sourceKey:video,volume:reset,muted:true})).body.state;
+        assert.equal(next.playback.volume,73);assert.equal(next.playback.muted,false);assert.equal(next.roomAudioPinned,true);
+      }
+      assert.equal((await intent(51,102)).body.state.playback.volume,51);
+      assert.equal((await intent(73,101)).body.state.playback.volume,51,'late host request must not win');
+      assert.equal((await r.cmd({type:'volume',volume:17,muted:false})).body.state.playback.volume,51,'passive old client must not win');
+      assert.equal((await intent(0,103)).body.state.playback.muted,true);
+      const muted=(await mirror({volume:99,muted:false})).body.state;assert.equal(muted.playback.volume,0);assert.equal(muted.playback.muted,true);
+      const restored=(await intent(42,104)).body.state;assert.equal(restored.playback.volume,42);assert.equal(restored.playback.muted,false);
+      assert.equal((await r.cmd({type:'volume',volume:99,audioIntentAt:105,linkedSource:proof},r.tv)).status,403);
+      const stopped=await live(['api','live',link.id,'stop'],{publisherToken:link.publisherToken});didStop=true;assert.equal(stopped.state.roomAudioPinned,false);
+      assert.equal((await r.cmd({type:'mirror',position:40,paused:false,rate:1,volume:22})).body.state.playback.volume,22);
+    } finally {if(!didStop)await live(['api','live',link.id,'stop'],{publisherToken:link.publisherToken});}
+  });
+  await check('WF06JB-02:linked room slider and source restore use the authoritative audio, not decoder defaults', async () => {
+    let now=1000000,peer,commands=[],sent=[],nodes=new Map();
+    const node=id=>{if(!nodes.has(id))nodes.set(id,{value:'',hidden:false,addEventListener(){},setAttribute(){},querySelectorAll(){return[];}});return nodes.get(id);};
+    const ctx={Date:{now:()=>now},performance:{now:()=>now},URL,Math,Number,Map,Set,Promise,console,
+      location:{origin:'http://localhost'},document:{hidden:false,activeElement:null,querySelector:()=>null,addEventListener(){}},$:node,
+      roomId:'ROOM',session:{memberId:'host'},state:{hostId:'host',linkedSourceActive:true,playback:{volume:16,muted:false},source:{videoId:'AAAAAAAAAAA'}},
+      playerAudioPrefs:{volume:16},isHost:()=>true,apiUrl:x=>x,setStatus(){},render(){},setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,addEventListener(){},
+      applyIncomingRoomState(s){ctx.state=s;return true;},followsRoomPlayback:()=>true,
+      fetch:async url=>({ok:true,json:async()=>url==='/api/live'?{id:'link1',publisherToken:'secret'}:{state:ctx.state}}),
+      WatchFusionLivePeer:class{constructor(o){peer=o;this.socket={readyState:1};this.viewerId='v';}control(a,v){sent.push([a,v]);return true;}stop(){}},
+      command:async(type,body,receipt)=>{commands.push([type,{...body}]);if(type==='volume'){ctx.state.roomAudioPinned=true;ctx.state.playback.volume=body.volume;ctx.state.playback.muted=body.muted;}else if(receipt)receipt.status=200;return true;}};
+    ctx.window=ctx.globalThis=ctx;ctx.watchFusionMediaResolver={resolveAndLoad:async url=>{ctx.state.source={videoId:url.slice(-11)};return true;}};
+    vm.createContext(ctx);vm.runInContext(read('public/client/linked-playback-sync.js'),ctx);vm.runInContext(read('public/client/linked-tab.js'),ctx);
+    await ctx.watchFusionLinkedTab.start();
+    const flush=async()=>{for(let i=0;i<8;i++)await Promise.resolve();};
+    const sample=async(video,volume)=>{now+=300;peer.onMetadata({pageUrl:'https://youtube.com/watch?v='+video,volume,muted:false,currentTime:40,duration:200,rate:1,paused:false,sampledAt:now});await flush();};
+    await sample('AAAAAAAAAAA',.16);ctx.watchFusionLinkedTab.queueVolume(.73,true);await flush();await sample('AAAAAAAAAAA',.73);
+    assert.equal(ctx.state.playback.volume,73);assert.equal(Number(node('liveVolume').value),.73);
+    const prior=sent.filter(([a])=>a==='volume').length;await sample('BBBBBBBBBBB',.20);assert.equal(Number(node('liveVolume').value),.73);assert.equal(sent.filter(([a])=>a==='volume').length,prior+1);assert.deepEqual(sent.filter(([a])=>a==='volume').at(-1),['volume',.73]);
+    assert.equal(commands.filter(([a])=>a==='mirror').at(-1)[1].volume,73);
+    assert.equal(ctx.watchFusionLinkedTab.metadata().volume,.20,'raw source disagreement remains visible');
+    await sample('BBBBBBBBBBB',.73);ctx.watchFusionLinkedTab.queueVolume(.51,true);await flush();await sample('BBBBBBBBBBB',.51);
+    await sample('CCCCCCCCCCC',.19);assert.equal(Number(node('liveVolume').value),.51);assert.equal(commands.filter(([a])=>a==='mirror').at(-1)[1].volume,51);
+    const before=sent.length;ctx.watchFusionLinkedTab.control('volume',.19);assert.equal(sent.length,before,'passive decoder echo cannot steal room intent');
+    ctx.watchFusionLinkedTab.queueVolume(0,true);await flush();await sample('DDDDDDDDDDD',.17);assert.equal(Number(node('liveVolume').value),0);assert.equal(ctx.state.playback.muted,true);
+  });
+  await check('WF06JB-03:pinned host output restores a decoder reset without sending transport or source commands',()=>{
+    let now=1000,writes=0,echoes=0;const player={volume:73,muted:false,getVolume(){return this.volume;},isMuted(){return this.muted;},setVolume(v){writes++;this.volume=v;},mute(){this.muted=true;},unMute(){this.muted=false;}};
+    const ctx={URL,URLSearchParams,location:{hostname:'localhost',search:''},performance:{now:()=>now},document:{getElementById:()=>null},setTimeout:()=>1,clearTimeout(){},player,console,watchFusionLinkedTab:{active:()=>true,control(){echoes++;},pendingControl:()=>false}};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(read('public/client/core.js'),ctx);
+    vm.runInContext("roomId='ROOM';session={publicId:'HOST'};ytPlayer=player;ytPlayerReady=true;state={hostId:'HOST',presentationEpoch:1,playoutSegment:7,linkedSourceActive:true,roomAudioPinned:true,source:{videoId:'AAAAAAAAAAA'},playback:{volume:73,muted:false,rate:1,paused:false}};applyRoomAudioState();",ctx);
+    player.volume=20;now+=1000;vm.runInContext('observeYouTubeAudio();',ctx);assert.equal(player.volume,73);assert.equal(echoes,0);
+    vm.runInContext('state.playback.volume=51;applyRoomAudioState();',ctx);assert.equal(player.volume,51);
+    player.volume=19;now+=1000;vm.runInContext('observeYouTubeAudio();',ctx);assert.equal(player.volume,51);
+    vm.runInContext('state.playback.volume=0;state.playback.muted=true;applyRoomAudioState();',ctx);assert.equal(player.volume,0);assert.equal(player.muted,true);
+    player.volume=17;player.muted=false;now+=1000;vm.runInContext('observeYouTubeAudio();',ctx);assert.equal(player.volume,0);assert.equal(player.muted,true);assert.equal(echoes,0);assert.equal(writes,5);
+    assert.equal(vm.runInContext('state.playoutSegment',ctx),7);assert.equal(vm.runInContext('state.playback.rate',ctx),1);
+  });
   await check('V13108E-05:volume-only-source-change-keeps-the-mirror-anchor-timeline', () => {
     const ctx = {window: {}, Math, Number, Date, performance: {now: () => 0}, console};
     ctx.globalThis = ctx; vm.runInNewContext(read('public/client/linked-playback-sync.js'), ctx);

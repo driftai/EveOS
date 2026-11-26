@@ -33,12 +33,33 @@ function deadlineFixture({host=false, background=false}={}) {
 }
 
 export const RECOVERY_SCENARIOS = {
+  async 'SYNC-52:failed TV reload escalates promptly after transition while both healthy members keep playing'() {
+    const lab=await createRoomLab({seed:62,sourceNoiseMs:0,fineTrim:true});
+    try {
+      const host=lab.addViewer('host',PROFILES.laptop), phone=lab.addViewer('phone',PROFILES.phone);
+      const tv=lab.addViewer('tv',{...PROFILES.variableTv,keyframeSec:0,quantumMs:0,startLatencyMs:0});
+      tv.ctx.playerPrimed=true;
+      let start=0;const actions=[];
+      tv.player.loadVideoById=()=>{actions.push(['reload',lab.clock.now()-start]);tv.player.wedge('never');};
+      tv.ctx.ensurePlayer=(id,pos)=>{actions.push(['rebuild',lab.clock.now()-start]);tv.player.setTrack(id);tv.player.jump(pos);tv.ctx.ytPlayer=tv.player;tv.ctx.ytPlayerReady=true;};
+      await lab.run(12000);lab.nextTrack('VideoB00001');tv.player.wedge('never');start=lab.clock.now();
+      await lab.run(75000);
+      const summaries=[host,phone,tv].map(d=>summarize(d,start+35000,lab.clock.now()));
+      const healthy=[host,phone].map(d=>({seeks:d.player.stats.seeks,loads:d.player.stats.loads,pauses:d.player.stats.pauses}));
+      const tails=[host,phone,tv].map(d=>d.samples.filter(s=>s.at>=start+35000));
+      const gap=Math.max(...tails[0].map((s,i)=>Math.max(Math.abs(s.errorMs-tails[1][i].errorMs),Math.abs(s.errorMs-tails[2][i].errorMs))));
+      const detail={actions,summaries,healthy,gap,tvSeeks:tv.player.stats.seeks};
+      return {ok:actions.length===2&&actions[0][0]==='reload'&&actions[1][0]==='rebuild'&&actions[1][1]<=32000&&actions[1][1]-actions[0][1]<=9000&&summaries.every(s=>s.samples>=150&&s.maxAbsMs<=50&&s.frozenMs===0)&&gap<=50&&healthy.every(h=>h.seeks===0&&h.loads===1&&h.pauses===0)&&tv.player.stats.seeks<=2,detail};
+    } finally {lab.close();}
+  },
+
   async 'SYNC-50:per-video summaries retain unready and unsynchronized outcomes after detail expiry'() {
     let now=1700000000000;const elem={value:'',textContent:'',open:false,addEventListener(){}};
     class ClockDate extends Date {constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
-    const ctx={Date:ClockDate,document:{getElementById:()=>elem},performance:{now:()=>now},estimatedServerNow:()=>now,roomId:'room',session:{memberId:'h'},isHost:()=>true,state:{source:{videoId:'A',title:'First'},presentationEpoch:1,playoutSegment:1,hostId:'h',playback:{rate:1},members:[{id:'h',name:'Host'},{id:'tv',name:'TV'}]}};ctx.window=ctx.globalThis=ctx;
+    const ctx={Date:ClockDate,document:{getElementById:()=>elem},performance:{now:()=>now},estimatedServerNow:()=>now,roomId:'room',session:{memberId:'h'},isHost:()=>true,state:{source:{videoId:'A',title:'First'},presentationEpoch:1,playoutSegment:1,hostId:'h',playback:{rate:1,position:60,projectedAt:now-10},members:[{id:'h',name:'Host'},{id:'tv',name:'TV'}]}};ctx.window=ctx.globalThis=ctx;
+    vm.runInNewContext(fs.readFileSync(new URL('../../../../public/client/precision-policy.js',import.meta.url),'utf8'),ctx);
     vm.runInNewContext(fs.readFileSync(new URL('../../../../public/client/sync-room-log.js',import.meta.url),'utf8'),ctx);
-    const log=ctx.watchFusionRoomSyncLog,peer=(member,error)=>({member,sampledAt:now-10,positionMs:60000+error,roomPositionMs:60000,targetPositionMs:60000,ready:true,playing:true,buffering:false,rate:1,rttMs:10,audible:true,sensor:{domain:'player-timeline',heldMs:0,audibleOutput:'player',clockBoundMs:6,clockState:'bounded',timelineState:'advancing'}});
+    const log=ctx.watchFusionRoomSyncLog,peer=(member,error)=>({member,playoutSegment:ctx.state.playoutSegment,sampledAt:now-10,positionMs:60000+now-10-ctx.state.playback.projectedAt+error,roomPositionMs:60000+now-10-ctx.state.playback.projectedAt,targetPositionMs:60000+now-10-ctx.state.playback.projectedAt,ready:true,playing:true,buffering:false,rate:1,rttMs:10,audible:true,sensor:{domain:'player-timeline',heldMs:0,audibleOutput:'player',clockBoundMs:6,clockState:'bounded',timelineState:'advancing'}});
     const observe=rows=>log.observe(rows,{reference:'linked-tab',source:'live',sourceReferenceAt:now-20},{members:2,reporting:rows.length});
     observe([peer('h',0),peer('tv',20)]);now+=5000;observe([peer('h',0)]);now+=5000;observe([peer('h',0),peer('tv',230)]);
     now+=1800001;ctx.state.source={videoId:'B',title:'Second'};ctx.state.playoutSegment++;observe([peer('h',0),peer('tv',0)]);

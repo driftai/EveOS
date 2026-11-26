@@ -34,6 +34,25 @@ function play(L,{end=76000,step=250}={}){
  for(let t=50000;t<=end;t+=step){L.at(t);L.arb.tick('room:video:epoch:seg3',t,L.io);}
 }
 export async function runR14yChecks(check){
+ await check('WF06JE-01:advancing 330ms post-release TV lag acquires within the shortened qualified window',()=>{
+  const L=lab({rates:[1,1.25],startingError:-.33,savedModel:{rateGain:1}});
+  play(L,{end:56000,step:50});
+  assert.ok(Math.abs(L.position()-L.now()/1000)<=.05,`residual ${L.position()-L.now()/1000}`);
+  assert.deepEqual(L.ops,[['rate',1.25],['rate',1]]);
+ });
+ await check('WF06JE-02:shortened plateau lane requires fresh continuous raw progress and qualified source',()=>{
+  const scope='room:video:epoch:seg3';
+  for(const mode of ['healthy','frozen','jump','mirror','untrusted','raw-mismatch','target-jump','gap']){
+   const L=lab({rates:[1,1.25]}),gate=L.ctx.WatchFusionReleaseEvidence.createTvRateRecheckGate();
+   let result=null;
+   for(let t=0;t<=5000;t+=mode==='gap'?1500:250){
+    const pos=30+t/1000+(mode==='jump'&&t>=1500?.2:0),target=30+t/1000+.33+(mode==='target-jump'&&t>=1500?.2:0);
+    const io={...L.io,current:()=>mode==='frozen'?30:mode==='raw-mismatch'?pos+.15:pos,target:()=>target,mirrorContradicted:()=>mode==='mirror',sourceReferenceQualified:()=>mode!=='untrusted'};
+    result=gate.consider({scope,io,nowMs:t,error:.33,rateHonored:false,quietStallMs:5000+t,quietRejoinMs:6000+t})||result;
+   }
+   assert.equal(result?.rate,mode==='healthy'?1.25:undefined,mode);
+  }
+ });
  await check('WF06I-03:measured small TV overshoot earns one reverse trial, never a blind repeat',()=>{
   const L=lab({rates:[.75,1,1.25]}),scope='room:video:epoch:seg3';
   for(const mode of ['measured','no-motion','rejected','new-scope']){

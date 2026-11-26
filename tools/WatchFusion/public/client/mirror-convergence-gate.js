@@ -37,7 +37,7 @@
       held++; heldSinceNote++;
       if (Math.abs(drift) > LARGE_SEC) contradiction = {page, driftMs: Math.round(drift * 1000), at: now};
       const phaseNow=window.watchFusionPlayout?.status?.()?.sourcePhaseMs; const gapNow=Number.isFinite(phaseNow)?Math.round(drift*1000-phaseNow):null;
-      clockEvidence={gapMs:gapNow,sourcePhaseMs:Number.isFinite(phaseNow)?Math.round(phaseNow):null,sampleAgeMs:Math.round(Date.now()-sampleAt),at:now,classification:gapNow!==null&&Math.abs(gapNow)>750?'clock-domains-disagree':'unverified'};
+      clockEvidence={sampleClock:metadata.sampleClock,relayAgeGapMs:metadata.relayAgeGapMs,gapMs:gapNow,sourcePhaseMs:Number.isFinite(phaseNow)?Math.round(phaseNow):null,sampleAgeMs:Math.round(Date.now()-sampleAt),at:now,classification:gapNow!==null&&Math.abs(gapNow)>750?'clock-domains-disagree':'unverified'};
       if (now - lastNote > 15000) {
         lastNote = now;
         // Sample age (local clock, same domain as the anchor) and how often this happened: is it a held source sample?
@@ -46,7 +46,7 @@
         const phase=window.watchFusionPlayout?.status?.()?.sourcePhaseMs;
         const gap=Number.isFinite(phase)?Math.round(drift*1000-phase):null;
         window.watchFusionRoomSyncLog?.note?.('mirror-drift-observing', {driftMs: Math.round(drift * 1000),
-          sampleAgeMs: Math.round(Date.now() - sampleAt), sourcePhaseMs:Number.isFinite(phase)?Math.round(phase):null,
+          sampleClock:metadata.sampleClock, relayAgeGapMs:metadata.relayAgeGapMs, sampleAgeMs: Math.round(Date.now() - sampleAt), sourcePhaseMs:Number.isFinite(phase)?Math.round(phase):null,
           clockGapMs:gap, clockEvidence:gap!==null&&Math.abs(gap)>750?'contradictory':'unverified',
           step: heldSinceNote, reason: same ? 'repeated-sample' : 'isolated-sample'});
         heldSinceNote = 0;

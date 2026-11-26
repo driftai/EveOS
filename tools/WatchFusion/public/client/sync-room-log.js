@@ -13,7 +13,7 @@
   let burstUntil = -Infinity, lastHealthKey = '', lastHealthCritical = false;
   let entries = [], events = [], roomScope = '', lastPeers = new Map(), lastKey = '', lastAt = 0, requestAt = -Infinity;
   let lastRendered = '', lastSegmentKey = '', segmentSequence = 0;
-  let observedSong = 0, lastSongKey = '', trackSummaries=[];
+  let observedSong = 0, lastSongKey = '', trackSummaries=[], previousActivity=null;
   let plateauScope = '', plateauSamples = [];
   const finite = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : null;
   const memberName = id => (state?.members || []).find(m => m.id === id)?.name || 'Viewer';
@@ -55,7 +55,6 @@
       timelineState:/^(?:advancing|slow|held|jumped|unverified)$/.test(d.timelineState)?d.timelineState:null,
       timelineRatePct:Number.isFinite(d.timelineRatePct)&&d.timelineRatePct>=0&&d.timelineRatePct<=300?finite(d.timelineRatePct):null,audibleOutput:/^[a-z-]{1,12}$/.test(d.audibleOutput)?d.audibleOutput:'unknown'};
   }
-  // Explicit whitelist for exported peer diagnostics: no opaque JSON or free text.
   function decoder(v) {
     if(!v||typeof v!=='object'||Array.isArray(v))return null;
     const word=x=>typeof x==='string'&&/^[a-z][a-z-]{0,41}$/.test(x)?x:null;
@@ -65,34 +64,31 @@
   }
   const localRecovery = () => ({hostRecovery:{...(window.WatchFusionHostPeerRecovery?.diagnostics?.()??{}),
     linkedSource:window.WatchFusionHostSourceConverge?.diagnostics?.()??null}});
-  // Group phase needs two fresh, playing, trusted audible players; source-tab audio is not a player witness.
-  // Timeline agreement is not speaker sync. Bound = two widest clock bounds, or unbounded if any is unqualified.
   function outputIdentity(fresh) {
     const outs=fresh.map(p=>p.sensor?.audibleOutput||'unknown');
     return !outs.length?null:outs.includes('both')?'double-audio':outs.includes('source-tab')?'source-tab-audible':
       outs.includes('unknown')?'unknown':outs.every(o=>o==='none')?'none-audible':'room-players';
   }
   function group(rows) {
-    const fresh=rows.filter(p=>p.playing&&!p.buffering&&p.targetErrorMs!==null&&p.reportAgeMs!==null&&p.reportAgeMs<=2700&&
+    const fresh=rows.filter(p=>p.playing&&!p.buffering&&p.comparisonOffsetMs!==null&&p.reportAgeMs!==null&&p.reportAgeMs<=2700&&
       !p.signals.includes('UNTRUSTED_PLAYER_OFFSET'));
     const usable=fresh.filter(p=>['player','both'].includes(p.sensor?.audibleOutput)),outputs=outputIdentity(fresh);
     // Audio-independent timelines must never be promoted to audible groupPhase.
-    const timelineErrors=fresh.map(p=>p.targetErrorMs).sort((a,b)=>a-b);
+    const timelineErrors=fresh.map(p=>p.comparisonOffsetMs).sort((a,b)=>a-b);
     const timelineSpreadMs=timelineErrors.length>=2 ? timelineErrors.at(-1)-timelineErrors[0] : null;
     const timelinePhase=timelineSpreadMs===null?'no-peer-comparison':timelineSpreadMs<=50?'player-timelines-within-50':
       timelineSpreadMs<=75?'player-timelines-near-50':'player-timelines-differ';
     const timeline={timelinePlayerCount:fresh.length,timelineSpreadMs,timelinePhase};
     if(usable.length<2)return {playerCount:usable.length,groupSpreadMs:null,commonModeMs:null,groupUncertaintyMs:null,
       groupPhase:'unmeasured-'+(usable.length?'single-player':'no-player'),outputs,...timeline};
-    const errors=usable.map(p=>p.targetErrorMs).sort((a,b)=>a-b),clocks=usable.map(p=>p.sensor?.clockState==='bounded'?p.sensor.clockBoundMs:NaN);
+    const errors=usable.map(p=>p.comparisonOffsetMs).sort((a,b)=>a-b),clocks=usable.map(p=>p.sensor?.clockState==='bounded'?p.sensor.clockBoundMs:NaN);
     const spread=errors.at(-1)-errors[0],middle=errors[Math.floor(errors.length/2)];
     const uncertainty=clocks.every(Number.isFinite)?clocks.sort((a,b)=>b-a).slice(0,2).reduce((a,b)=>a+b,0):null;
     const phase=uncertainty===null?'unmeasured-clock':
-      spread<=Math.max(50,uncertainty)?(Math.abs(middle)>=80?'common-mode-offset':'aligned'):
-      spread<=Math.max(75,uncertainty+20)?'near-alignment':'players-disagree';
-    return {playerCount:usable.length,groupSpreadMs:spread,commonModeMs:middle,groupUncertaintyMs:uncertainty,groupPhase:phase,outputs,...timeline};
+      spread<=50?(Math.abs(middle)>=80?'common-mode-offset':'aligned'):
+      spread<=75?'near-alignment':'players-disagree';
+    return {playerCount:usable.length,groupSpreadMs:spread,commonModeMs:middle,groupUncertaintyMs:uncertainty,groupPhase:phase,clockOnlySpreadUpperMs:uncertainty===null?null:Math.ceil(spread+usable.map(p=>p.sensor.clockBoundMs*p.playerRate).sort((a,b)=>b-a).slice(0,2).reduce((a,b)=>a+b,0)+1),outputs,...timeline};
   }
-  // Linked source remains authority even without an embeddable host. Native mute requires fresh publisher evidence.
   function linkedSourceEvidence(peers, coordination, now) {
     if(state?.linkedSourceActive!==true) return null;
     const sourceAgeMs=Number.isFinite(coordination?.sourceReferenceAt)?finite(now-coordination.sourceReferenceAt):null;
@@ -108,16 +104,15 @@
     const hostPlaying=host?.playing===true&&!host.buffering;
     const audioRoute=tabMuted===false&&hostPlaying?'double-audio-risk':tabMuted===false&&!hostPlaying?'source-tab-fallback':
       tabMuted===true&&hostPlaying?'room-player':tabMuted===true&&!hostPlaying?'host-player-unavailable':'unverified';
-    return {mode:live?'live-linked-source':'unverified-source-reference',sourceAgeMs,
+    return {mode:live?'live-linked-source':'unverified-source-reference',sourceAgeMs, sampleClock:muteAgeMs!==null&&muteAgeMs>=0&&muteAgeMs<=2000&&['server-qualified','relay-bounded'].includes(metadata?.sampleClock)?metadata.sampleClock:null, relayAgeGapMs:muteAgeMs!==null&&muteAgeMs>=0&&muteAgeMs<=2000&&metadata?.sampleClock==='server-qualified'?finite(metadata.relayAgeGapMs):null,
       uncertaintyMs:finite(coordination?.uncertaintyMs),hostPlayerPlaying:host?.playing??null,
       tabMuted,muteSampleAgeMs:muteAgeMs,audioRoute,sourcePlayerSilenced:muteAgeMs!==null&&muteAgeMs>=0&&muteAgeMs<=2000&&typeof metadata?.sourcePlayerSilenced==='boolean'?metadata.sourcePlayerSilenced:null,
-      sourcePlayerSilenceSampleAgeMs:typeof metadata?.sourcePlayerSilenced==='boolean'?muteAgeMs:null,sourceLogicalVolumePct:muteAgeMs!==null&&muteAgeMs>=0&&muteAgeMs<=2000&&Number.isFinite(metadata?.volume)&&metadata.volume>=0&&metadata.volume<=1?finite(metadata.volume*100):null,hostPlayerAudible:typeof host?.audible==='boolean'?host.audible:null};
+      roomVolumeIntentPct:state?.roomAudioPinned===true?finite(state?.playback?.volume):null,roomVolumeIntentMuted:state?.roomAudioPinned===true?!!state?.playback?.muted:null,sourcePlayerSilenceSampleAgeMs:typeof metadata?.sourcePlayerSilenced==='boolean'?muteAgeMs:null,sourceLogicalVolumePct:muteAgeMs!==null&&muteAgeMs>=0&&muteAgeMs<=2000&&Number.isFinite(metadata?.volume)&&metadata.volume>=0&&metadata.volume<=1?finite(metadata.volume*100):null,hostPlayerAudible:typeof host?.audible==='boolean'?host.audible:null};
   }
-  // Plateau = stable separation of advancing timelines, NOT audio calibration or a correction target.
   function plateauEvidence(rows, timeline, coordination, now) {
     const scope = [state?.presentationEpoch, state?.source?.videoId, state?.playoutSegment].join(':');
     if (scope !== plateauScope) { plateauScope = scope; plateauSamples = []; }
-    const qualified = rows.filter(p=>p.playing&&!p.buffering&&p.targetErrorMs!==null&&
+    const qualified = rows.filter(p=>p.playing&&!p.buffering&&p.comparisonOffsetMs!==null&&
       p.reportAgeMs!==null&&p.reportAgeMs>=0&&p.reportAgeMs<=1500&&
       ['decoder-confirmed','fine-locked'].includes(p.startupPhase)&&
       !['unstable','stale','unknown'].includes(p.sensor?.clockState)&&
@@ -154,13 +149,13 @@
     if(lastSegmentKey)events.push({at:new Date().toISOString(),kind:'playback-segment-transition',sequence:segmentSequence+1});
     lastSegmentKey=key;segmentSequence++;prune();
   }
-  // Keep raw positions, but do not certify sync during unverified decoding or recovery ownership.
   function decoderProgressUnverified(peer) {
     return ['decoder-stalled','decoder-buffering','decoder-warming','decoder-advancing','awaiting-play','awaiting-first-frame'].includes(peer.startupPhase)
       || /^(?:viewer-stalled-while-playing|viewer-warming-after-play|stall-recovery-exhausted|auto-correction-suspended|rejoin-|stall-kick|settling|tv-decoder-settling)/.test(peer.recentCorrection || '')
       || peer.decoderRecovery?.outcome === 'terminal-recovery-spent';
   }
-  function strip(peer, now, coordination) {
+  function strip(peer, now, coordination, commonRoomMs) {
+    const projected = window.WatchFusionPrecisionPolicy?.comparisonPosition(peer,now,state?.playoutSegment);
     const rawPhase = finite(peer.positionMs - peer.roomPositionMs);
     const targetError = Number.isFinite(peer.targetPositionMs) ? finite(peer.positionMs - peer.targetPositionMs) : null;
     const reportAge=finite(now-peer.sampledAt),live=peer.playing&&!peer.buffering&&peer.ready&&reportAge!==null&&reportAge>=0&&reportAge<=1500;
@@ -208,7 +203,7 @@
     return {device:memberName(peer.member), role:peer.member===state?.hostId?'host':'viewer',
       hostRecoveryMeaning:recoveryMeaning, playing:peer.playing, buffering:peer.buffering,
       reportAgeMs:reportAge, playerOffsetMs:live&&!unverifiedDecoder?rawPhase:null,
-       rawOffsetMs:rawPhase, targetErrorMs:live&&!unverifiedDecoder?targetError:null, sourceErrorMs:peer.sensor?.clockState==='bounded' ? window.watchFusionPlayout?.sourceErrorMs?.(peer, coordination, now) ?? null : null, adjustmentMs:finite(peer.adjustmentMs),
+       rawOffsetMs:rawPhase, comparisonOffsetMs:live&&!unverifiedDecoder&&!['held','slow','jumped'].includes(peer.sensor?.timelineState)&&Number.isFinite(projected)&&Number.isFinite(commonRoomMs)?finite(projected-commonRoomMs):null, targetErrorMs:live&&!unverifiedDecoder?targetError:null, sourceErrorMs:peer.sensor?.clockState==='bounded' ? window.watchFusionPlayout?.sourceErrorMs?.(peer, coordination, now) ?? null : null, adjustmentMs:finite(peer.adjustmentMs),
        timingQuality:!peer.playing?'paused-residual':!live?'stale-or-buffering':unverifiedDecoder?'decoder-progress-unverified':peer.sensor?.clockState==='bounded'?'bounded-player-only':'thin-clock-estimate',
       playerRate:Number.isFinite(peer.rate)?Math.round(peer.rate*1000)/1000:null,
       rttMs:finite(peer.rttMs), sourceAgeMs:finite(peer.sourceAgeMs), startupWaitMs:finite(peer.startupWaitMs),
@@ -229,47 +224,51 @@
     refreshScope();
     prune();
     const recent = entries.slice(-15).map(item => {
-      const peers = item.peers.map(p => `${p.device}: ${p.targetErrorMs === null ? 'room ' + (p.rawOffsetMs ?? '?') : 'target ' + p.targetErrorMs}ms · startup ${p.startupWaitMs ?? '?'}ms · ${p.corrections ?? '-'} seeks${p.signals.length ? ' [' + p.signals.join(',') + ']' : ''}`).join(' / ');
+      const peers = item.peers.map(p => `${p.device}: ${p.targetErrorMs === null ? 'timing unmeasured; raw ' + (p.rawOffsetMs ?? '?') : 'target ' + p.targetErrorMs}ms · startup ${p.startupWaitMs ?? '?'}ms · ${p.corrections ?? '-'} corrections${p.decoderRecovery?.steps||p.decoderRecovery?.stallMs>=6000?' · recovery '+(p.decoderRecovery.outcome??'unknown')+' ('+(p.decoderRecovery.steps??0)+'/2)':''}${p.signals.length ? ' [' + p.signals.join(',') + ']' : ''}`).join(' / ');
       const h=item.peers.find(p=>p.freeze)?.freeze;
-      return `${item.at.slice(11,19)} #${item.segmentSequence||'?'} song${item.song?.playlistIndex||item.song?.observedSong||'?'} ${item.song?.title||'title unavailable'} ${clock(item.song?.elapsedMs)}/${clock(item.song?.durationMs)} (-${clock(item.song?.remainingMs)}) ${item.ref || 'room-clock'}${item.source ? ' src:' + item.source : ''}${item.groupPhase ? ' · ' + item.groupPhase : ''} | ${peers}${h ? ' · host:'+h.state+(h.guard ? ' ('+h.guard+')' : '') : ''}`;
+      return `${item.at.slice(11,19)} #${item.segmentSequence||'?'} song${item.song?.playlistIndex||item.song?.observedSong||'?'} ${item.song?.title||'title unavailable'} ${clock(item.song?.elapsedMs)}/${clock(item.song?.durationMs)} (-${clock(item.song?.remainingMs)}) ${item.ref || 'room-clock'}${item.source ? ' src:' + item.source : ''}${item.groupPhase ? ' · ' + item.groupPhase : ''} · measured ${item.timelinePlayerCount}/${item.expectedMemberCount??item.roster?.members??'?'}${item.activity?' · '+item.activity.localParticipation+' · '+item.activity.sourceContinuity:''} | ${peers}${h ? ' · host:'+h.state+(h.guard ? ' ('+h.guard+')' : '') : ''}`;
     }).join('\n');
     const transitions = events.slice(-10).map(e => `${e.at.slice(11,19)} #${e.segmentSequence||'?'} ! ${e.kind}${e.reason?' · '+e.reason:''}`).join('\n');
     const display = [recent,transitions].filter(Boolean).join('\n');
-    if (display !== lastRendered) {area.value = display || 'Gathering room timing…'; lastRendered = display;}
-    if (count) count.textContent = entries.length + ' snapshots · ' + events.length + ' transitions';
+    if (manualContent===null && document.activeElement!==area && display !== lastRendered) {area.value = display || 'Gathering room timing…'; lastRendered = display;}
+    if (count) count.textContent = manualContent!==null?'Snapshot held · Ctrl+C to copy · close/reopen log for live view':entries.length + ' snapshots · ' + events.length + ' transitions';
   }
   function emit(now, peers, coordination, roster) {
-    recordSegment();
-    const rows = peers.map(p => strip(p, now, coordination)).sort((a,b) => a.device.localeCompare(b.device));
+    recordSegment(); const room = state?.playback, anchorAt = room?.projectedAt ?? state?.serverTime, commonRoomMs = Number.isFinite(room?.position)&&Number.isFinite(anchorAt)&&Number.isFinite(room.rate)&&room.rate>0 ? room.position*1000+(!room.paused&&!room.ended?Math.max(0,now-anchorAt)*room.rate:0) : null;
+    const localId=session?.publicId??(typeof isHost==='function'&&isHost()?state?.hostId:session?.memberId);
+    const rows = peers.map(p => strip(p, now, coordination, commonRoomMs)), localRow=rows[peers.findIndex(p=>p.member===localId)];
+    rows.sort((a,b) => a.device.localeCompare(b.device));
     const relative = group(rows), linkedSource = linkedSourceEvidence(peers,coordination,now);
     const playbackPlateau = plateauEvidence(rows,relative,coordination,now);
-    const host=rows.find(p=>p.role==='host' && p.targetErrorMs!==null);
-    for(const peer of rows) peer.relativeToHostMs=host && peer.targetErrorMs!==null
-      ? peer.targetErrorMs-host.targetErrorMs:null;
+    const activity=window.WatchFusionSensorProvenance?.activityEvidence?.({local:localRow,localKnown:localId!=null,hidden:document.hidden,
+      paused:room?.paused===true||room?.ended===true,linked:linkedSource,rows,expectedViewers:Array.isArray(state?.members)?state.members.filter(m=>m.id!==state?.hostId).length:null,
+      previous:previousActivity,spread:relative.timelineSpreadMs,gapMs:lastAt?now-lastAt:null});
+    const host=rows.find(p=>p.role==='host' && p.comparisonOffsetMs!==null);
+    for(const peer of rows) peer.relativeToHostMs=host && peer.comparisonOffsetMs!==null
+      ? peer.comparisonOffsetMs-host.comparisonOffsetMs:null;
     const members = finite(roster?.members), reporting = finite(roster?.reporting);
     const rejections = roster?.rejections && typeof roster.rejections === 'object' ? Object.fromEntries(Object.entries(roster.rejections)
       .filter(([k,v]) => /^[a-z-]{1,20}$/.test(k) && Number.isFinite(v)).slice(0,8).map(([k,v]) => [k,Math.round(v)])) : null;
     const ref = coordination?.reference || window.watchFusionPlayout?.status?.()?.reference || 'room-clock';
     const phaseMs = finite(coordination?.phaseMs);
-    const row = {at:new Date().toISOString(), segmentSequence, ref, referencePhaseMs:phaseMs,
+    const row = {at:new Date().toISOString(), segmentSequence, ref, referencePhaseMs:phaseMs,expectedMemberCount:Array.isArray(state?.members)?state.members.length:null,
       timingVersion:/^v[0-9a-z.-]{1,24}$/.test(coordination?.timingVersion) ? coordination.timingVersion : null,
       uncertaintyMs:finite(coordination?.uncertaintyMs), sourceBuffering:!!coordination?.authorityBuffering,
       sourceReferenceAgeMs:Number.isFinite(coordination?.sourceReferenceAt)?finite(now-coordination.sourceReferenceAt):null,
       source:coordination?.source || null, sourcePhaseMs:finite(coordination?.sourcePhaseMs),song:song(),
-      mirrorClock:(()=>{const c=window.WatchFusionMirrorConvergenceGate?.diagnostics?.()?.clockEvidence;return c?{gapMs:finite(c.gapMs),sourcePhaseMs:finite(c.sourcePhaseMs),sampleAgeMs:finite(c.sampleAgeMs),classification:/^[a-z-]{1,35}$/.test(c.classification)?c.classification:null}:null;})(),
-      ...relative, linkedSourceEvidence:linkedSource, playbackPlateau, speakerPhase:'not-measured', roster:members===null?null:{members,reporting,rejections},
-      peers:rows};
+      mirrorClock:(()=>{const c=window.WatchFusionMirrorConvergenceGate?.diagnostics?.()?.clockEvidence;return c?{sampleClock:['server-qualified','relay-bounded'].includes(c.sampleClock)?c.sampleClock:null,relayAgeGapMs:finite(c.relayAgeGapMs),gapMs:finite(c.gapMs),sourcePhaseMs:finite(c.sourcePhaseMs),sampleAgeMs:finite(c.sampleAgeMs),classification:/^[a-z-]{1,35}$/.test(c.classification)?c.classification:null}:null;})(),
+      comparisonReference:'common-room-clock', ...relative, linkedSourceEvidence:linkedSource, playbackPlateau, speakerPhase:'not-measured', roster:members===null?null:{members,reporting,rejections},
+      peers:rows,activity};
     const key = JSON.stringify([ref,phaseMs,relative.groupPhase,relative.timelinePhase,playbackPlateau.state,linkedSource?.audioRoute,members,reporting,
       rows.map(p => [p.device,p.playerOffsetMs,p.corrections,p.action,p.buffering,p.startupPhase,p.audioReadiness,p.seekHealth?.recoveryAttempts,p.signals])]);
-    // Source-trust transitions (live/stale/off-phase/...) are acceptance evidence: record them at once.
-    const changed = rows.some(p=>p.freeze?.transition) || key !== lastKey && rows.some(p=>p.signals.length) || ref !== (entries.at(-1)?.ref) ||
+    const changed = activity?.localParticipation!==previousActivity?.localParticipation || activity?.sourceContinuity!==previousActivity?.sourceContinuity || rows.some(p=>p.freeze?.transition) || key !== lastKey && rows.some(p=>p.signals.length) || ref !== (entries.at(-1)?.ref) ||
       row.source !== (entries.at(-1)?.source ?? null) || row.segmentSequence !== entries.at(-1)?.segmentSequence ||
       row.groupPhase !== entries.at(-1)?.groupPhase || row.timelinePhase !== entries.at(-1)?.timelinePhase ||
       row.linkedSourceEvidence?.audioRoute !== entries.at(-1)?.linkedSourceEvidence?.audioRoute ||
       row.linkedSourceEvidence?.mode !== entries.at(-1)?.linkedSourceEvidence?.mode || row.linkedSourceEvidence?.sourcePlayerSilenced !== entries.at(-1)?.linkedSourceEvidence?.sourcePlayerSilenced ||
-      row.outputs !== entries.at(-1)?.outputs || row.roster?.reporting !== entries.at(-1)?.roster?.reporting || rows.some(p=>{const q=entries.at(-1)?.peers?.find(x=>x.device===p.device);return q&&(q.startupPhase!==p.startupPhase||q.audioReadiness!==p.audioReadiness||q.decoderRecovery?.outcome!==p.decoderRecovery?.outcome||q.decoderRecovery?.steps!==p.decoderRecovery?.steps||((q.action==='tv-decoder-settling')!==(p.action==='tv-decoder-settling')));});
+      row.expectedMemberCount !== entries.at(-1)?.expectedMemberCount || row.roster?.members !== entries.at(-1)?.roster?.members || row.outputs !== entries.at(-1)?.outputs || row.roster?.reporting !== entries.at(-1)?.roster?.reporting || rows.some(p=>{const q=entries.at(-1)?.peers?.find(x=>x.device===p.device);return q&&(q.startupPhase!==p.startupPhase||q.audioReadiness!==p.audioReadiness||q.decoderRecovery?.outcome!==p.decoderRecovery?.outcome||q.decoderRecovery?.steps!==p.decoderRecovery?.steps||((q.action==='tv-decoder-settling')!==(p.action==='tv-decoder-settling')));});
     if (!changed && now - lastAt < (performance.now() < burstUntil ? 500 : lastHealthCritical ? 1100 : 4500)) return;
-    lastKey = key; lastAt = now;
+    lastKey = key; lastAt = now; previousActivity=activity;
     row.localRuntime=runtimeEvidence(); entries.push(row); summarizeTrack(row); prune();
     const local=rows.find(p=>p.freeze), health=local?.freeze;
     const healthKey=health ? [health.state,health.guard,health.owner].join(':') : '';
@@ -280,20 +279,23 @@
   // Keep sampled outcomes per observed video even if detailed rows expire. Unknown is never a pass.
   function summarizeTrack(row) {
     if (!row.song?.observedSong) return;
-    let t=trackSummaries.at(-1); if(t?.observedSong!==row.song.observedSong){t={observedSong:row.song.observedSong,title:row.song.title,firstAt:row.at,lastAt:row.at,samples:0,within25:0,within50:0,qualifiedWithin50:0,above100:0,unmeasured:0,unready:0,maxSpreadMs:null,firstWithin50At:null,maxSampleGapMs:0};trackSummaries.push(t);if(trackSummaries.length>32)trackSummaries.shift();}
+    let t=trackSummaries.at(-1); if(t?.observedSong!==row.song.observedSong){t={observedSong:row.song.observedSong,title:row.song.title,firstAt:row.at,lastAt:row.at,samples:0,within5:0,within10:0,within25:0,within50:0,qualifiedWithin50:0,above100:0,unmeasured:0,unready:0,maxSpreadMs:null,firstWithin50At:null,maxSampleGapMs:0};trackSummaries.push(t);if(trackSummaries.length>32)trackSummaries.shift();}
     t.maxSampleGapMs=Math.max(t.maxSampleGapMs,Date.parse(row.at)-Date.parse(t.lastAt));t.lastAt=row.at;t.samples++;
-    const v=row.timelineSpreadMs; if(!Number.isFinite(v))t.unmeasured++;else{if(v<=25)t.within25++;if(v<=50){t.within50++;t.firstWithin50At??=row.at;}if(v>100)t.above100++;t.maxSpreadMs=Math.max(t.maxSpreadMs??0,v);}
-    if(row.timelinePlayerCount<(row.roster?.members??row.peers.length)||row.peers.some(p=>!p.playing||p.buffering||p.reportAgeMs===null||p.reportAgeMs>1500||p.sensor?.timelineState!=='advancing'||p.sensor?.clockState!=='bounded'))t.unready++;else if(Number.isFinite(v)&&v<=50)t.qualifiedWithin50++;
+    if(row.activity){const a=row.activity;for(const [key,yes] of [['backgroundInactive',a.localParticipation==='background-inactive'],['foregroundReacquiring',a.localParticipation==='foreground-reacquiring'],['sourceViewerWithin50',a.sourceContinuity==='viewer-source-within-50'],['sourceViewerMonitoring',a.sourceContinuity==='viewer-source-monitoring'],['sourceViewerOutside100',a.sourceContinuity==='viewer-source-outside-100'],['sourceViewerUnmeasured',['source-unverified','viewer-source-unmeasured'].includes(a.sourceContinuity)],['coverageGapsOver10s',a.coverageGapMs>10000]])t[key]=(t[key]??0)+Number(yes);}
+    const v=row.timelineSpreadMs; if(!Number.isFinite(v))t.unmeasured++;else{if(v<=5)t.within5++;if(v<=10)t.within10++;if(v<=25)t.within25++;if(v<=50){t.within50++;t.firstWithin50At??=row.at;}if(v>100)t.above100++;t.maxSpreadMs=Math.max(t.maxSpreadMs??0,v);}
+    const full=Number.isFinite(row.expectedMemberCount)&&row.expectedMemberCount>=2&&row.timelinePlayerCount===row.expectedMemberCount&&Number.isFinite(v);
+    t.fullRoomComparable=(t.fullRoomComparable??0)+Number(full);t.fullRoomUnmeasured=(t.fullRoomUnmeasured??0)+Number(!full);t.fullRoomWithin50=(t.fullRoomWithin50??0)+Number(full&&v<=50);t.fullRoomAbove100=(t.fullRoomAbove100??0)+Number(full&&v>100);t.firstAllWithin50At??=full&&v<=50?row.at:null;t.firstQualifiedWithin50At??=null;t.fullRoomQualifiedWithin50??=0;
+    if(row.timelinePlayerCount<(row.roster?.members??row.peers.length)||row.peers.some(p=>!p.playing||p.buffering||p.reportAgeMs===null||p.reportAgeMs>1500||p.sensor?.timelineState!=='advancing'||p.sensor?.clockState!=='bounded'))t.unready++;else if(Number.isFinite(v)&&v<=50){t.qualifiedWithin50++;if(full){t.fullRoomQualifiedWithin50=(t.fullRoomQualifiedWithin50??0)+1;t.firstQualifiedWithin50At??=row.at;}}
   }
   function refreshScope() {
     const scope = currentScope();
     if (scope === roomScope) return;
     roomScope = scope;
-    entries = []; events = []; trackSummaries=[]; droppedSnapshots=droppedEvents=0;
+    entries = []; events = []; trackSummaries=[]; previousActivity=null; droppedSnapshots=droppedEvents=0;
     lastPeers.clear();
     lastKey = lastRendered = '';lastSegmentKey='';segmentSequence=0;lastHealthKey='';lastHealthCritical=false;observedSong=0;lastSongKey='';plateauScope='';plateauSamples=[];
     window.WatchFusionFreezeTelemetry?.reset?.();
-    lastAt = 0; requestAt = -Infinity; area.value = '';
+    resetCopy(); lastAt = 0; requestAt = -Infinity; area.value = '';
   }
   function prune(full=false) {
     const at=Date.now(), n=entries.length, e=events.length;
@@ -304,10 +306,10 @@
   }
   function note(kind, detail={}) {
     refreshScope();
-    if(!roomScope || !/^(?:ui-intent|source-(?:play|pause|volume|track-transition|seek-confirmed|seek-unconfirmed|seek-retry|transport-unconfirmed|transport-retry|command-timeout|volume-unconfirmed)|embedded-control|mirror-(?:request|applied|expired|anchor-rebased)|room-transition|host-rejoin-(?:gated|triggered|accepted|rejected|settled|incomplete|verifying|retry-armed|budget-exhausted|drift-returned)|playlist-(?:transition|resume-attempt|resume-confirmed|resume-blocked|resume-expired|pause-preserved|pause-deferred|preview-guarded)|solo-sync-one-rejoin|zero-converge-pulse|zero-actuator-(?:finished|verified|verification-lost|sample-rejected|measurement-rearmed)|runtime-(?:visibility|freeze|resume|timer-gap)|host-zero-(?:pulse-gated|rate-recheck-verified)|host-hold-(?:started|result)|tv-next-release-model-adjusted|tv-decoder-(?:reload|rebuild|rearmed|recovered|budget-spent|manual-restart)|room-audio-(?:unlocked|reapplied|needs-tap|deferred|retry-pending)|startup-prime-result|source-stall-held|host-link-(?:lost|resumed|restore-attempt|denied|suppressed)|host-source-(?:rejoin-triggered|rejoin-accepted|rejoin-refused|settled|landing-incomplete|backoff|contradicted)|mirror-drift-observing|rejoin-landing|correction-deadline-missed|host-background-direct-rejoin|sync-health-state)$/.test(kind)) return;
+    if(!roomScope || !/^(?:ui-intent|source-(?:play|pause|volume|track-transition|seek-confirmed|seek-unconfirmed|seek-retry|transport-unconfirmed|transport-retry|command-timeout|volume-unconfirmed)|embedded-control|mirror-(?:request|applied|expired|anchor-rebased)|room-transition|host-rejoin-(?:gated|triggered|accepted|rejected|settled|incomplete|verifying|retry-armed|budget-exhausted|drift-returned)|playlist-(?:transition|resume-attempt|resume-confirmed|resume-blocked|resume-expired|pause-preserved|pause-deferred|preview-guarded)|solo-sync-one-rejoin|zero-converge-pulse|zero-actuator-(?:finished|verified|verification-lost|sample-rejected|measurement-rearmed)|runtime-(?:visibility|freeze|resume|timer-gap)|host-zero-(?:pulse-gated|rate-recheck-verified)|host-hold-(?:started|result)|tv-next-release-model-adjusted|tv-decoder-(?:reload|rebuild|rearmed|recovered|budget-spent|manual-restart|resumed)|room-audio-(?:unlocked|reapplied|needs-tap|deferred|retry-pending)|startup-prime-result|source-stall-held|host-link-(?:lost|resumed|restore-attempt|denied|suppressed)|host-source-(?:rejoin-triggered|rejoin-accepted|rejoin-refused|settled|landing-incomplete|backoff|contradicted)|mirror-drift-observing|rejoin-landing|correction-deadline-missed|host-background-direct-rejoin|sync-health-state)$/.test(kind)) return;
     recordSegment();
     const fields={};
-    for(const key of ['action','reason','playing','paused','positionMs','sampleAgeMs','sourceAgeMs','volumePct','rate','sequence','ackLatencyMs','roundTripMs','reference','hostErrorMs','peerErrorMs','gapMs','peerCount','observedPeerCount','observedPeerErrorMs','peerSpreadMs','dwellMs','attempts','status','backoffMs','muted','generation','step','errorMs','driftMs','beforeMs','residualMs','progressMs','expectedMs','leadMs','landedShortMs','releaseLeadMs','releaseErrMs','holdMs','startLatencyMs','mirrorDriftMs','sourcePhaseMs','clockGapMs','clockEvidence','durationMs','playerErrorMs','heldMs','owner','guard','hidden','phaseMs','extraMs','targetProgressMs']) {
+    for(const key of ['action','reason','playing','paused','positionMs','sampleAgeMs','sourceAgeMs','volumePct','rate','sequence','ackLatencyMs','roundTripMs','reference','hostErrorMs','peerErrorMs','gapMs','peerCount','observedPeerCount','observedPeerErrorMs','peerSpreadMs','dwellMs','attempts','status','backoffMs','muted','generation','step','errorMs','driftMs','beforeMs','residualMs','progressMs','expectedMs','leadMs','landedShortMs','releaseLeadMs','releaseErrMs','holdMs','startLatencyMs','mirrorDriftMs','sourcePhaseMs','clockGapMs','clockEvidence','sampleClock','relayAgeGapMs','durationMs','playerErrorMs','heldMs','owner','guard','hidden','phaseMs','extraMs','targetProgressMs']) {
       const v=detail[key];
       if(typeof v==='boolean' || typeof v==='number' && Number.isFinite(v) && Math.abs(v)<1e9 ||
           typeof v==='string' && /^[a-z-]{1,35}$/.test(v)) fields[key]=v;
@@ -324,7 +326,7 @@
     refreshScope();
     if (!roomScope) return;
     requestAt = performance.now();
-    if (peers.length) emit(estimatedServerNow(), peers, coordination, roster);
+    if (peers.length || (state?.linkedSourceActive===true && (document.hidden===true || previousActivity?.localParticipation==='background-inactive' || previousActivity?.localParticipation==='foreground-reacquiring'))) emit(estimatedServerNow(), peers, coordination, roster);
     else render();
   }
   // Local allowlist only: no parent access, room IDs, URLs, tokens, storage, player metadata or network requests.
@@ -359,12 +361,11 @@
     refreshScope();
     prune(true);
     return {format:'WatchFusion room sync trace v3',generatedAt:new Date().toISOString(),windowMs:MAX_AGE,
-      disclosure:'Player timing, source-supplied song titles and durations, user control intents and redacted transitions only; no audio, URLs, tokens or microphone measurements. Titles are included only when the user copies this local log. Up to 32 per-video sampled summaries survive detailed-row expiry; cleared on room change or Clear. Player target error does not measure speaker-output latency; clock bounds include unknown asymmetry.',
-      diagnosticsVersion:'v13.10.8x-room-recovery',traceVersion:'adaptive-room-06i-trace',retention:{maxSnapshots:MAX_ENTRIES,maxEvents:MAX_EVENTS,droppedSnapshots,droppedEvents},localRuntime:runtimeEvidence(),localActuator:localActuatorEvidence(),trackSummaries:trackSummaries.map(t=>({...t})),snapshots:entries,events};
+      disclosure:'Player timing, source-supplied song titles and durations, user control intents and redacted transitions only; no audio, URLs, tokens or microphone measurements. Titles are included only when the user copies this local log. Up to 32 per-video sampled summaries survive detailed-row expiry; cleared on room change or Clear. Room spread uses a common timestamp and room anchor; individual target and linked-source errors remain separate. Clock-only spread upper estimates omit decoder sampling and output latency. Activity labels distinguish local availability and sampled viewer source-following; missing intervals are not passes. Qualified samples are not a strict error bound. Player timing does not measure speaker latency; clock bounds include unknown asymmetry.',
+      diagnosticsVersion:'v13.10.8x-room-recovery',traceVersion:'adaptive-room-06je-trace',retention:{maxSnapshots:MAX_ENTRIES,maxEvents:MAX_EVENTS,droppedSnapshots,droppedEvents},localRuntime:runtimeEvidence(),localActuator:localActuatorEvidence(),trackSummaries:trackSummaries.map(t=>({...t})),snapshots:entries,events};
   }
   function exported() { return JSON.stringify(exportPayload(),null,2); }
-  // Cooperative 30-minute copy avoids blocking/stringifying the whole trace or filling the live textarea.
-  // export() retains the same redacted schema.
+  // Yield to playback while exporting a fixed, redacted snapshot.
   async function cooperativeExport() {
     const payload=exportPayload();
     const rows=payload.snapshots.slice(), transitions=payload.events.slice(); const header=JSON.stringify({...payload,snapshots:undefined,events:undefined});
@@ -382,59 +383,50 @@
     chunks.push(']}');
     return chunks.join('');
   }
-  let copyBusy=false;
-  async function copyLog() {
-    if(copyBusy)return;
-    copyBusy=true;
+  let copyBusy=false, manualContent=null, copyGeneration=0;
+  function resetCopy() { copyGeneration++; manualContent=null; lastRendered=''; if(copy)copy.textContent='Copy log'; }
+  function selectManual() {
+    if (manualContent===null) return;
+    area.value=manualContent; area.focus({preventScroll:true}); area.select();
+    if(copy)copy.textContent='Select to copy'; render();
+  }
+  async function copyLog(event) {
+    event?.preventDefault?.(); event?.stopPropagation?.();
+    refreshScope(); if(copyBusy)return;
+    if(manualContent!==null){selectManual();return;}
+    copyBusy=true; const generation=copyGeneration;
     if(copy){copy.disabled=true;copy.textContent='Copying...';}
     try {
       note('ui-intent',{action:'copy-log'});
       const content=await cooperativeExport();
+      if(generation!==copyGeneration || currentScope()!==roomScope)return;
       let copied=false;
       if(navigator.clipboard?.writeText) {
         try {await navigator.clipboard.writeText(content);copied=true;} catch {}
       }
+      if(generation!==copyGeneration || currentScope()!==roomScope)return;
       if(!copied) {
-        // LAN HTTP clipboard fallback uses a hidden field, not the visible live panel.
-        const previous=document.activeElement;
-        const temporary=document.createElement('textarea');
-        temporary.value=content;
-        temporary.setAttribute('aria-hidden','true');
-        temporary.style.position='fixed';
-        temporary.style.top='-10000px';
-        temporary.style.left='-10000px';
-        temporary.style.width='1px';
-        temporary.style.height='1px';
+        const previous=document.activeElement, temporary=document.createElement('textarea');
+        temporary.value=content; temporary.setAttribute('aria-hidden','true');
+        Object.assign(temporary.style,{position:'fixed',top:'-10000px',left:'-10000px',width:'1px',height:'1px'});
         document.body.appendChild(temporary);
-        try {
-          temporary.focus({preventScroll:true});
-          temporary.select();
-          copied=document.execCommand?.('copy')===true;
-        } finally {
+        try {temporary.focus({preventScroll:true}); temporary.select(); copied=document.execCommand?.('copy')===true;}
+        catch {} finally {
           temporary.remove();
-          if(previous && previous!==temporary && typeof previous.focus==='function') {
-            try{previous.focus({preventScroll:true});}catch{}
-          }
+          try {previous?.focus?.({preventScroll:true});} catch {}
         }
       }
       if(copied) {
         copy.textContent='Copied';
-        setTimeout(()=>{if(copy)copy.textContent='Copy log';},1500);
-      } else {
-        // Explicit manual fallback only if both clipboard paths fail.
-        area.value=content;area.focus();area.select();
-        copy.textContent='Select to copy';
-      }
-    } catch {
-      if(copy)copy.textContent='Copy failed';
-    } finally {
-      copyBusy=false;
-      if(copy)copy.disabled=false;
-    }
+        setTimeout(()=>{if(copy && generation===copyGeneration && !copyBusy && manualContent===null)copy.textContent='Copy log';},1500);
+      } else {manualContent=content; selectManual();}
+    } catch {if(copy && generation===copyGeneration)copy.textContent='Copy failed';}
+    finally {copyBusy=false; if(copy)copy.disabled=false;}
   }
-  copy?.addEventListener('click', () => void copyLog());
-  clear?.addEventListener('click', () => {entries=[];events=[];trackSummaries=[];droppedSnapshots=droppedEvents=0;lastPeers.clear();lastKey='';lastRendered='';observedSong=0;lastSongKey='';render();});
-  panel.addEventListener('toggle', render);
-  for(const [event,kind] of [['visibilitychange','visibility'],['freeze','freeze'],['resume','resume']]) document.addEventListener?.(event,()=>note('runtime-'+kind,{hidden:document.hidden===true}));
+  copy?.addEventListener('click', copyLog);
+  clear?.addEventListener('click', () => {resetCopy();entries=[];events=[];trackSummaries=[];previousActivity=null;lastAt=0;requestAt=-Infinity;droppedSnapshots=droppedEvents=0;lastPeers.clear();lastKey='';lastRendered='';observedSong=0;lastSongKey='';area.value='';render();});
+  panel.addEventListener('toggle',()=>{if(!panel.open)resetCopy();render();});
+  area.addEventListener?.('blur',render);
+  for(const [event,kind] of [['visibilitychange','visibility'],['freeze','freeze'],['resume','resume']]) document.addEventListener?.(event,()=>{requestAt=-Infinity;note('runtime-'+kind,{hidden:document.hidden===true});});
   window.watchFusionRoomSyncLog = {export:exported, wantsSample, observe, note};
 })();

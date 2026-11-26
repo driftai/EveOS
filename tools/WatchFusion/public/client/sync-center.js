@@ -247,12 +247,13 @@
       const age = Number.isFinite(p.sampledAt) ? Math.abs(now - p.sampledAt) : Infinity;
       return age > 1500 || p.sensor?.clockState !== 'bounded' ? '≈ ' + value + ' (estimate only)' : value;
     };
-    const roomOffsets = peers.filter(p => progress.get(p.member)?.qualified && p.ready && p.playing && !p.buffering
-      && Number.isFinite(p.positionMs) && Number.isFinite(p.roomPositionMs)
-      && Number.isFinite(p.sampledAt) && Math.abs(now - p.sampledAt) < 2000)
-      .map(p => p.positionMs - p.roomPositionMs);
+    const compared = peers.filter(p => progress.get(p.member)?.qualified && !['held','slow','jumped'].includes(p.sensor?.timelineState))
+      .map(p => ({p,position:window.WatchFusionPrecisionPolicy?.comparisonPosition(p,now,state?.playoutSegment)})).filter(x=>Number.isFinite(x.position));
+    const roomOffsets = compared.map(x=>x.position);
     const gap = roomOffsets.length >= 2 ? Math.round(Math.max(...roomOffsets) - Math.min(...roomOffsets)) : null;
-    const aligned = groupAligned(peers, now, gap, progress);
+    const bounds = compared.map(({p})=>p.sensor?.clockState==='bounded'&&Number.isFinite(p.sensor.clockBoundMs)?p.sensor.clockBoundMs*p.rate:NaN);
+    const clockOnlyUpper = gap!==null&&bounds.every(Number.isFinite)?Math.ceil(gap+bounds.sort((a,b)=>b-a).slice(0,2).reduce((a,b)=>a+b,0)+1):null;
+    const aligned = groupAligned(peers, now, roomOffsets.length===peers.length?gap:null, progress);
     const playout = window.watchFusionPlayout;
     const cards = [...peers].sort((a, b) => a.member.localeCompare(b.member)).map((peer, index) => {
       const sourceError = peer.sensor?.clockState === 'bounded' ? playout?.sourceErrorMs?.(peer, coordination, now) : null;
@@ -265,6 +266,7 @@
         // offset from the room/source clock is not evidence of TV-vs-laptop desync.
         ['Player-to-player timeline spread', index === 0 ? gap !== null ? gap + ' ms (' + (aligned ? 'progression qualified' : 'provisional') + '; not speaker audio)' :
           peers.length < 2 ? 'N/A · single room player' : qualifiedCount === 1 ? 'N/A · only one advancing room player' : 'Unverified · no two advancing room players' : null],
+        ['Clock-only spread upper estimate', index === 0 && clockOnlyUpper!==null ? clockOnlyUpper + ' ms (estimated; excludes decoder and speaker latency)' : null],
         ['Linked source reference', index === 0 && state?.linkedSourceActive ? sourceLive ? 'Live, bounded timeline · not speaker timing' : 'Reference not currently bounded' : null],
         ['Linked source progression', index === 0 && state?.linkedSourceActive && sourceMeta ?
           sourceProgress.qualified ? 'Source timeline advancing (local evidence)' : 'Source timeline ' + sourceProgress.state + ' (local evidence)' : null],

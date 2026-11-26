@@ -1,3 +1,5 @@
+let lastRoomStateReceipt = null;
+function noteRoomStateReceipt(){lastRoomStateReceipt={room:roomId,member:session?.memberId,at:performance.now()};}
 async function join(id, name, roomCodeHint = null, options = {}) {
   await networkInfoReady;
   const requestedId = String(id || '').trim().toUpperCase();
@@ -46,6 +48,7 @@ async function join(id, name, roomCodeHint = null, options = {}) {
   joinCode = data.state?.joinCode || session.joinCode || roomCode || roomId;
   replaceRoomHistory(joinCode || roomId);
   saveRoomSession(session, requestedId, roomId, roomCode, joinCode);
+  noteRoomStateReceipt();
   lobby.hidden = true; app.hidden = false;
   $('roomPill').textContent = displayRoomLabel();
   $('roomPill').title = `Copy join code: ${joinCode}`;
@@ -84,6 +87,7 @@ function applyIncomingRoomState(nextState) {
     if (revision < current || (revision === current && Number(nextState.serverTime) < Number(state.serverTime))) return false;
   }
   state = nextState;
+  noteRoomStateReceipt();
   return true;
 }
 
@@ -186,5 +190,13 @@ async function resumeRoomSession() {
 }
 function resumeVisibleRoom() { if (document.visibilityState === 'visible') resumeRoomSession(); }
 window.addEventListener('pageshow', resumeRoomSession);
-window.addEventListener('focus', resumeRoomSession);
+function resumeFocusedRoom(){
+  const age=performance.now()-(lastRoomStateReceipt?.at??-Infinity);
+  const connected=window.watchPartyRealtime?.connected?.()===true || eventSource?.readyState===1 || !!remotePollTimer;
+  // Focus within a healthy embedded room is not a request to rejoin/replay it.
+  if(document.visibilityState==='visible' && connected && lastRoomStateReceipt?.room===roomId &&
+      lastRoomStateReceipt?.member===session?.memberId && age>=0 && age<=15000) return;
+  return resumeRoomSession();
+}
+window.addEventListener('focus', resumeFocusedRoom);
 document.addEventListener('visibilitychange', resumeVisibleRoom);

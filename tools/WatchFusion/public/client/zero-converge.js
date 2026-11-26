@@ -51,12 +51,25 @@
       Math.abs(a.timelineErrorMs-e)<=(catchup?25:20) &&
       window.WatchFusionHostSeekPolicy?.sourceBlocker?.(t)===null;
   }
+  // Viewers may retain measured progress through a brief reference veto only
+  // with the same fresh, independently qualified linked-source timeline.
+  function viewerTrusted(t,e,at) {
+    const playout=window.watchFusionPlayout, c=playout?.status?.(), a=arbiter()?.snapshot?.();
+    const age=at-a?.timelineObservedAtMs, serverNow=estimatedServerNow();
+    const independent=c?.anchorPositionMs+(serverNow-c?.anchorAt)*c?.rate+c?.phaseMs;
+    return !host() && c?.reference==='linked-tab' && c.source==='live' &&
+      playout.hasSourceReference?.(c,serverNow)===true &&
+      Number.isFinite(independent) && Math.abs(independent-t*1000)<=35 &&
+      Number.isFinite(c.uncertaintyMs) && c.uncertaintyMs>=0 && c.uncertaintyMs<=35 &&
+      Number.isFinite(c.sourcePhaseMs) && Math.abs(c.sourcePhaseMs)<=100 && age>=0 && age<=600 &&
+      Number.isFinite(a?.timelineErrorMs) && Math.abs(a.timelineErrorMs-e)<=20;
+  }
   function finish(why,verify=false) {
     const j=job; if (!j) return;
     job=null; clearTimeout(j.timer); lastAt=now(); samples=[];
     // Keep measured motion as provisional evidence across a temporary trust veto.
     // Never continue actuation or credit motion until the same reference is qualified again.
-    const interrupted=j.host && j.ack!==null && j.best>=6 &&
+    const interrupted=(j.host || j.viewerWitness) && j.ack!==null && j.best>=6 &&
       ['reference-changed','reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(why) &&
       key()===scope && j.player===ytPlayer && j.roomRate===state?.playback?.rate;
     try {
@@ -168,7 +181,7 @@
     cap.attempts++; cap.lastAt=at;
     const limit=catchup?MAX_CATCHUP_COMMAND:MAX_FINE_COMMAND;
     job={player:ytPlayer,at,position:pos,target:t,before:m,beforeRaw:raw,mad,base,rate,roomRate:state.playback.rate,
-      reference:window.watchFusionPlayout?.status?.()?.reference,
+      reference:window.watchFusionPlayout?.status?.()?.reference, viewerWitness:viewerTrusted(t,raw,at),
       goal,limit,cap,host:host(),brakeMs:host()?Math.min(goal*.4,cap.tailMs||0):0,ack:null,best:0,evidenceAnchor:null,timer:null};
     if(host())hostProbeUsed=true;
     try {ytPlayer.setPlaybackRate(rate);} catch {finish('rate-change-failed');return;}
@@ -189,7 +202,7 @@
       else if(at-r.at>=RESTORE_LIMIT){restoring=null;discardPending('base-rate-unconfirmed');note('zero-actuator-finished',{reason:'base-rate-unconfirmed',durationMs:Math.round(at-r.at)});}
       else{reason='restoring-base-rate';return;}
     }
-    if(b){samples=[];if(!pending?.interrupted || at-pending.endedAt>8000 || !['reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(b))discardPending(b);reason=b;return;}
+    if(b){samples=[];if(pending?.viewerWitness && pending.ack!==null && pending.best>=6 && ['reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(b))pending.interrupted=true; if(!pending?.interrupted || at-pending.endedAt>8000 || !['reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(b))discardPending(b);reason=b;return;}
     const base=Math.min(2,Math.max(.25,Number(state.playback.rate)||1));
     if(at-lastAt<SETTLE){samples=[];reason='settling';return;}
     if(!Number.isFinite(rateNow())||Math.abs(rateNow()-base)>.015){samples=[];discardPending('manual-or-foreign-rate');reason='manual-or-foreign-rate';return;}
@@ -205,7 +218,7 @@
     if(pending?.interrupted){
       const p=pending, continuous=Math.abs((t-p.target)*1000-(at-p.at)*p.base)<=35;
       if(p.player!==ytPlayer || p.roomRate!==state.playback.rate || at-p.endedAt>8000 || !continuous)discardPending('interrupted-evidence-expired');
-      else if(!hostTrusted(t,m,at,Math.abs(m)>OUTER)){samples=[];reason='interrupted-rate-awaiting-reference';return;}
+      else if(!(p.host?hostTrusted(t,m,at,Math.abs(m)>OUTER):viewerTrusted(t,m,at))){samples=[];reason='interrupted-rate-awaiting-reference';return;}
     }
     if(pending && (pending.player!==ytPlayer || pending.roomRate!==state.playback.rate ||
         pending.reference!==window.watchFusionPlayout?.status?.()?.reference ||
@@ -215,7 +228,7 @@
       if(!stable&&at-p.endedAt<8000){reason='rate-verification-measuring';return;}
       const improved=Math.abs(p.before)-Math.abs(m);
       const proven=stable&&at-p.endedAt<=8000&&p.ack!==null&&p.best>=6&&improved>=Math.max(6,2*(p.mad+mad)+2)&&
-        (!p.interrupted || (improved<=p.best+35 && Math.sign(m)===Math.sign(p.before)));
+        (!p.interrupted || (improved<=p.best+35 && Math.sign(m)===Math.sign(p.before) && (p.host || viewerTrusted(t,m,at))));
       p.cap.status=proven?'verified':'inconclusive';
       if(proven){p.cap.attempts=p.cap.contaminated=p.cap.retryable=0;strikes=0;if(host()){
         hostProbeProven=true;const tail=Math.max(0,Math.min(150*Math.abs(p.rate-p.base),improved-p.best));
@@ -249,7 +262,7 @@
     // or learned capability just because the window lost visibility.
     finish('page-hidden'); discardPending('page-hidden'); samples=[]; reason='page-hidden';
   }});
-  window.WatchFusionZeroConverge={version:'adaptive-actuator-06i',isApplying:()=>!!job||!!restoring||now()-lastAt<600,
+  window.WatchFusionZeroConverge={version:'adaptive-actuator-06jd',isApplying:()=>!!job||!!restoring||now()-lastAt<600,
     diagnostics:()=>({reason,pulses,strikes,tickGapMs,maxTickGapMs,restoring:!!restoring,errorMs:lastErrorMs,medianMs,madMs,active:!!job,
       hostRateRecheck:{used:hostProbeUsed,measuredImprovement:hostProbeProven},
       actuator:lastTrial,capabilities:[...model].map(([rate,v])=>({rate,status:v.status,attempts:v.attempts,contaminated:v.contaminated,retryable:v.retryable,rearms:v.rearms}))})};

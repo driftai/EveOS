@@ -38,6 +38,45 @@ function verify(H, at, ownedMs, resumed, endMs, heldReading = null) {
 }
 
 export async function runV13108gChecks(check) {
+  // A TV that actually changes speed can lose reference confidence before the
+  // settled window. Repeated temporary vetoes must not strand a real residual.
+  const viewerEpisode=(mode='clean')=>{
+    const ctx=world(),p=fakePlayer(ctx,{position:29.91});roomGlobals(ctx,p,{targetOffsetSec:0,uncertaintyMs:12});
+    let starts=0,startedAt=-Infinity,shift=0,timer;const events=[];
+    const veto=()=>ctx.clock()-startedAt>=225&&ctx.clock()-startedAt<925;
+    ctx.watchFusionPlayout.status=()=>({source:'live',reference:'linked-tab',sourcePhaseMs:54,uncertaintyMs:12,mirrorContradicted:veto(),anchorPositionMs:29946,anchorAt:1.7e12,rate:1,phaseMs:54});
+    ctx.watchFusionPlayout.hasSourceReference=()=>mode!=='unqualified'&&!(mode==='stale'&&starts>0);
+    ctx.watchFusionYouTubeTarget=()=>30+ctx.clock()/1000+shift;
+    ctx.watchFusionViewerArbiter.snapshot=()=>({timelineErrorMs:(ctx.watchFusionYouTubeTarget()-p.position)*1000,timelineObservedAtMs:ctx.clock()});
+    ctx.watchFusionRoomSyncLog={note:(kind,detail)=>events.push({kind,...detail})};
+    p.setPlaybackRate=r=>{p.calls.push(['rate',r]);ctx.clearTimeout(timer);if(r===1)p.rate=1;else {starts++;startedAt=ctx.clock();timer=ctx.setTimeout(()=>{p.rate=r;},175);}};
+    if(mode==='ignored')ctx.tick=at=>{p.position=29.91+at/1000;};
+    vm.runInContext(read('public/client/zero-converge.js'),ctx);
+    return {ctx,p,events,starts:()=>starts,shift:()=>{shift=.12;},error:()=>Math.abs(ctx.watchFusionYouTubeTarget()-p.position)*1000};
+  };
+  await check('WF06JD-01:viewer measured rate progress survives short reference vetoes and retains fine alignment',()=>{
+    const L=viewerEpisode();L.ctx.advance(42000);
+    assert.ok(L.error()<=16,`settled residual ${L.error().toFixed(1)}ms`);
+    assert.ok(L.starts()>3&&L.starts()<=9);assert.equal(L.p.rate,1);
+    assert.ok(L.events.filter(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified').length>=3);
+    assert.ok(L.p.calls.every(([k])=>k==='rate'));
+    L.p.position-=.07;L.ctx.advance(42000);assert.ok(L.error()<=16);assert.equal(L.p.rate,1);
+    for(let i=0;i<20;i++){L.ctx.advance(1000);assert.ok(L.error()<=16);}
+  });
+  await check('WF06JD-02:unqualified or ignored viewer commands cannot earn extra retry budget',()=>{
+    for(const mode of ['unqualified','ignored','stale']){
+      const L=viewerEpisode(mode);L.ctx.advance(100000);
+      assert.ok(L.starts()<=3,mode);assert.equal(L.p.rate,1);
+      assert.ok(!L.events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'),mode);
+      assert.ok(L.p.calls.every(([k])=>k==='rate'));
+    }
+  });
+  await check('WF06JD-03:interrupted viewer correction cannot learn across a discontinuous target',()=>{
+    const L=viewerEpisode();for(let i=0;i<50&&!L.events.some(e=>e.kind==='zero-actuator-finished'&&e.reason==='mirror-contradicted');i++)L.ctx.advance(100);
+    assert.ok(L.events.some(e=>e.kind==='zero-actuator-finished'&&e.reason==='mirror-contradicted'));L.shift();L.ctx.advance(6000);
+    assert.ok(!L.events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'));
+    assert.equal(L.p.rate,1);assert.ok(L.p.calls.every(([k])=>k==='rate'));
+  });
   await check('WF06I-01:three measured pulses interrupted by temporary source trust loss finish convergence',()=>{
     const ctx=world(),p=fakePlayer(ctx,{position:29.508});roomGlobals(ctx,p,{targetOffsetSec:0,host:true,uncertaintyMs:10});
     let starts=0,startedAt=-Infinity;const events=[];
@@ -280,12 +319,13 @@ export async function runV13108gChecks(check) {
     let now = 100000;
     const ctx = {document: {getElementById: id => nodes[id] || null}, navigator: {}, performance: {now: () => now},
       roomId: 'room-1', session: {memberId: 'h'}, isHost: () => true,
-      state: {presentationEpoch: 1, playoutSegment: 6, hostId: 'h', playback: {rate: 1}, members: [{id: 'h', name: 'Laptop-Side'}]},
+      state: {presentationEpoch: 1, playoutSegment: 6, hostId: 'h', playback: {rate: 1, position:60, projectedAt:now-10}, members: [{id: 'h', name: 'Laptop-Side'}]},
       estimatedServerNow: () => now, setTimeout, console, Date, JSON, Math, Object, Number, Array, String, RegExp};
     ctx.window = ctx;
+    vm.runInNewContext(read('public/client/precision-policy.js'), ctx);
     vm.runInNewContext(read('public/client/sync-room-log.js'), ctx);
     const log = ctx.watchFusionRoomSyncLog;
-    const peer = () => ({member: 'h', sampledAt: now - 10, positionMs: 60000 - 300, roomPositionMs: 60000, targetPositionMs: 60000,
+    const peer = () => ({member: 'h', playoutSegment:6, sampledAt: now - 10, positionMs: 60000 - 300, roomPositionMs: 60000, targetPositionMs: 60000,
       ready: true, playing: true, buffering: false, rttMs: 10, rate: 1, audible: true});
     log.observe([peer()], {reference: 'linked-tab', source: 'live'});
     log.note('host-source-rejoin-accepted', {attempts: 1});

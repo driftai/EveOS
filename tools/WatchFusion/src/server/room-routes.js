@@ -192,8 +192,11 @@ async function commandRoute(req, res, room, roomId, member) {
       room.playback.updatedAt = receivedAt;
     }
     const volume = Number(body.volume);
-    if (Number.isFinite(volume)) room.playback.volume = Math.min(100, Math.max(0, volume));
-    if (body.muted != null) room.playback.muted = !!body.muted;
+    // A host room-volume command owns audio for this linked session; media telemetry is not an intent.
+    if (!room.linkedSourceId || room.linkedAudioIntent?.sourceId !== room.linkedSourceId) {
+      if (Number.isFinite(volume)) room.playback.volume = Math.min(100, Math.max(0, volume));
+      if (body.muted != null) room.playback.muted = !!body.muted;
+    }
   } else if (type === 'play') {
     const replayingEnded = !!room.playback.ended;
     const sampledPosition = Math.max(0, Number(body.position) || 0);
@@ -223,10 +226,19 @@ async function commandRoute(req, res, room, roomId, member) {
   } else if (type === 'volume') {
     const volume = Number(body.volume);
     if (!Number.isFinite(volume)) return json(res, 400, { error: 'invalid volume' });
-    room.playback.position = projectedPosition(room);
+    if (body.audioIntentAt != null) {
+      if (!linked || !isHost || !Number.isSafeInteger(body.audioIntentAt) || body.audioIntentAt <= 0)
+        return json(res, 400, {error:'Invalid linked room audio intent.'});
+      const prior = room.linkedAudioIntent;
+      if (prior?.sourceId === room.linkedSourceId && prior.memberId === member.id && body.audioIntentAt <= prior.at)
+        return json(res, 200, {ok:true,state:publicState(room)});
+      room.linkedAudioIntent = {sourceId:room.linkedSourceId,memberId:member.id,at:body.audioIntentAt};
+    } else if (room.linkedSourceId && room.linkedAudioIntent?.sourceId === room.linkedSourceId) {
+      return json(res, 200, {ok:true,state:publicState(room)}); // passive legacy observer cannot replace explicit intent
+    } else { room.playback.position = projectedPosition(room); room.playback.updatedAt = now(); }
+    // Explicit linked audio commands never rebase running transport.
     room.playback.volume = Math.min(100, Math.max(0, volume));
     room.playback.muted = !!body.muted;
-    room.playback.updatedAt = now();
   } else if (type === 'chat') {
     const text = String(body.text || '').trim();
     if (!text) return json(res, 400, { error: 'empty message' });

@@ -37,13 +37,14 @@ function logLab(){
   const nodes=new Map(),get=id=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id);};
   class ClockDate extends Date{static now(){return now;}}
   const ctx={document:{getElementById:get},navigator:{},roomId:'room',session:{memberId:'host',publicId:'host'},
-    state:{presentationEpoch:1,playoutSegment:2,source:{videoId:'track'},hostId:'host',linkedSourceActive:true,playback:{rate:1,paused:false},
+    state:{presentationEpoch:1,playoutSegment:2,source:{videoId:'track'},hostId:'host',linkedSourceActive:true,playback:{rate:1,paused:false,position:now/1000,projectedAt:now},
       members:[{id:'host',name:'Laptop'},{id:'tv',name:'TV'}]},
     performance:{now:()=>now},estimatedServerNow:()=>now,Date:ClockDate,JSON,Math,Number,Map,Set,Object,console};
   ctx.watchFusionLinkedTab={active:()=>true,metadata:()=>metadata};ctx.isHost=()=>true;ctx.window=ctx;
+  vm.runInNewContext(read('public/client/precision-policy.js'), ctx);
   vm.runInNewContext(read('public/client/sync-room-log.js'),ctx,{filename:'sync-room-log.js'});
-  const peer=(member,offset,changes={})=>({member,ready:true,playing:true,buffering:false,sampledAt:now-10,
-    positionMs:now+offset,roomPositionMs:now,targetPositionMs:now,rate:1,
+  const peer=(member,offset,changes={})=>({member,playoutSegment:ctx.state.playoutSegment,ready:true,playing:true,buffering:false,sampledAt:now-10,
+    positionMs:now-10+offset,roomPositionMs:now-10,targetPositionMs:now-10,rate:1,
     sensor:{clockState:'bounded',clockBoundMs:9,heldMs:1,audibleOutput:'player',timelineState:'advancing',timelineRatePct:100},
     startupPhase:'decoder-confirmed',recentCorrection:'locked',...changes});
   const observe=rows=>{
@@ -59,12 +60,13 @@ function uiLab(){
   const elements=new Map(),lookup=id=>{if(!elements.has(id))elements.set(id,node('div'));return elements.get(id);};
   class ClockDate extends Date{static now(){return now;}}
   const ctx={$:lookup,document:{createElement:node,activeElement:null},
-    state:{presentationEpoch:1,playoutSegment:2,source:{videoId:'track'},playback:{rate:1,paused:false},linkedSourceActive:true,hostId:'host'},
+    state:{presentationEpoch:1,playoutSegment:2,source:{videoId:'track'},playback:{rate:1,paused:false,position:now/1000,projectedAt:now},linkedSourceActive:true,hostId:'host'},
     session:{publicId:'host'},estimatedServerNow:()=>now,isHost:()=>true,Date:ClockDate,Math,Number,Map,Set,JSON,Object,console};
   ctx.watchFusionPlayout={status:()=>({source:'live',reference:'linked-tab',sourceReferenceAt:now-60,uncertaintyMs:11,authorityBuffering:false}),sourceErrorMs:()=>-5};
   ctx.watchFusionLinkedTab={active:()=>true,metadata:()=>({sampledAt:now,currentTime:now/1000,rate:1,paused:false,tabMuted:true})};ctx.window=ctx;
+  vm.runInNewContext(read('public/client/precision-policy.js'), ctx);
   vm.runInNewContext(read('public/client/sync-center.js'),ctx,{filename:'sync-center.js'});
-  const peer=(member,offset,clockState='bounded',extra={})=>({member,ready:true,playing:true,buffering:false,sampledAt:now,
+  const peer=(member,offset,clockState='bounded',extra={})=>({member,playoutSegment:ctx.state.playoutSegment,ready:true,playing:true,buffering:false,sampledAt:now,
     positionMs:now+offset,roomPositionMs:now,targetPositionMs:now,rate:1,
     sensor:{clockState,clockBoundMs:34,heldMs:1,audibleOutput:'player'},startupPhase:'decoder-confirmed',recentCorrection:'observing',...extra});
   const list=node('ul');

@@ -156,7 +156,7 @@
     // can attempt room unmute before the explicit button is shown; never synthesize
     // a gesture or retry endlessly after browser refusal.
     if (event.isTrusted === false || owned() || !scope || !ytPlayer || !ytPlayerReady || playerInitializing || primingPlayer || probe || event.repeat
-        || event.target?.closest?.('#' + ID)) return;
+        || event.target?.closest?.('#' + ID) || event.target?.closest?.('#syncRoomLog')) return;
     const at=performance.now(); if(at-lastGestureAt<850)return;
     // Generic clicks/remote keys are audio gestures, not transport authority.
     // A paused/buffering decoder belongs to playback recovery or the explicit button.

@@ -86,6 +86,7 @@ export function publicState(room) {
     serverTime,
     source: room.source,
     linkedSourceActive: !!room.linkedSourceId,
+    roomAudioPinned: !!room.linkedSourceId && room.linkedAudioIntent?.sourceId === room.linkedSourceId,
     presentationEpoch: presentation.epoch,
     playoutSegment: presentation.playout.transport(room.playback),
     // Project the position to the exact same server timestamp we publish.
