@@ -2,7 +2,7 @@
   // v13.8: confirm source seeks instead of treating a fire-and-forget command as success.
   const CONTROL_ECHO_TTL_MS=2500, SEEK_ACK_TTL_MS=4200, SEEK_RETRY_MS=1400;
   let link=null,peer=null,lastMetadata={},loadedPageUrl='',resolvingUrl='',pendingUrl='',resolveRevision=0,applying=false;
-  let lastMirrorAnchor=null,mirrorInFlight=false,queuedMirror=null;
+  let lastMirrorAnchor=null,mirrorInFlight=false,queuedMirror=null,seekMirrorDue=null;
   let lastTransportTiming=null, lastSampleAt=0, lastSampleUrl="", playbackEchoUntil=0;
   const pendingControls=new Map(); let transportNotice=null;
   const VOLUME_ECHO_TTL_MS = 3000;
@@ -262,7 +262,7 @@
     const gate=roomId?mirrorGuard()?.gate?.(mirrorAuthority()):null;
     if(gate?.rebind){void rebindAfterHandoff();return false;}
     if(gate&&!gate.allow)return false;
-    if (pendingControls.has('seek')) return false;
+    if (pendingControls.has('seek') || pendingControls.has('play') || pendingControls.has('pause')) return false;
     const pinned=window.watchFusionLinkedTab?.pinnedVolume?.();if(Number.isFinite(pinned))metadata={...metadata,volume:pinned,muted:pinned===0};
     const sourceVolume = metadata.muted === true ? 0 : metadata.volume;
     const audio = Number.isFinite(sourceVolume) ? {volume:Math.round(sourceVolume * 100),muted:sourceVolume === 0} : {};
@@ -388,7 +388,7 @@
     const seekConfirmed = pendingSeek && !pendingControls.has('seek') &&
       Number(sample.sampledAt) >= pendingSeek.sampledAt && pendingSatisfied('seek',pendingSeek,sample);
     if (seekConfirmed) {
-      status('Source seek confirmed · synchronizing room…');
+      seekMirrorDue={link,page:sample.pageUrl,at:now}; if(!pendingControls.has('play')&&!pendingControls.has('pause'))status('Source seek confirmed · synchronizing room…');
       window.watchFusionRoomSyncLog?.note?.('source-seek-confirmed',{positionMs:Math.round(sample.currentTime*1000),ackLatencyMs:Math.round(performance.now()-pendingSeek.at)});
     }
     renderControls(display);
@@ -396,7 +396,7 @@
     const pageUrl=String(lastMetadata.pageUrl||''); if(document.hidden&&backgroundLinkActive())window.WatchFusionZeroConverge?.sourceWake?.();
     if(pageUrl&&pageUrl!==loadedPageUrl){void followUrl(pageUrl);return;}
     if (!pendingControls.has('seek')) followLocal(display,!!seekConfirmed);
-    scheduleMirror(lastMetadata,!!seekConfirmed);
+    const forceSeek=seekMirrorDue?.link===link&&seekMirrorDue.page===pageUrl&&now>=seekMirrorDue.at&&now-seekMirrorDue.at<=SEEK_ACK_TTL_MS;if(!forceSeek||(!pendingControls.has('seek')&&!pendingControls.has('play')&&!pendingControls.has('pause')))seekMirrorDue=null;scheduleMirror(lastMetadata,!!forceSeek);
   }
   function connectPeer(){
     peer?.stop();if(!link)return;lastSampleAt=0;lastSampleUrl="";lastLinkedSampleAt=0;peerCreatedAt=performance.now();

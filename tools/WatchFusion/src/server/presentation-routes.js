@@ -1,6 +1,6 @@
 import { json, readBody } from './http-utils.js';
 import { createPlayoutCoordinator } from './playout-coordinator.js';
-import { noteRejection, roster, sanitizeHostRecovery, sanitizeSensor, sanitizeDecoderRecovery } from './presentation-report-schema.js';
+import { noteRejection, roster, sanitizeHostRecovery, sanitizeSensor, sanitizeDecoderRecovery, collectRecoveryEvents, recoveryHistory } from './presentation-report-schema.js';
 
 const reportsByRoom = new WeakMap();
 const reportLifetime = 5000;
@@ -50,6 +50,7 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
   const segment = entry.playout.transport(room.playback);
   for (const [id, item] of entry.reports) if (!room.members.has(id) || time - item.receivedAt > reportLifetime) entry.reports.delete(id);
   for (const [id, item] of entry.proposals) if (!room.members.has(id) || item.expiresAt <= time) entry.proposals.delete(id);
+  let recoveryAck=[];
   if (body.report) {
     const report = body.report;
     if (!shortId(report.outputSession) || report.mode !== current.mode || !finite(report.sampledAt, at - 1800, at + 150) ||
@@ -58,6 +59,7 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
       noteRejection(entry, finite(report.sampledAt, 0, 1e15) && !finite(report.sampledAt, at - 1800, at + 150) ? 'clock-skew' : 'invalid-report');
       return json(res, 400, { error: 'Stale or invalid playback timing.' });
     }
+    recoveryAck=collectRecoveryEvents(room,member,report.decoderRecovery?.events,time);
     const prior = entry.reports.get(member.id);
     if (!prior || report.sampledAt > prior.sampledAt) {
       if (member.id === room.hostId && body.segment === segment)
@@ -126,8 +128,8 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
     allowHoldback:entry.current.mode === 'direct' && entry.linkedOutput?.muted === true && time - entry.linkedOutput.at < 1800});
   coordination.mirrorContradicted = entry.mirrorConflict?.segment === segment && time - entry.mirrorConflict.at <= 1500;
   return json(res, 200, {
-    serverReceivedAt: at, serverTime: Date.now(), coordination, serverBuild:'wf-06jid',
-    ...((body.diagnostics === true || body.trace === true) ? {peers:[...entry.reports.values()], roster:roster(entry, room, time)} : {}),
+    serverReceivedAt: at, serverTime: Date.now(), coordination, serverBuild:'wf-06jid', recoveryAck,
+    ...((body.diagnostics === true || body.trace === true) ? {peers:[...entry.reports.values()], roster:roster(entry, room, time),...(body.trace===true?{recoveryHistory:recoveryHistory(room,time)}:{})} : {}),
     ...(body.diagnostics === true ? {proposal:entry.proposals.get(member.id) || null} : {})
   });
 }

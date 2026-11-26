@@ -73,7 +73,7 @@
       hostCorrection: window.WatchFusionHostPeerRecovery?.diagnostics?.()?.outcome === 'host-peer-rejoin' ? 'Peers corroborated · host rejoin' : hostServo?.outcome ?? null, hostRecovery: isHost() ? {...(window.WatchFusionHostPeerRecovery?.diagnostics?.()??{}),linkedSource:window.WatchFusionHostSourceConverge?.diagnostics?.()??null} : null, sensor: window.WatchFusionSensorProvenance?.describe?.({direct, media, now:performance.now(), clock:window.watchPartyClock.offsetBound?.(), source:isHost()&&window.watchFusionLinkedTab?.publishing?.()?window.watchFusionLinkedTab.metadata?.():null}) ?? null,
       startupWaitMs: !direct && Number.isFinite(diagnostics?.startup?.startDelayMs) ? diagnostics.startup.startDelayMs : null, startupPhase:direct?'direct-ready':diagnostics?.arbiter?.locked&&diagnostics?.startup?.transitionPhase==='decoder-confirmed'?'fine-locked':diagnostics?.startup?.transitionPhase||'source-awaiting',
       filteredDriftMs: Number.isFinite(diagnostics?.filteredDriftSec) ? Math.round(diagnostics.filteredDriftSec * 1000) : null, audioReadiness:(()=>{const a=window.WatchFusionRoomAudioUnlock?.diagnostics?.();const room=typeof authoritativeRoomAudio==='function'?authoritativeRoomAudio():null;if(room&&(room.muted||room.volume<=0))return 'room-muted';if(a?.needsTap)return 'needs-gesture';if(a?.probing)return 'verifying';return volume>.01&&(direct?!media.muted:media.isMuted?.()===false)?'player-unmuted':autoplayWasBlocked?'autoplay-blocked':'unknown';})(),
-      decoderRecovery: !direct ? {outcome:window.WatchFusionDecoderRescue?.diagnostics?.()?.outcome,steps:window.WatchFusionDecoderRescue?.diagnostics?.()?.steps,healthyProgressMs:window.WatchFusionDecoderRescue?.diagnostics?.()?.healthyProgressMs,stallMs:diagnostics?.startup?.stalledMs,stallSteps:diagnostics?.arbiter?.stallSteps,arbiterReason:diagnostics?.arbiter?.reason,replayLoads:diagnostics?.replayLoads} : null,
+      decoderRecovery: !direct ? {outcome:window.WatchFusionDecoderRescue?.diagnostics?.()?.outcome,steps:window.WatchFusionDecoderRescue?.diagnostics?.()?.steps,healthyProgressMs:window.WatchFusionDecoderRescue?.diagnostics?.()?.healthyProgressMs,stallMs:diagnostics?.startup?.stalledMs,stallSteps:diagnostics?.arbiter?.stallSteps,arbiterReason:diagnostics?.arbiter?.reason,replayLoads:diagnostics?.replayLoads,events:window.WatchFusionDecoderRescue?.recoveryEvents?.(roomId)} : null,
       seekHealth: diagnostics?.seekGuard ? {reason:diagnostics.seekGuard.reason, attempts:diagnostics.seekGuard.attempts,
         failures:diagnostics.seekGuard.failures, overshoots:diagnostics.seekGuard.overshoots,
         cooldownRemainingMs:diagnostics.seekGuard.cooldownRemainingMs,
@@ -128,9 +128,9 @@
   async function exchange(body, signal, onReceived) {
     const active = identity();
     if (!active || state.presentationEpoch == null) throw new Error('Restart WatchFusion to load timing diagnostics.');
-    const response = await fetch(apiUrl('/api/rooms/' + encodeURIComponent(roomId) + '/presentation'), {
+    const payload={epoch:state.presentationEpoch, segment:state.playoutSegment, diagnostics:panel.open, ...body}, queued=payload.report?.decoderRecovery?.events; if(Array.isArray(queued)){const fit=queued.slice();payload.report={...payload.report,decoderRecovery:{...payload.report.decoderRecovery,events:fit}};while(fit.length&&JSON.stringify(payload).replace(/[^\x00-\x7f]/g,'xxx').length>2560)fit.pop();if(!fit.length)delete payload.report.decoderRecovery.events;} const response = await fetch(apiUrl('/api/rooms/' + encodeURIComponent(roomId) + '/presentation'), {
       method: 'POST', cache: 'no-store', signal, headers: {'Content-Type':'application/json','x-member-id':session.memberId},
-      body: JSON.stringify({epoch:state.presentationEpoch, segment:state.playoutSegment, diagnostics:panel.open, ...body})
+      body: JSON.stringify(payload)
     });
     onReceived?.(Date.now()); // timestamp response headers before JSON decoding adds local jitter
     const data = await response.json().catch(() => ({}));
@@ -202,7 +202,7 @@
       window.watchPartyClock.update(data.serverTime, sentAt, receivedAt, data.serverReceivedAt); clockProbeNext = false;
       observedServerBuild=data.serverBuild==='wf-06jid'?'wf-06jid':null;
       onTiming?.(data.coordination, roomKey, sentAt);
-      if (trace && data.peers) window.watchFusionRoomSyncLog?.observe(data.peers, data.coordination, data.roster);
+      if (report&&data.recoveryAck) window.WatchFusionDecoderRescue?.acknowledgeRecovery?.(roomId,data.recoveryAck); if (trace && data.peers) window.watchFusionRoomSyncLog?.observe(data.peers, data.coordination, data.roster,data.recoveryHistory);
       if (data.peers) { peerBatch = data.peers; peerBatchAt = Date.now(); peerCoordination = data.coordination; if (statusMessage === 'Timing reports briefly unavailable.') statusMessage = ''; }
       if (!panel.open || !data.peers) return;
       panelReady = true;

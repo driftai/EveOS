@@ -45,6 +45,24 @@ export function sanitizeDecoderRecovery(v) {
     replayLoads:count(v.replayLoads)};
 }
 
+// Bounded per-room event journal survives peer report expiry, source changes,
+// and output-session replacement. No URLs, tokens, arbitrary payloads or IDs in exported logs.
+const journals=new WeakMap(), RECOVERY_AGE=1800000, RECOVERY_MAX=180;
+const RECOVERY_KINDS=new Set(['reload-requested','reload-issued','reload-failed','rebuild-requested','rebuild-issued','rebuild-failed','motion-restored','handoff-issued','handoff-verified','handoff-unverified','retry-reload-requested','retry-reload-issued','retry-reload-failed','budget-spent','manual-rebuild-requested','manual-rebuild-issued','manual-rebuild-failed']);
+function recoveryQueue(room,time){let q=journals.get(room);if(!q){q=new Map();journals.set(room,q);}for(const [key,e] of q)if(time-e.at>=RECOVERY_AGE)q.delete(key);return q;}
+export function collectRecoveryEvents(room,member,events,time){
+  if(!Array.isArray(events)||!Number.isFinite(time))return [];
+  const q=recoveryQueue(room,time),ack=[];
+  for(const e of events.slice(0,8)){
+    if(!e||typeof e.id!=='string'||!/^[0-9a-f-]{8,64}$/.test(e.id)||!RECOVERY_KINDS.has(e.kind)||!Number.isFinite(e.ageMs)||e.ageMs<0||e.ageMs>=RECOVERY_AGE)continue;
+    const id=e.id;
+    if(!q.has(id)){const device=typeof member.name==='string'?member.name.replace(/(?:https?:\/\/|www\.)\S+/gi,'[link]').replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,80):'Viewer';q.set(id,{id,kind:e.kind,device,at:Math.round(time-e.ageMs),segment:int(e.segment,0,1e9),step:int(e.step,0,2),errorMs:ms(e.errorMs)});}
+    ack.push(e.id);while(q.size>RECOVERY_MAX)q.delete(q.keys().next().value);
+  }
+  return ack;
+}
+export function recoveryHistory(room,time){return [...recoveryQueue(room,time).values()];}
+
 // Why a member's report did not become a peer row: counts only, per room timing scope.
 export const REJECTIONS = ['payload', 'invalid-body', 'epoch-changed', 'clock-skew', 'invalid-report'];
 export function noteRejection(entry, reason) {

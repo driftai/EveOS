@@ -249,7 +249,7 @@
     // after a new stable/qualified window and a long quiet interval. A genuine
     // no-ack or no-effect actuator never earns retries from this path.
     if (cap.attempts>=MAX_ATTEMPTS && cap.retryable===cap.attempts &&
-        (cap.rearms-(cap.rearmAtProof||0))<MAX_MEASUREMENT_REARMS && at-cap.lastAt>=MEASUREMENT_REARM_MS &&
+        (cap.rearms-(cap.rearmAtProof||0))<MAX_MEASUREMENT_REARMS && at-cap.lastAt>=(host()&&!background&&magnitude>50&&magnitude<=100&&cap.contaminated===cap.attempts&&Number.isFinite(cap.lastProvenAt)&&at-cap.lastProvenAt<=120000&&mad<=3&&hostTrusted(t,raw,at)?20000:MEASUREMENT_REARM_MS) &&
         (!cap.viewerNeutral || viewerTrusted(t,raw,at))) {
       cap.attempts=cap.contaminated=cap.retryable=0; cap.rearms++;
       note('zero-actuator-measurement-rearmed',{reason:'fresh-stable-evidence',attempts:cap.rearms});
@@ -325,7 +325,7 @@
         (!p.viewerRetention || (viewerTrusted(t,m,at) && Math.abs((t-p.target)*1000-(at-p.at)*p.base)<=35 && improved<=p.best+18)) &&
         (!p.interrupted || (improved<=p.best+35 && Math.sign(m)===Math.sign(p.before) && (p.host || viewerTrusted(t,m,at))));
       p.cap.status=proven?'verified':'inconclusive';
-      if(proven){p.cap.attempts=p.cap.contaminated=p.cap.retryable=0;p.cap.rearmAtProof=p.cap.rearms;strikes=0;
+      if(proven){p.cap.attempts=p.cap.contaminated=p.cap.retryable=0;p.cap.rearmAtProof=p.cap.rearms;p.cap.lastProvenAt=at;strikes=0;
         if(p.micro)p.cap.microProven=true;
         if(host()){
         hostProbeProven=true;const tail=Math.max(0,Math.min(150*Math.abs(p.rate-p.base),improved-p.best));

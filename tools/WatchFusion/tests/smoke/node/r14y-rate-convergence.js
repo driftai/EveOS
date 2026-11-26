@@ -33,36 +33,6 @@ function lab({rates=[.75,1],trusted=true,mirror=false,source=true,actualRate=tru
 function play(L,{end=76000,step=250}={}){
  for(let t=50000;t<=end;t+=step){L.at(t);L.arb.tick('room:video:epoch:seg3',t,L.io);}
 }
-// Simulate background timers at 1s while fresh source events arrive every 200ms.
-function hiddenHostLab({initial=1.018,host=true,source=true,contradicted=false,rateHonored=true,hidden=true}={}){
-  let now=0,position=30+initial,speed=1,interval,timeout,seq=0,notes=[],ops=[],visibility;
-  const c={console,Math,Number,Date,Map,Set,JSON,performance:{now:()=>now},document:{hidden,addEventListener:(n,fn)=>{if(n==='visibilitychange')visibility=fn;}},setInterval:fn=>{interval=fn;return 1;},setTimeout:(fn,ms)=>{timeout={id:++seq,fn,at:Math.ceil((now+ms)/1000)*1000};return seq;},clearTimeout:id=>{if(timeout?.id===id)timeout=null;}};c.window=c.globalThis=c;
-  const target=()=>30+now/1000,p={getCurrentTime:()=>position,getPlaybackRate:()=>speed,getAvailablePlaybackRates:()=>[.75,1,1.25],setPlaybackRate:r=>{ops.push(r);if(rateHonored)speed=r;},getPlayerState:()=>1,getVideoData:()=>({video_id:'vid'}),getDuration:()=>1000};
-  Object.assign(c,{roomId:'room',ytPlayer:p,ytPlayerReady:true,playerInitializing:false,primingPlayer:false,isHost:()=>host,state:{source:{videoId:'vid'},playback:{rate:1,paused:false,ended:false},linkedSourceActive:true,presentationEpoch:1,playoutSegment:1},estimatedServerNow:()=>now,watchFusionYouTubeTarget:target,watchPartyClock:{precise:()=>true,rttMs:()=>5},watchFusionViewerArbiter:{owns:()=>false,snapshot:()=>({timelineObservedAtMs:now,timelineErrorMs:(target()-position)*1000})},watchFusionPlayout:{status:()=>({source:source?'live':'stale',reference:'linked-tab',uncertaintyMs:10,mirrorContradicted:contradicted}),sourceBuffering:()=>false},WatchFusionHostSeekPolicy:{sourceBlocker:()=>source&&!contradicted?null:'host-source-unverified'},watchFusionRoomSyncLog:{note:(kind,detail)=>notes.push({kind,...detail})}});
-  vm.runInNewContext(read('public/client/zero-converge.js'),c);const controller=c.WatchFusionZeroConverge;
-  return {c,ops,notes,controller,residual:()=>Math.round((position-target())*1000),speed:()=>speed,visible:()=>{c.document.hidden=false;visibility?.();},run:(end,period=200)=>{while(now<end){now+=50;position+=.05*speed;if(timeout&&now>=timeout.at){const f=timeout.fn;timeout=null;f();}if(now%1000===0)interval();if(period&&now%period===0)controller.sourceWake?.();}}};
-}
-async function run06jidgChecks(check){
- await check('WF06JIDG-01:fast hidden source events drive bounded host rate correction in both directions despite 1s timers',()=>{for(const initial of [1.018,-.85]){const L=hiddenHostLab({initial});L.run(30000);assert.ok(Math.abs(L.residual())<350,`residual ${L.residual()}`);assert.ok(L.ops.some(x=>x=== (initial>0?.75:1.25)));assert.equal(L.speed(),1);}});
- await check('WF06JIDG-02:missing slow or ineligible source events never authorize hidden rate changes',()=>{for(const config of [{period:0},{period:1000},{host:false},{source:false},{contradicted:true},{initial:.1}]){const L=hiddenHostLab(config);L.run(20000,config.period??200);assert.deepEqual(L.ops,[]);}});
- await check('WF06JIDG-03:source event interruption restores base and requires fresh continuous cadence before new work',()=>{const L=hiddenHostLab();L.run(4000);assert.equal(L.speed(),.75);L.run(5500,0);assert.equal(L.speed(),1);assert.ok(L.notes.some(x=>x.kind==='zero-actuator-finished'&&['page-hidden','background-source-cadence-lost','rate-timer-overrun'].includes(x.reason)));const n=L.ops.length;L.run(7000);assert.equal(L.ops.length,n);});
- await check('WF06JIDG-04:visibility return and segment transition release background rate ownership',()=>{for(const kind of ['visible','segment']){const L=hiddenHostLab();L.run(4000);assert.equal(L.speed(),.75);if(kind==='visible')L.visible();else{L.c.state.playoutSegment++;L.run(4200);}assert.equal(L.speed(),1);}});
- await check('WF06JIDG-05:background gross correction never uses a short precision pulse and no-motion remains unproved',()=>{const L=hiddenHostLab({rateHonored:false});L.run(25000);assert.equal(L.speed(),1);assert.ok(L.ops.length>0);assert.ok(L.ops.filter(r=>r!==1).length<=3);assert.ok(!L.notes.some(x=>x.kind==='zero-actuator-verified'&&x.reason==='verified'));});
-}
-// Background linked-source watchdog tests exercise the actual client functions.
-function backgroundLinkLab(){
- const src=read('public/client/linked-tab.js'),a=src.indexOf('  function peerReady()'),b=src.indexOf('  function active()',a);assert.ok(a>=0&&b>a);
- let now=0,connections=0,sent=0;const events=[],ctx={document:{hidden:true},state:{linkedSourceActive:true,playback:{paused:false,ended:false}},link:{roomId:'room'},roomId:'room',host:true,peer:{socket:{readyState:1},viewerId:'viewer',control:()=>{sent++;return true;}},pendingControls:new Map(),peerCreatedAt:0,lastLinkedSampleAt:0,recoveryWindowAt:0,recoveryCount:0,lastRecoveryAt:-Infinity,CONTROL_ECHO_TTL_MS:2500,SEEK_ACK_TTL_MS:4200,VOLUME_ECHO_TTL_MS:3000,performance:{now:()=>now},Date:{now:()=>100000+now},status:()=>{}};
- ctx.window={watchFusionRoomSyncLog:{note:(name,data)=>events.push({name,...data})}};ctx.roomProof=()=>ctx.link?.roomId===ctx.roomId?{}:undefined;ctx.isHost=()=>ctx.host;ctx.canControl=()=>ctx.host&&!!ctx.roomProof();ctx.connectPeer=()=>{connections++;ctx.peerCreatedAt=now;ctx.lastLinkedSampleAt=0;};vm.runInNewContext(src.slice(a,b),ctx);
- return {ctx,events,connections:()=>connections,sent:()=>sent,at:t=>{now=t;ctx.connectionWatchdog();},clock:t=>{now=t;}};
-}
-async function run06jidfChecks(check){
- await check('WF06JIDF-01:hidden active linked host recovers a disconnected socket using existing backoff',()=>{const L=backgroundLinkLab();L.ctx.peer.socket.readyState=3;L.at(4000);assert.equal(L.connections(),0);L.at(4001);assert.equal(L.connections(),1);L.at(9000);assert.equal(L.connections(),1);L.at(9001);assert.equal(L.connections(),2);for(let t=14000;t<=30000;t+=500)L.at(t);assert.equal(L.connections(),2);assert.equal(L.events.filter(x=>x.name==='linked-auto-reconnect').length,2);});
- await check('WF06JIDF-02:hidden active host recovers stale metadata and a connected socket without a first sample',()=>{for(const missing of [true,false]){const L=backgroundLinkLab();if(!missing)L.ctx.lastLinkedSampleAt=100000;L.at(6500);assert.equal(L.connections(),0);L.at(6501);assert.equal(L.connections(),1);assert.equal(L.events[0].reason,'stale-metadata');}});
- await check('WF06JIDF-03:healthy hidden linked host never reconnects and ineligible hidden states stay inert',()=>{const L=backgroundLinkLab();for(let t=1000;t<=60000;t+=1000){L.ctx.lastLinkedSampleAt=100000+t-100;L.at(t);}assert.equal(L.connections(),0);for(const mode of ['paused','ended','detached','not-host','wrong-room','unlinked']){const x=backgroundLinkLab();if(mode==='paused')x.ctx.state.playback.paused=true;if(mode==='ended')x.ctx.state.playback.ended=true;if(mode==='detached')x.ctx.state.linkedSourceActive=false;if(mode==='not-host')x.ctx.host=false;if(mode==='wrong-room')x.ctx.roomId='different';if(mode==='unlinked')x.ctx.link=null;x.ctx.peer.socket.readyState=3;x.at(10000);assert.equal(x.connections(),0,mode);}});
- await check('WF06JIDF-04:hidden reconnect does not replay expired or pending transport commands',()=>{const L=backgroundLinkLab();L.ctx.pendingControls.set('play',{queued:true,at:0,value:10});L.ctx.replayQueued();assert.equal(L.sent(),0);L.at(3000);assert.equal(L.sent(),0);assert.equal(L.ctx.pendingControls.size,0);L.ctx.pendingControls.set('pause',{queued:true,at:3000,value:10});L.ctx.document.hidden=false;L.at(3100);assert.equal(L.sent(),1);});
- await check('WF06JIDF-05:background recovery cannot be triggered by failed control send and visible recovery remains available',()=>{const L=backgroundLinkLab();L.clock(7000);assert.equal(L.ctx.recoverLink('control-disconnected'),false);assert.equal(L.ctx.recoverLink('control-send-failed'),false);assert.equal(L.connections(),0);L.ctx.document.hidden=false;assert.equal(L.ctx.recoverLink('control-disconnected'),true);assert.equal(L.connections(),1);});
-}
 // A gross-lag fast trial may qualify on a brief fresh window, but never on stale timing.
 function grossRecoveryLab(){
  const ctx={Math,Number,Date,Map,Set,Object,JSON};ctx.globalThis=ctx;
@@ -146,7 +116,7 @@ export async function runR14yChecks(check){
  await run06jideChecks(check);
  await run06jidfChecks(check);
  await run06jidgChecks(check);
- await run06jidhChecks(check); await run06jidiChecks(check);
+ await run06jidhChecks(check); await run06jidiChecks(check); await run06jidjChecks(check); await run06jidkChecks(check,ROOT);
  await check('WF06JE-01:advancing 330ms post-release TV lag acquires within the shortened qualified window',()=>{
   const L=lab({rates:[1,1.25],startingError:-.33,savedModel:{rateGain:1}});
   play(L,{end:56000,step:50});
@@ -438,3 +408,9 @@ export async function runR14yChecks(check){
   assert.equal(gate.snapshot().attempts,2);
  });
 }
+
+import {run06jidfChecks,run06jidgChecks} from './06jid-background-playback.js';
+import {run06jidjChecks} from './06jidj-practical-playback.js';
+export {run06jidjChecks};
+
+import {run06jidkChecks} from './06jidk-recovery-continuity.js';

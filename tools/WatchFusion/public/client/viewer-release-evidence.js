@@ -349,14 +349,14 @@
       const prior=spent.get(key);
       // The first burst may have helped without proving its actuator. A meaningful
       // same-direction reduction can earn one finish, but not an ineffective trial.
-      const improvement=prior ? prior.error-Math.abs(error) : 0;
+      const improvement=prior ? prior.error-Math.abs(error) : 0; const requalifying=!!prior&&!prior.requalified&&prior.verdict==='honored'&&prior.scope!==scope&&/^\d+$/.test(String(scope).split(':').at(-1))&&nowMs-prior.spentAt>=20000&&quietStallMs>=15000&&quietRejoinMs>=15000&&Math.abs(error)>.1005;
       const tail=prior?.tailEligible===true&&!prior.finish&&prior.scope===scope&&Math.sign(error)===Math.sign(prior.error)&&Math.abs(error-prior.tailResidual)<=.06&&Math.abs(error)>.1005&&Math.abs(error)<=.20&&Math.abs(prior.error)-Math.abs(error)>=.12&&Math.abs(error)<=Math.abs(prior.error)*.65;
       const finishing=tail||prior?.mayFinish===true && !prior.finish && prior.scope===scope &&
         ((error>=.115 && error<=.43 && improvement>=.20 && improvement>=prior.error*.35) ||
         (error<=-.115 && error>=-.43 && (improvement>=.25 ||
           (prior.error>=.25 && prior.error<.45 && prior.motion && improvement>=.12 && improvement>=prior.error*.35))));
       const resuming=prior?.resume===true && prior.scope===scope && error>=.45 && error<=prior.error+.035 && (prior.motion?improvement>=.06:Math.abs(improvement)<=.07);
-      if (prior && !finishing && !resuming){reason=prior.expedited&&prior.scope===scope&&error>=.45&&error<=2.5&&(io.sourceReferenceQualified?.(100)!==true||io.referenceTrusted?.()!==true||io.sourceBuffering?.()||io.mirrorContradicted?.())?'rate-trial-awaiting-qualified-reference':'per-video-trial-spent';candidate=null;return null;}
+      if (prior && !finishing && !resuming && !requalifying){reason=prior.expedited&&prior.scope===scope&&error>=.45&&error<=2.5&&(io.sourceReferenceQualified?.(100)!==true||io.referenceTrusted?.()!==true||io.sourceBuffering?.()||io.mirrorContradicted?.())?'rate-trial-awaiting-qualified-reference':'per-video-trial-spent';candidate=null;return null;}
       const precision=io.referenceUncertaintyMs?.();
       const largeLag = error >= .35;
       // Moderate residuals after a release can qualify sooner, but only with raw
@@ -364,7 +364,7 @@
       const pos=io.current?.(), target=io.target?.(nowMs), early=!finishing&&error>=.25&&error<.35&&
         Number.isFinite(pos)&&Number.isFinite(target)&&Math.abs(target-pos-error)<=.045&&quietStallMs>=5000&&quietRejoinMs>=6000;
       const dt=(nowMs-candidate?.lastAt)/1000, advancing=!!candidate&&dt>0&&dt<=1&&Math.abs(pos-candidate.pos-dt*io.baseRate)<=.06&&Math.abs(target-candidate.target-dt*io.baseRate)<=.035;
-      const rawLane=io.valid?.()===true&&((!prior&&Math.abs(error)>=.115&&Math.abs(error)<.35)||tail||(finishing&&prior?.tailEligible===true&&Math.abs(error-prior.tailResidual)<=.06)), rawAgreement=Number.isFinite(pos)&&Number.isFinite(target)&&Math.abs(target-pos-error)<=.035&&Math.abs(error)*1000-precision>50;
+      const rawLane=io.valid?.()===true&&(((!prior&&Math.abs(error)>=.115||requalifying&&Math.abs(error)>.1005)&&Math.abs(error)<.35)||tail||(finishing&&prior?.tailEligible===true&&Math.abs(error-prior.tailResidual)<=.06)), rawAgreement=Number.isFinite(pos)&&Number.isFinite(target)&&Math.abs(target-pos-error)<=.035&&Math.abs(error)*1000-precision>50;
       const fast=rawLane||early&&(!candidate||candidate.fast&&advancing);
       const gross=!finishing&&(resuming||error>=1)&&Number.isFinite(pos)&&Number.isFinite(target)&&Math.abs(target-pos-error)<=.045&&io.valid?.()!==false;
       const eligible=key.split(':').length===3 && rateHonored===false && !!alternate &&
@@ -372,7 +372,7 @@
         io.sourceReferenceQualified?.(100)===true && io.state?.()===1 &&
         io.referenceTrusted?.()===true && io.sourceBuffering?.()!==true && io.mirrorContradicted?.()!==true &&
         Number.isFinite(precision)&&precision>=0&&precision<=35 &&
-        Number.isFinite(error)&&error>=-.43&&error<=2.5&&(Math.abs(error)>=.115||tail)&&io.valid?.()!==false&&(!tail||rawLane)&&(!rawLane||rawAgreement)&&
+        Number.isFinite(error)&&error>=-.43&&error<=2.5&&(Math.abs(error)>=.115||tail||requalifying&&Math.abs(error)>.1005)&&io.valid?.()!==false&&(!tail||rawLane)&&(!rawLane||rawAgreement)&&
         Number.isFinite(nowMs)&&quietStallMs>=((largeLag||fast)?5000:20000)&&quietRejoinMs>=((largeLag||fast)?6000:25000);
       if(!eligible){
         // An advancing, rate-advertising TV must not fall through to a seek just
@@ -392,7 +392,7 @@
       candidate.samples++;candidate.lastAt=nowMs;candidate.pos=pos;candidate.target=target;
       const dwellMs=rawLane?2500:finishing ? 4000 : (largeLag||fast) ? 2500 : 10000;
       if(!expedited&&(resuming||nowMs-candidate.at<dwellMs || candidate.samples<8||(rawLane&&pos-candidate.startPos<(nowMs-candidate.at)/1000*io.baseRate*.7))){reason='stable-rate-trial-dwell';return null;}
-      spent.set(key,{scope,error,finish:finishing,expedited:expedited||resuming,retries:resuming?prior.retries+1:0,startPos:pos,startTarget:target});
+      spent.set(key,{scope,error,spentAt:nowMs,requalified:!!prior?.requalified||requalifying,finish:finishing,expedited:expedited||resuming,retries:resuming?prior.retries+1:0,startPos:pos,startTarget:target});
       candidate=null;attempts++;reason=finishing?'single-advertised-rate-finish':'single-advertised-rate-trial';
       return {rate:alternate};
     }

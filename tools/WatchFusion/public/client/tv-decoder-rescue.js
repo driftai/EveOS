@@ -31,6 +31,53 @@
   const rebuilds = [];
   // Recovery owns a short, local decoder warmup; never refill action budgets here.
   let warm = null, rejoinCandidate = null, rejoinSpent = false, recovered = null, transportScope = '', protectedStep = 0;
+  // 06jidk: raw decoder motion and room alignment are independent. A spent
+  // ladder is not evidence of a frozen decoder. No command is issued here.
+  let motion=null, provenStep=-Infinity, retryAt=-Infinity, retrySince=null, handoff=null;
+  const JOURNAL_KEY='wf.decoder-journal.v1', JOURNAL_AGE=1800000, JOURNAL_MAX=32;
+  let journalRoom='', journal=[], journalLoaded=false;
+  const eventKinds=new Set(['reload-requested','reload-issued','reload-failed','rebuild-requested','rebuild-issued','rebuild-failed','motion-restored','handoff-issued','handoff-verified','handoff-unverified','retry-reload-requested','retry-reload-issued','retry-reload-failed','budget-spent','manual-rebuild-requested','manual-rebuild-issued','manual-rebuild-failed']);
+  function journalScope(key) {
+    if(journalLoaded&&key===journalRoom)return;
+    journalLoaded=true;journalRoom=key;journal=[];
+    try {const saved=JSON.parse(sessionStorage.getItem(JOURNAL_KEY));if(saved?.room===key&&Array.isArray(saved.events))journal=saved.events.filter(e=>eventKinds.has(e?.kind)&&typeof e.id==='string'&&Number.isFinite(e.at)&&Date.now()-e.at>=0&&Date.now()-e.at<JOURNAL_AGE).slice(-JOURNAL_MAX);}catch{}
+  }
+  function saveJournal(){try{sessionStorage.setItem(JOURNAL_KEY,JSON.stringify({room:journalRoom,events:journal}));}catch{}}
+  function recordRecovery(kind,input={}) {
+    if(!eventKinds.has(kind)||!scope)return;
+    journalScope(scope.split(':')[0]);const at=Date.now(),error=Number(input.drift),raw=String(input.scope||transportScope||'').split(':').at(-1);
+    const id=globalThis.crypto?.randomUUID?.()||`${at.toString(16)}-${Math.random().toString(16).slice(2)}`;
+    journal=journal.filter(e=>at-e.at>=0&&at-e.at<JOURNAL_AGE);journal.push({id,kind,at,segment:/^\d+$/.test(raw)?Number(raw):null,step:steps,errorMs:Number.isFinite(error)?Math.round(error*1000):null});journal=journal.slice(-JOURNAL_MAX);saveJournal();
+  }
+  function recoveryEvents(key){journalScope(String(key||''));const at=Date.now();return journal.filter(e=>at-e.at>=0&&at-e.at<JOURNAL_AGE).slice(0,8).map(({at:when,...e})=>({...e,ageMs:Math.round(at-when)}));}
+  function acknowledgeRecovery(key,ids){if(!Array.isArray(ids))return;journalScope(String(key||''));const ack=new Set(ids.slice(0,8));journal=journal.filter(e=>!ack.has(e.id));saveJournal();}
+  function motionVerified(raw,at){return !!(motion&&motion.scope===raw&&motion.proven&&Number.isFinite(at)&&at>=motion.at&&at-motion.at<=1000);}
+  function observeContinuity({scope:raw,nowMs:at,io,position,rate,playing,buffering,owned,sameVideo}={}) {
+    const precision=io?.referenceUncertaintyMs?.(), eligible=io?.follower===true&&!io.hostLinked&&io.linkedSourceActive?.()===true&&io.valid?.()===true&&sameVideo===true&&!document.hidden&&playing===true&&!buffering&&!owned&&io.referenceTrusted?.()===true&&io.sourceReferenceQualified?.(100)===true&&!io.sourceBuffering?.()&&!io.mirrorContradicted?.()&&Number.isFinite(precision)&&precision>=0&&precision<=70&&[at,position,rate].every(Number.isFinite)&&rate>0;
+    if(handoff&&(raw!==handoff.scope||at-handoff.at>30000)){recordRecovery('handoff-unverified',{scope:handoff.scope,drift:handoff.error});handoff=null;}
+    if(!eligible||!steps||lastStepAt===manualRestartAt){motion=null;return false;}
+    const target=io.target?.(at);if(!Number.isFinite(target)){motion=null;return false;}
+    const prev=motion,dt=prev?at-prev.at:0,dp=prev?position-prev.pos:0;
+    if(prev&&prev.scope===raw&&dt===0)return motionVerified(raw,at);
+    if(!prev||prev.scope!==raw||dt<=0||dt>1000||dp<dt/1000*rate*.65||dp>dt/1000*rate*1.35+.025||Math.abs(target-prev.target-dt/1000*rate)>.10){motion={scope:raw,at,pos:position,target,since:at,proven:false};return false;}
+    motion={...prev,at,pos:position,target,proven:at-prev.since>=3000};
+    if(!motion.proven)return false;
+    if(steps>0&&!warm&&provenStep!==lastStepAt){provenStep=lastStepAt;protectedStep=steps;recovered={scope:raw,at,step:steps};outcome='decoder-motion-restored';recordRecovery('motion-restored',{scope:raw,drift:target-position});}
+    if(steps>0&&!warm&&['terminal-recovery-spent','freeze-unverified','rebuild-budget-spent'].includes(outcome))outcome='decoder-motion-restored';
+    if(handoff&&at-handoff.at>=3000){recordRecovery(Math.abs(target-position)<=.1||Math.abs(target-position)<Math.abs(handoff.error)*.7?'handoff-verified':'handoff-unverified',{scope:raw,drift:target-position});handoff=null;}
+    return true;
+  }
+  function handoffReady(io,at,error){return steps>0&&!warm&&!rejoinSpent&&provenStep===lastStepAt&&error>=.45&&error<=8&&motionVerified(transportScope,at)&&io?.follower===true&&!io.hostLinked&&io.tvIdentity===scope&&io.valid?.()===true;}
+  // Only a decoder that really recovered and subsequently stalled gets one
+  // further reload, after a fresh reference dwell. Persistent failure stops.
+  function retryTerminal(input,at,wedged){
+    const confirmed=input.buffering&&Math.abs(input.drift)>=MIN_DRIFT_SEC||input.qualifiedStall===true&&input.stalledMs>=STALL_DWELL_MS;
+    if(!wedged||!confirmed||input.follower!==true||!input.trusted||input.sourceQualified!==true||input.sourceBuffering||input.mirrorContradicted||document.hidden||steps!==2||warm||provenStep!==lastStepAt||at-lastStepAt<45000||at-retryAt<CHECKPOINT_MS||typeof input.reload!=='function'){retrySince=null;return false;}
+    if(!retrySince||retrySince.scope!==input.scope||at-retrySince.last>1000||at<retrySince.last){retrySince={scope:input.scope,at,last:at};return false;}
+    retrySince.last=at;if(at-retrySince.at<5000)return false;
+    retrySince=null;retryAt=lastStepAt=at;provenStep=-Infinity;motion=null;recovered=null;rejoinCandidate=null;rejoinSpent=false;since=0;warm={scope:input.scope,at,sample:null,progress:0};checkpoint(at);
+    recordRecovery('retry-reload-requested',input);try{input.reload();outcome='terminal-retry-reload';recordRecovery('retry-reload-issued',input);return true;}catch{warm=null;outcome='recovery-failed';recordRecovery('retry-reload-failed',input);return false;}
+  }
   function isSettling(raw, at) { return !!warm && raw === warm.scope && !document.hidden && Number.isFinite(at) && at >= warm.at && at-warm.at < 12000; }
   function settling({scope: raw, nowMs: at, ready, playing, buffering, position, rate = 1} = {}) {
     if (!warm) return false;
@@ -56,7 +103,7 @@
     if (!scope || !Number.isFinite(nowMs)) return;
     try {
       const at=Date.now(), wall=t=>Number.isFinite(t)?at-(nowMs-t):null;
-      sessionStorage.setItem(CHECKPOINT_KEY,JSON.stringify({scope,at,steps,last:wall(lastStepAt),manual:wall(manualRestartAt),spent:rejoinSpent,
+      sessionStorage.setItem(CHECKPOINT_KEY,JSON.stringify({scope,at,steps,last:wall(lastStepAt),manual:wall(manualRestartAt),retry:wall(retryAt),spent:rejoinSpent,
         rebuilds:rebuilds.map(wall).filter(t=>t!==null&&at-t<CHECKPOINT_MS),resume:resumeRearms.map(wall),heal:healRearms.map(wall)}));
     } catch {}
   }
@@ -67,7 +114,7 @@
       const mono=t=>Number.isFinite(t)&&at-t>=0&&at-t<CHECKPOINT_MS?nowMs-(at-t):-Infinity;
       const recent=(xs,n)=>Array.isArray(xs)?xs.map(mono).filter(Number.isFinite).slice(-n):[];
       rebuilds.push(...recent(c.rebuilds,MAX_REBUILDS_PER_10_MIN));resumeRearms=recent(c.resume,1);healRearms=recent(c.heal,1);
-      manualRestartAt=mono(c.manual);
+      manualRestartAt=mono(c.manual);retryAt=mono(c.retry);
       if(c.scope!==scope || ![1,2].includes(c.steps) || !Number.isFinite(mono(c.last))) return;
       steps=c.steps;lastStepAt=mono(c.last);rejoinSpent=c.spent===true;outcome='recovery-budget-restored';
       window.watchFusionRoomSyncLog?.note?.('tv-decoder-resumed',{step:steps,reason:outcome});
@@ -76,7 +123,7 @@
   function enterScope(next, nowMs) {
     if (next === scope) return;
     const first=!scope;
-    warm = null; recovered = null; protectedStep=0; rejoinCandidate = null; rejoinSpent = false; scope = next; since = 0; steps = 0; lastStepAt = -Infinity; liveSeenAt = -Infinity;
+    warm = null; recovered = null; protectedStep=0; rejoinCandidate = null; rejoinSpent = false; motion=null;provenStep=-Infinity;retrySince=null;handoff=null;scope = next; since = 0; steps = 0; lastStepAt = -Infinity; liveSeenAt = -Infinity;
     healthySince = 0; healthyAt = -1; healthyPosition = null; healthyProgressMs = 0;
     healthOffsets = [];
     pausedAt = -1; wasRoomPaused = false; outcome = 'scope-change';
@@ -89,7 +136,7 @@
     const next = raw ? dwellScope(raw) : '';
     if (!next || !Number.isFinite(nowMs)) return false;
     enterScope(next,nowMs);
-    if (raw !== transportScope || paused === true) { transportScope=raw; recovered=null; rejoinCandidate=null; }
+    if (raw !== transportScope || paused === true) { transportScope=raw; recovered=null; rejoinCandidate=null; motion=null;retrySince=null; }
     if (paused === true) {
       warm = null;
       if (!wasRoomPaused) { pausedAt = nowMs; wasRoomPaused = true; }
@@ -150,13 +197,14 @@
         input.trusted !== true || input.sourceBuffering || typeof input.rebuild !== 'function' ||
         (input.buffering && !(Math.abs(input.drift) >= MIN_DRIFT_SEC))) return false;
     if (nowMs - manualRestartAt < RETRY_AFTER_MS) return true;
-    manualRestartAt = lastStepAt = nowMs; checkpoint(nowMs);
+    manualRestartAt = lastStepAt = nowMs; motion=null;provenStep=-Infinity;retrySince=null;handoff=null; checkpoint(nowMs);
     since = 0;
+    recordRecovery('manual-rebuild-requested',input);
     try {
       input.rebuild();
-      outcome = 'manual-player-rebuilt';
+      outcome = 'manual-player-rebuilt';recordRecovery('manual-rebuild-issued',input);
       window.watchFusionRoomSyncLog?.note?.('tv-decoder-manual-restart', {reason:outcome});
-    } catch { outcome = 'manual-restart-failed'; }
+    } catch { outcome = 'manual-restart-failed';recordRecovery('manual-rebuild-failed',input); }
     return true;
   }
   function qualifiesStall({io, media, videoId, nowMs, stalledMs, exhausted, buffering} = {}) {
@@ -172,7 +220,7 @@
     const nowMs = Number(input.nowMs);
     enterScope(nextScope,nowMs);
     if (input.trusted) liveSeenAt = nowMs;
-    const wedged = input.buffering ? true : !!(input.exhausted && input.playing);
+    const wedged = input.buffering ? true : !!(input.exhausted && input.playing && (input.manual || !motionVerified(input.scope,nowMs)));
     if(wedged || document.hidden || !input.playing) recovered=null;
     if(wedged || document.hidden || !input.playing || !input.trusted || input.sourceBuffering || input.sourceQualified===false || input.mirrorContradicted===true) rejoinCandidate=null;
     if (input.manual) return restartAfterSync(input, nowMs, wedged);
@@ -197,7 +245,8 @@
     // needs no further action dwell: publish the spent status, not another command.
     if (steps >= 2) {
       if (isSettling(input.scope, nowMs)) return false;
-      if (outcome !== 'terminal-recovery-spent') input.onSpent?.();
+      if (retryTerminal(input,nowMs,wedged))return true;
+      if (outcome !== 'terminal-recovery-spent') {input.onSpent?.();recordRecovery('budget-spent',input);}
       outcome = 'terminal-recovery-spent'; return false;
     }
     if (!failedReload && !prequalified) {
@@ -208,15 +257,17 @@
     const recent = rebuilds.filter(t => nowMs - t < 600000);
     const rebuild = steps === 1 && recent.length < MAX_REBUILDS_PER_10_MIN && typeof input.rebuild === 'function';
     if (steps === 1 && !rebuild) { steps = 2; outcome = 'rebuild-budget-spent'; checkpoint(nowMs); return false; }
-    steps++; lastStepAt = nowMs; since = 0; recovered = null; protectedStep=0; rejoinCandidate = null; rejoinSpent = false;
+    steps++; lastStepAt = nowMs; since = 0; motion=null;provenStep=-Infinity;retrySince=null;recovered = null; protectedStep=0; rejoinCandidate = null; rejoinSpent = false;
     warm = {scope:input.scope,at:nowMs,sample:null,progress:0};
+    const action=rebuild?'rebuild':'reload';recordRecovery(action+'-requested',input);
     try {
       if (rebuild) { rebuilds.push(nowMs); checkpoint(nowMs); input.rebuild(); outcome = 'player-rebuilt-once'; }
       else { checkpoint(nowMs); input.reload(); outcome = 'one-decoder-reload'; }
+      recordRecovery(action+'-issued',input);
       window.watchFusionRoomSyncLog?.note?.('tv-decoder-' + (rebuild ? 'rebuild' : 'reload'), {positionMs: Math.round(Number(input.drift) * 1000),step:steps,
         reason:failedReload?'verified-reload-failure':prequalified?'verified-stall-exhausted':'ordinary-dwell'});
       return true;
-    } catch { warm = null; outcome = 'recovery-failed'; return false; }
+    } catch { warm = null; outcome = 'recovery-failed';recordRecovery(action+'-failed',input); return false; }
   }
   // A decoder reload/rebuild is not permission to immediately seek the newly
   // advancing player again. For offsets <=5 s, require a quiet, qualified window; permit at
@@ -224,6 +275,7 @@
   // The release owner may defer to this guard only after measured decoder warmup.
   // This grants no command: the existing buffered rejoin guard still must qualify.
   function canOwnPostRelease(io,at,error) {
+    if(handoffReady(io,at,error))return true;
     return !!(recovered && recovered.scope===transportScope && recovered.step===steps && steps>0 && !rejoinSpent && !warm &&
       Number.isFinite(at) && at>=recovered.at && at-recovered.at<=30000 && error>=.45 && error<=4 &&
       io?.follower===true && !io.hostLinked && io.tvIdentity===scope && io.valid?.()!==false && !document.hidden &&
@@ -231,12 +283,13 @@
       io.sourceReferenceQualified?.(100)===true && !io.sourceBuffering?.() && !io.mirrorContradicted?.());
   }
   function allowAutomaticRejoin({nowMs, error, io, lead} = {}) {
-    if (!steps || (Math.abs(error) > 5 && !(protectedStep===steps && io?.follower===true && !io.hostLinked)) || (io?.follower !== true && !io?.hostLinked) || io.linkedSourceActive?.() !== true) return true;
+    const qualifiedHandoff=handoffReady(io,nowMs,error);
+    if (!steps || (!qualifiedHandoff && Math.abs(error) > 5 && !(protectedStep===steps && io?.follower===true && !io.hostLinked)) || (io?.follower !== true && !io?.hostLinked) || io.linkedSourceActive?.() !== true) return true;
     const precision = io.referenceUncertaintyMs?.(), pos = io.current?.(), target = io.target?.(nowMs);
     if (rejoinSpent || document.hidden || io.valid?.()===false || (io.tvIdentity && io.tvIdentity!==scope) || io.state?.() !== 1 || io.referenceTrusted?.() !== true ||
         io.sourceReferenceQualified?.(100) !== true || io.mirrorContradicted?.() || io.sourceBuffering?.() ||
         ![nowMs,error,pos,target,precision,lead,io.baseRate].every(Number.isFinite) || io.baseRate <= 0 || precision < 0 || precision > 70 ||
-        Math.abs(target-pos-error)>.14 || io.buffered?.(target+lead) !== true) { rejoinCandidate = null; return false; }
+        Math.abs(target-pos-error)>.14 || (io.buffered?.(target+lead) !== true && !(qualifiedHandoff&&error>=2.5))) { rejoinCandidate = null; return false; }
     const c = rejoinCandidate, dt = c ? nowMs-c.at : 0;
     if (c && dt === 0) return false;
     if (!c || dt < 0 || dt > 1000 || Math.abs(c.initialError-error) > .14 ||
@@ -245,8 +298,9 @@
       rejoinCandidate = {at:nowMs,since:nowMs,pos,target,initialError:error}; return false;
     }
     c.at=nowMs; c.pos=pos;c.target=target;
-    if (nowMs-c.since < 8000 || nowMs-lastStepAt < 12000) return false;
-    rejoinSpent=true; rejoinCandidate=null; checkpoint(nowMs); return true;
+    const buffered=io.buffered?.(target+lead)===true;
+    if (nowMs-c.since < (qualifiedHandoff&&buffered?2500:8000) || nowMs-lastStepAt < (qualifiedHandoff&&buffered?6500:12000)) return false;
+    rejoinSpent=true; rejoinCandidate=null; checkpoint(nowMs);if(qualifiedHandoff){handoff={scope:transportScope,at:nowMs,error};recordRecovery('handoff-issued',{scope:transportScope,drift:error});}return true;
   }
   // The same thing a manual URL reload does for the player, without leaving the room.
   function rebuildPlayer(videoId, startSeconds) {
@@ -258,7 +312,7 @@
     ytPlayer = null; ytPlayerReady = false; playerPrimed = false; playerInitializing = false;
     ensurePlayer(videoId, startSeconds);
   }
-  window.WatchFusionDecoderRescue = {version: 'adaptive-room-06jc', consider, qualifiesStall, observeTransport, rebuildPlayer, settling, isSettling, allowAutomaticRejoin, canOwnPostRelease,
+  window.WatchFusionDecoderRescue = {version: 'adaptive-room-06jidk', observeContinuity,motionVerified,handoffReady,recoveryEvents,acknowledgeRecovery,consider, qualifiesStall, observeTransport, rebuildPlayer, settling, isSettling, allowAutomaticRejoin, canOwnPostRelease,
     diagnostics: () => ({scope, attempted: steps > 0, steps, outcome, healthyProgressMs: Math.round(healthyProgressMs),
       rearmCount, healCount, lastRearmDwellMs, pauseObserved: wasRoomPaused})};
 })();

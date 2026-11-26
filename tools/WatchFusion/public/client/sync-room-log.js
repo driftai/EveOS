@@ -149,7 +149,7 @@
     lastSegmentKey=key;segmentSequence++;prune();
   }
   function decoderProgressUnverified(peer) {
-    return ['decoder-stalled','decoder-buffering','decoder-warming','decoder-advancing','awaiting-play','awaiting-first-frame'].includes(peer.startupPhase)
+    if(peer.playing&&!peer.buffering&&peer.sensor?.timelineState==='advancing'&&Number.isFinite(peer.sensor?.heldMs)&&peer.sensor.heldMs<=300&&peer.decoderRecovery?.outcome==='decoder-motion-restored')return false; return ['decoder-stalled','decoder-buffering','decoder-warming','decoder-advancing','awaiting-play','awaiting-first-frame'].includes(peer.startupPhase)
       || /^(?:viewer-stalled-while-playing|viewer-warming-after-play|stall-recovery-exhausted|auto-correction-suspended|rejoin-|stall-kick|settling|tv-decoder-settling)/.test(peer.recentCorrection || '')
       || peer.decoderRecovery?.outcome === 'terminal-recovery-spent';
   }
@@ -262,7 +262,7 @@
       source:coordination?.source || null, sourcePhaseMs:finite(coordination?.sourcePhaseMs),song:song(),
       mirrorClock:(()=>{const c=window.WatchFusionMirrorConvergenceGate?.diagnostics?.()?.clockEvidence;return c?{sampleClock:['server-qualified','relay-bounded'].includes(c.sampleClock)?c.sampleClock:null,relayAgeGapMs:finite(c.relayAgeGapMs),gapMs:finite(c.gapMs),sourcePhaseMs:finite(c.sourcePhaseMs),sampleAgeMs:finite(c.sampleAgeMs),classification:/^[a-z-]{1,35}$/.test(c.classification)?c.classification:null}:null;})(),
       comparisonReference:'common-room-clock', ...relative, linkedSourceEvidence:linkedSource, playbackPlateau, speakerPhase:'not-measured', roster:members===null?null:{members,reporting,rejections},
-      peers:rows,activity};
+      peers:rows,activity,fullRoomPhase:relative.timelinePlayerCount<2||!Number.isFinite(relative.timelineSpreadMs)||relative.timelinePlayerCount!==rows.length||relative.timelinePlayerCount!==(state?.members?.length??-1)?'partial-or-unmeasured':relative.timelineSpreadMs<=50?'full-room-within-50':'full-room-outside-50'};
     const key = JSON.stringify([ref,phaseMs,relative.groupPhase,relative.timelinePhase,playbackPlateau.state,linkedSource?.audioRoute,members,reporting,
       rows.map(p => [p.device,p.playerOffsetMs,p.corrections,p.action,p.buffering,p.startupPhase,p.audioReadiness,p.seekHealth?.recoveryAttempts,p.signals])]);
     const acquisitionState=p=>/^(?:tv-rate-trial-|tv-decoder-|tv-post-release-|output-phase-unverified$|tv-no-advertised-fine-rate$|rate-evidence-inconclusive$|rate-burst-complete$|locked$|fine-drift-refining$|correction-cooldown$|settling$|observing$)/.test(p?.action||'')||/^tv-rate-trial-/.test(p?.decoderRecovery?.arbiterReason||''), acquisitionChanged=(p,q)=>p.role==='viewer'&&Number.isFinite(p.reportAgeMs)&&p.reportAgeMs>=0&&p.reportAgeMs<=1500&&(acquisitionState(p)||acquisitionState(q))&&(q.action!==p.action||q.decoderRecovery?.arbiterReason!==p.decoderRecovery?.arbiterReason);
@@ -327,10 +327,10 @@
     const now = performance.now();
     return !!roomScope && now - requestAt >= (performance.now() < burstUntil ? 650 : lastHealthCritical ? 1000 : 2300);
   }
-  function observe(peers, coordination, roster) {
+  let recoverySeen=new Set(),recoveryRoom=''; function observe(peers, coordination, roster, history) {
     refreshScope();
     if (!roomScope) return;
-    requestAt = performance.now();
+    if(recoveryRoom!==roomScope){recoveryRoom=roomScope;recoverySeen.clear();} for(const e of Array.isArray(history)?history.slice(-180):[]){if(!e||typeof e.id!=='string'||recoverySeen.has(e.id)||!/^[-a-z]{1,36}$/.test(e.kind)||!Number.isFinite(e.at))continue; recoverySeen.add(e.id);if(recoverySeen.size>512)recoverySeen.delete(recoverySeen.values().next().value);events.push({at:new Date().toISOString(),kind:'remote-decoder-'+e.kind,device:title(e.device)||'Viewer',eventAt:new Date(e.at).toISOString(),remoteSegment:finite(e.segment),step:finite(e.step),errorMs:finite(e.errorMs),segmentSequence:null,song:null});} prune(); requestAt = performance.now();
     if (peers.length || (state?.linkedSourceActive===true && (document.hidden===true || previousActivity?.localParticipation==='background-inactive' || previousActivity?.localParticipation==='foreground-reacquiring'))) emit(estimatedServerNow(), peers, coordination, roster);
     else render();
   }

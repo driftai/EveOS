@@ -59,7 +59,7 @@
         else if (!peer.playing) invalid = 'paused';
         else if (peer.buffering) invalid = 'buffering';
         else if (peer.correcting === true || /^(?:rejoin-|hold-|rate-started|rate-converging|zero-converging|host-zero-centering|host-peer-rejoin|settling|stall-kick)/.test(peer.recentCorrection || '')) invalid = 'correcting';
-        else if (peer.startupPhase === 'decoder-stalled' || /^(?:viewer-stalled-while-playing|stall-recovery-exhausted|auto-correction-suspended)/.test(peer.recentCorrection || '') || peer.decoderRecovery?.outcome === 'terminal-recovery-spent') invalid = 'stalled';
+        else if (!(peer.decoderRecovery?.outcome==='decoder-motion-restored'&&peer.sensor?.timelineState==='advancing'&&Number.isFinite(peer.sensor?.heldMs)&&peer.sensor.heldMs<=300) && (peer.startupPhase === 'decoder-stalled' || /^(?:viewer-stalled-while-playing|stall-recovery-exhausted|auto-correction-suspended)/.test(peer.recentCorrection || '') || peer.decoderRecovery?.outcome === 'terminal-recovery-spent')) invalid = 'stalled';
         else if (['decoder-buffering', 'decoder-warming', 'decoder-advancing', 'awaiting-play', 'awaiting-first-frame'].includes(peer.startupPhase)) invalid = 'warming';
         else if (!Number.isFinite(peer.sampledAt) || Math.abs(now - peer.sampledAt) > 1500) invalid = 'stale';
         else if (!Number.isFinite(peer.positionMs) || !Number.isFinite(peer.roomPositionMs)) invalid = 'unavailable';
@@ -253,7 +253,7 @@
     const gap = roomOffsets.length >= 2 ? Math.round(Math.max(...roomOffsets) - Math.min(...roomOffsets)) : null;
     const bounds = compared.map(({p})=>p.sensor?.clockState==='bounded'&&Number.isFinite(p.sensor.clockBoundMs)?p.sensor.clockBoundMs*p.rate:NaN);
     const clockOnlyUpper = gap!==null&&bounds.every(Number.isFinite)?Math.ceil(gap+bounds.sort((a,b)=>b-a).slice(0,2).reduce((a,b)=>a+b,0)+1):null;
-    const aligned = groupAligned(peers, now, roomOffsets.length===peers.length?gap:null, progress);
+    const expected=members.length,aligned = groupAligned(peers, now, roomOffsets.length===peers.length&&peers.length===expected?gap:null, progress);
     const playout = window.watchFusionPlayout;
     const cards = [...peers].sort((a, b) => a.member.localeCompare(b.member)).map((peer, index) => {
       const sourceError = peer.sensor?.clockState === 'bounded' ? playout?.sourceErrorMs?.(peer, coordination, now) : null;
@@ -264,7 +264,7 @@
         // v13.10.8e: a signed player-vs-room number, not audible desync. The room clock is the muted source tab.
         // R14s: the first metric answers whether the TWO players agree. A shared
         // offset from the room/source clock is not evidence of TV-vs-laptop desync.
-        ['Player-to-player timeline spread', index === 0 ? gap !== null ? gap + ' ms (' + (aligned ? 'progression qualified' : 'provisional') + '; not speaker audio)' :
+        ['Player-to-player timeline spread', index === 0 ? gap !== null ? gap + ' ms (' + compared.length+'/'+expected+' players; '+(aligned ? 'full room progression qualified' : compared.length<expected?'partial room':'provisional') + '; not speaker audio)' :
           peers.length < 2 ? 'N/A · single room player' : qualifiedCount === 1 ? 'N/A · only one advancing room player' : 'Unverified · no two advancing room players' : null],
         ['Clock-only spread upper estimate', index === 0 && clockOnlyUpper!==null ? clockOnlyUpper + ' ms (estimated; excludes decoder and speaker latency)' : null],
         ['Linked source reference', index === 0 && state?.linkedSourceActive ? sourceLive ? 'Live, bounded timeline · not speaker timing' : 'Reference not currently bounded' : null],

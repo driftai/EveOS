@@ -41,10 +41,10 @@
     const stats = {corrections: 0, rejoins: 0, holds: 0, rateBursts: 0, seeks: 0, failures: 0, rateRejected: 0}; const hostGuard = globalThis.WatchFusionHostSeekPolicy?.create?.() ?? null;
     function load() {
       try {
-        const m = {...defaultModel(), ...(JSON.parse(store?.get?.(MODEL_KEY) || 'null') || {})};
-        // v13.7: a pre-v13.7 rejection may come from one probe taken during a decoder freeze. Re-probe once.
-        if (m.rateHonored === false && !(m.rateRejections >= 2)) m.rateHonored = null;
-        return m;
+        const m=defaultModel(), raw=JSON.parse(store?.get?.(MODEL_KEY)||'null');if(!raw||typeof raw!=='object'||Array.isArray(raw))return m;
+        const valid=(k,min,max,integer=false)=>Number.isFinite(raw[k])&&raw[k]>=min&&raw[k]<=max&&(!integer||Number.isInteger(raw[k]));
+        for(const [k,min,max] of [['releaseLatencySec',0,2],['leadSec',.35,10],['landingErrorSec',0,6],['landingSec',.1,8],['rateGain',.5,1.5],['hostReleaseLatencySec',0,.9]])if(valid(k,min,max))m[k]=raw[k];
+        for(const k of ['rejoins','verifiedReleases','rateRejections'])if(valid(k,0,1000000,true))m[k]=raw[k];m.hostReleaseMeasured=raw.hostReleaseMeasured===true&&Number.isFinite(m.hostReleaseLatencySec);m.rateHonored=raw.rateHonored===true?true:raw.rateHonored===false&&m.rateRejections>=2?false:null;if(m.rateHonored===true)m.rateRejections=0;return m;
       } catch { return defaultModel(); }
     }
     function save() { try { store?.set?.(MODEL_KEY, JSON.stringify(model)); } catch {} }
@@ -305,7 +305,7 @@
         if (soft !== null) { lastZeroServoAt = nowMs; return startRate(nowMs, error, io, soft); }
         reason = 'fine-drift-below-reference-precision'; return;
       }
-      if (failures >= MAX_FAILURES) { phase = 'suspended'; reason = 'auto-correction-suspended'; return; }
+      if (globalThis.WatchFusionDecoderRescue?.handoffReady?.(io,nowMs,error)===true && nowMs>=cooldownUntil) {startRejoin(nowMs,error,io);return;} if (failures >= MAX_FAILURES) { phase = 'suspended'; reason = 'auto-correction-suspended'; return; }
       if (nowMs < cooldownUntil) { reason = 'correction-cooldown'; return; }
       if (absolute > MAX_AUTO_SEC) {
         // One large displacement rejoin per segment requires a trusted reference.
