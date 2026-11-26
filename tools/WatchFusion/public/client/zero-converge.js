@@ -14,6 +14,9 @@
   const PHASE_SLACK_MS = 18, RESTORE_LIMIT = 500;
   const MEASUREMENT_REARM_MS = 60000, MAX_MEASUREMENT_REARMS = 1, EARLY_SAMPLE_MS = 150;
   const RETENTION_LOCK_MS = 15000;
+  // Hidden host coarse recovery only: accepted source events, not a timer exemption.
+  const BG_GAP=350, BG_DWELL=1800, BG_MIN=250, BG_MAX=1500, BG_RESERVE=150;
+  let bgAt=-Infinity,bgSince=-Infinity,bgScope='',bgPlayer=null;
   let observedPlayer = null, displayQuietUntil = -Infinity;
   let retentionLockAt = null;
   let restoring = null, learnedPlayer = null, learnedRoom = '', verifiedRates = new Map();
@@ -30,9 +33,11 @@
   const target = () => window.watchFusionYouTubeTarget?.(estimatedServerNow(),ytPlayer.getDuration?.());
   const rateNow = () => Number(ytPlayer.getPlaybackRate?.());
   const note = (kind,data) => window.watchFusionRoomSyncLog?.note?.(kind,data);
+  function backgroundReady(at=now()) { return document.hidden && host() && bgScope===key() && bgPlayer===ytPlayer &&
+    at>=bgAt && at-bgAt<=BG_GAP && bgAt-bgSince>=BG_DWELL; }
   function blocked() {
     const p=state?.playback;
-    if (document.hidden) return 'page-hidden';
+    if (document.hidden && !backgroundReady()) return 'page-hidden';
     if (!key() || !p || p.paused || p.ended) return 'not-playing';
     if (!ytPlayer || !ytPlayerReady || playerInitializing || primingPlayer) return 'player-not-ready';
     if (ytPlayer.getPlayerState?.()!==1 || ytPlayer.getVideoData?.()?.video_id!==state.source.videoId) return 'player-not-playing';
@@ -95,7 +100,7 @@
     job=null; clearTimeout(j.timer); lastAt=now(); samples=[]; retentionLockAt=null;
     // Keep measured motion as provisional evidence across a temporary trust veto.
     // Never continue actuation or credit motion until the same reference is qualified again.
-    const interrupted=!j.micro && !j.viewerFine && (j.host || j.viewerWitness) && j.ack!==null && j.best>=6 &&
+    const interrupted=!j.background && !j.micro && !j.viewerFine && (j.host || j.viewerWitness) && j.ack!==null && j.best>=6 &&
       ['reference-changed','reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(why) &&
       key()===scope && j.player===ytPlayer && j.roomRate===state?.playback?.rate;
     try {
@@ -136,8 +141,9 @@
     const j=job; if(!j)return;
     try {
       const at=now(), elapsed=at-j.at, b=blocked();
-      if (key()!==scope || j.player!==ytPlayer || b || state.playback.rate!==j.roomRate) return finish(b||'scope-changed');
+      if (key()!==scope || j.player!==ytPlayer || b || state.playback.rate!==j.roomRate || (j.background && !backgroundReady(at))) return finish(b||'scope-changed');
       if (!j.micro && elapsed>j.limit+150) return finish('rate-timer-overrun');
+      if(j.background && (!Number.isFinite(window.watchFusionPlayout?.status?.()?.uncertaintyMs)||window.watchFusionPlayout.status().uncertaintyMs>35))return finish('background-reference-widened');
       const t=target(), pos=Number(ytPlayer.getCurrentTime?.()), r=rateNow();
       if (![t,pos,r].every(Number.isFinite)) return finish('invalid-actuator-sample');
       if (window.watchFusionPlayout?.status?.()?.reference!==j.reference ||
@@ -211,8 +217,10 @@
   function start(at,t,pos,m,mad,base,rate,cap,catchup) {
     const raw=(t-pos)*1000;
     if (Math.sign(raw)!==Math.sign(m)||Math.abs(raw-m)>12) {reason='measurement-jitter';return;}
-    const step=Math.abs(rate-base), magnitude=Math.min(Math.abs(m),Math.abs(raw));
+    const step=Math.abs(rate-base), magnitude=Math.min(Math.abs(m),Math.abs(raw)), background=document.hidden===true;
+    if(background && (!backgroundReady(at)||magnitude<BG_MIN||magnitude>BG_MAX||mad>4||Math.abs(raw-m)>6||!hostTrusted(t,raw,at,true))){reason='background-coarse-evidence-unverified';return;}
     let goal=Math.min(magnitude*.70,magnitude-8);
+    if(background)goal=Math.min(goal,magnitude-BG_RESERVE);
     // A small offset is not enough excitation to qualify an unknown actuator.
     // Preserve fine lock rather than deliberately overshoot to prove capability.
     const precision=window.watchFusionPlayout?.status?.()?.uncertaintyMs;
@@ -251,20 +259,21 @@
     // One bounded micro trial per direction until a verified quiet lock; no extra retry
     // budget, and no attempt to excite an already aligned player.
     if(micro)cap.microUsed=true;
-    const limit=viewerFine?50:micro||precisionStep?100:catchup?MAX_CATCHUP_COMMAND:MAX_FINE_COMMAND;
+    const limit=background?Math.min(1000,Math.floor(goal/step)):viewerFine?50:micro||precisionStep?100:catchup?MAX_CATCHUP_COMMAND:MAX_FINE_COMMAND;
     job={player:ytPlayer,at,position:pos,target:t,before:m,beforeRaw:raw,mad,base,rate,roomRate:state.playback.rate,
       reference:window.watchFusionPlayout?.status?.()?.reference, viewerWitness:viewerTrusted(t,raw,at),
-      goal,limit,cap,micro,precisionStep,viewerFine,fineBound,viewerRetention,host:host(),brakeMs:host()?Math.min(goal*.4,cap.tailMs||0):0,ack:null,best:0,evidenceAnchor:null,timer:null};
+      goal,limit,cap,micro,precisionStep,viewerFine,fineBound,viewerRetention,background,host:host(),brakeMs:host()?Math.min(goal*.4,cap.tailMs||0):0,ack:null,best:0,evidenceAnchor:null,timer:null};
     if(host())hostProbeUsed=true;
     try {ytPlayer.setPlaybackRate(rate);} catch {finish('rate-change-failed');return;}
-    job.timer=setTimeout(monitor,ACTIVE_PERIOD); samples=[]; pulses++; reason=viewerFine?'qualified-viewer-precision-step':precisionStep?'qualified-precision-step':viewerRetention?'qualified-viewer-retention':'converging-to-zero';
-    note('zero-converge-pulse', {errorMs: Math.round(m),rate,durationMs:Math.round(goal/step)});
+    job.timer=setTimeout(monitor,ACTIVE_PERIOD); samples=[]; pulses++; reason=background?'background-coarse-converging':viewerFine?'qualified-viewer-precision-step':precisionStep?'qualified-precision-step':viewerRetention?'qualified-viewer-retention':'converging-to-zero';
+    note('zero-converge-pulse', {errorMs: Math.round(m),rate,durationMs:Math.round(background?Math.min(limit,goal/step):goal/step)});
   }
   function tick() {
     const tickAt=now(); tickGapMs=lastTick===null?null:Math.round(tickAt-lastTick);lastTick=tickAt;
     if(tickGapMs!==null && tickGapMs>=0)maxTickGapMs=Math.max(maxTickGapMs,tickGapMs);
     if(tickGapMs>=1500){finish('rate-timer-overrun');samples=[];retentionLockAt=null;discardPending('runtime-timer-gap');note('runtime-timer-gap',{durationMs:tickGapMs,hidden:document.hidden===true});}
     const next=key(); if(next!==scope || observedPlayer!==ytPlayer || (host()&&(learnedPlayer!==ytPlayer||learnedRoom!==roomId)))reset(next,'new-scope');
+    if(job?.background && !backgroundReady(tickAt))finish('background-source-cadence-lost');
     if(job)return;
     const at=now(), b=blocked();
     if(restoring){
@@ -341,7 +350,7 @@
     if(Math.abs(m)<=ENTER){
       // A genuinely quiet, continuously measured new lock earns another small
       // trim in the SAME direction. A lock flag or hidden interval never does.
-      const quiet=host() && Math.abs(m)<=10 && mad<=2 && Math.abs(e-m)<=3 &&
+      const quiet=!document.hidden && host() && Math.abs(m)<=10 && mad<=2 && Math.abs(e-m)<=3 &&
         Math.max(...values)-Math.min(...values)<=5 && microTrusted(t,e,at);
       if(!quiet)retentionLockAt=null;
       else {
@@ -356,7 +365,9 @@
       reason='zero-band';return;
     }
     retentionLockAt=null;
-    const catchup=host()&&m>OUTER&&m<=MAX_HOST;
+    const background=document.hidden===true;
+    if(background && (Math.abs(m)<BG_MIN||Math.abs(m)>BG_MAX)){reason='background-coarse-monitor';return;}
+    const catchup=host()&&(background||m>OUTER&&m<=MAX_HOST);
     if(Math.abs(m)>OUTER&&!catchup){reason='outside-fine-band';return;}
     if(host()&&!hostTrusted(t,m,at,catchup)){reason='host-locked-dual-clock-unverified';return;}
     const rates=(ytPlayer.getAvailablePlaybackRates?.()||[]).filter(r=>Number.isFinite(r)&&Math.sign(r-base)===Math.sign(m)&&Math.abs(r-base)>=.03&&Math.abs(r-base)<=.26).sort((a,b)=>Math.abs(a-base)-Math.abs(b-base));
@@ -365,8 +376,20 @@
     if(!model.has(id)){if(model.size>=16)model.delete(model.keys().next().value);model.set(id,{status:host()&&verifiedRates.has(id)?'verified':'unknown',tailMs:host()?verifiedRates.get(id)?.tailMs??0:0,attempts:0,contaminated:0,retryable:0,rearms:0,lastAt:-Infinity});}
     start(at,t,pos,m,mad,base,rate,model.get(id),catchup);
   }
-  setInterval(()=>{try{tick();}catch{reset('','converge-error');}},PERIOD);
-  document.addEventListener('visibilitychange',()=>{retentionLockAt=null;if(document.hidden){
+  // Accepted linked-source messages wake the existing controller. No new media owner, polling or seek.
+  function sourceWake(){
+    if(!document.hidden||!host())return;
+    const at=now(), next=key();
+    if(!next||bgScope!==next||bgPlayer!==ytPlayer||at<=bgAt||at-bgAt>BG_GAP){
+      if(job?.background)finish('background-source-cadence-lost');
+      samples=[];retentionLockAt=null;discardPending('background-source-cadence-lost');bgSince=at;bgScope=next;bgPlayer=ytPlayer;
+    }
+    bgAt=at;
+    try{if(job?.background){clearTimeout(job.timer);monitor();}else if(lastTick===null||at-lastTick>=125)tick();}
+    catch{reset('','converge-error');}
+  }
+  setInterval(()=>{try{if(!document.hidden||!host()||now()-bgAt>BG_GAP)tick();}catch{reset('','converge-error');}},PERIOD);
+  document.addEventListener('visibilitychange',()=>{retentionLockAt=null;bgAt=bgSince=-Infinity;bgScope='';bgPlayer=null; if(job?.background)finish('background-visibility-changed');if(pending?.background)discardPending('background-visibility-changed');if(document.hidden){
     // Release the actuator immediately; do not erase same-segment budgets
     // or learned capability just because the window lost visibility.
     finish('page-hidden'); discardPending('page-hidden'); samples=[]; reason='page-hidden';
@@ -380,7 +403,7 @@
     note('runtime-resume',{reason:change});
   }
   for(const event of ['fullscreenchange','webkitfullscreenchange','resume'])document.addEventListener(event,displayTransition);
-  window.WatchFusionZeroConverge={version:'adaptive-actuator-06jia',isApplying:()=>!!job||!!restoring||now()-lastAt<600,
+  window.WatchFusionZeroConverge={version:'adaptive-actuator-06jidg',sourceWake,isApplying:()=>!!job||!!restoring||now()-lastAt<600,
     diagnostics:()=>({reason,pulses,strikes,tickGapMs,maxTickGapMs,restoring:!!restoring,errorMs:lastErrorMs,medianMs,madMs,active:!!job,
       hostRateRecheck:{used:hostProbeUsed,measuredImprovement:hostProbeProven},
       actuator:lastTrial,capabilities:[...model].map(([rate,v])=>({rate,status:v.status,attempts:v.attempts,contaminated:v.contaminated,retryable:v.retryable,rearms:v.rearms,microRearms:v.microRearms||0}))})};

@@ -106,6 +106,17 @@ function startSseEvents() {
   eventSource.onopen = () => setStatus('Connected');
 }
 
+// One bounded request, including its body; a stalled network must not hold a poll or ping forever.
+async function roomRequest(url, init, timeoutMs = 3500) {
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs), began = performance.now();
+  try {
+    const response = await fetch(url, {...init, signal:controller.signal}), receivedAt = Date.now();
+    const data = response.ok ? await response.json() : {};
+    if (controller.signal.aborted || performance.now()-began >= timeoutMs) throw new Error('Room request timed out');
+    return {response, data, receivedAt};
+  } finally { clearTimeout(timer); }
+}
+
 function startStatePolling() {
   if (remotePollTimer) return;
   const poll = async () => {
@@ -115,18 +126,16 @@ function startStatePolling() {
     remotePollBusy = true;
     try {
       let requestSentAt = Date.now();
-      let res = await fetch(apiUrl(`/api/rooms/${polledRoom}/state`), {headers:{'x-member-id':polledMember},cache:'no-store'});
+      let reply = await roomRequest(apiUrl(`/api/rooms/${polledRoom}/state`), {headers:{'x-member-id':polledMember},cache:'no-store'});
       if (roomId !== polledRoom || session?.memberId !== polledMember) return;
-      if (res.status === 401) {
+      if (reply.response.status === 401) {
         requestSentAt = Date.now();
-        res = await fetch(apiUrl(`/api/rooms/${polledRoom}/join`), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:currentName(),accountId,memberId:polledMember,roomCode:roomCode||undefined}),cache:'no-store'});
+        reply = await roomRequest(apiUrl(`/api/rooms/${polledRoom}/join`), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:currentName(),accountId,memberId:polledMember,roomCode:roomCode||undefined}),cache:'no-store'});
       }
-      const receivedAt = Date.now();
+      const {response:res,data,receivedAt} = reply;
       if (roomId !== polledRoom || session?.memberId !== polledMember) return;
       if (res.status === 410 || res.status === 404) { leaveRoom('Room is no longer active.'); return; }
       if (!res.ok) throw new Error('room poll failed');
-      const data = await res.json();
-      if (roomId !== polledRoom || session?.memberId !== polledMember) return;
       if (data.state?.serverTime) updateServerClock(data.state.serverTime, requestSentAt, receivedAt);
       if (data.session?.memberId) { session = data.session; saveRoomSession(session, roomId, roomCode, joinCode); }
       if (data.state) {
@@ -141,21 +150,24 @@ function startStatePolling() {
   remotePollTimer = setInterval(poll, 1000);
 }
 
-let pingTimer = null;
-function pingServerClock() {
-  if (!session || !roomId) return;
-  const activeRoom = roomId, activeMember = session.memberId, sentAt = Date.now();
-  fetch(apiUrl(`/api/rooms/${roomId}/ping`), {method:'POST',headers:{'x-member-id':session.memberId}})
-    .then(async response => {
-      const receivedAt = Date.now(), data = await response.json().catch(() => ({}));
-      if (response.ok && roomId === activeRoom && session?.memberId === activeMember) updateServerClock(data.serverTime, sentAt, receivedAt, data.serverReceivedAt);
-    })
-    .catch(() => {});
+let pingTimer = null, pingPending = false, pingRecovery = null;
+async function pingServerClock(recoverMembership = false) {
+  if (!session || !roomId || pingPending) return;
+  const activeRoom = roomId, activeMember = session.memberId, sentAt = Date.now(); pingPending = true;
+  try {
+    const {response,data,receivedAt} = await roomRequest(apiUrl(`/api/rooms/${activeRoom}/ping`), {method:'POST',headers:{'x-member-id':activeMember},cache:'no-store'});
+    if (roomId !== activeRoom || session?.memberId !== activeMember) return;
+    if (response.ok) { pingRecovery = null; updateServerClock(data.serverTime, sentAt, receivedAt, data.serverReceivedAt); }
+    else if (response.status === 401 && recoverMembership && !remotePollTimer && !remotePollBusy && !roomResumePromise &&
+        (pingRecovery?.room !== activeRoom || performance.now()-pingRecovery.at >= 30000)) {
+      pingRecovery = {room:activeRoom,at:performance.now()}; void resumeRoomSession(); // membership rejection only, bounded retries
+    }
+  } catch {} finally { pingPending = false; }
 }
 function startPing() {
   if (pingTimer) clearInterval(pingTimer);
   pingServerClock();
-  pingTimer = setInterval(pingServerClock, 10000);
+  pingTimer = setInterval(() => void pingServerClock(true), 10000);
 }
 let roomResumePromise = null;
 function syncResumedPlayback() {
@@ -171,12 +183,10 @@ async function resumeRoomSession() {
     setStatus('Catching up…');
     try {
       const sentAt = Date.now();
-      const res = await fetch(apiUrl(`/api/rooms/${encodeURIComponent(activeRoom)}/join`), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:currentName(),accountId,memberId:activeMember,roomCode:roomCode||undefined}),cache:'no-store'});
-      const receivedAt = Date.now();
+      const {response:res,data,receivedAt} = await roomRequest(apiUrl(`/api/rooms/${encodeURIComponent(activeRoom)}/join`), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:currentName(),accountId,memberId:activeMember,roomCode:roomCode||undefined}),cache:'no-store'});
       if (roomId !== activeRoom || session?.memberId !== activeMember) return false;
       if (res.status === 410 || res.status === 404) { leaveRoom('Room is no longer active.'); return false; }
       if (!res.ok) throw new Error('room resume failed');
-      const data = await res.json();
       if (data.state?.serverTime) updateServerClock(data.state.serverTime, sentAt, receivedAt);
       if (data.session?.memberId) { session=data.session;saveRoomSession(session,activeRoom,roomCode,joinCode); }
       if (data.state) { applyIncomingRoomState(data.state);hydrateRoomUi(); }
@@ -184,7 +194,7 @@ async function resumeRoomSession() {
       pingServerClock();
       syncResumedPlayback();
       return true;
-    } catch { setStatus('Reconnecting…');return false; }
+    } catch { if(roomId===activeRoom && session?.memberId===activeMember)setStatus('Reconnecting…');return false; }
   })().finally(()=>{roomResumePromise=null;});
   return roomResumePromise;
 }

@@ -200,6 +200,7 @@
     const recoveryMeaning=peer.hostRecovery?.outcome==='no-healthy-peer-witness'
       ? (hostInBand?'not-needed-host-in-band':'no-qualified-peer-witness') : null;
     return {device:names.get(peer.member)||'Viewer', role:peer.member===state?.hostId?'host':'viewer',
+      clientBuild:peer.clientBuild==='wf-06jid'?peer.clientBuild:null,
       hostRecoveryMeaning:recoveryMeaning, playing:peer.playing, buffering:peer.buffering,
       reportAgeMs:reportAge, playerOffsetMs:live&&!unverifiedDecoder?rawPhase:null,
        rawOffsetMs:rawPhase, comparisonOffsetMs:live&&!unverifiedDecoder&&!['held','slow','jumped'].includes(peer.sensor?.timelineState)&&Number.isFinite(projected)&&Number.isFinite(commonRoomMs)?finite(projected-commonRoomMs):null, targetErrorMs:live&&!unverifiedDecoder?targetError:null, sourceErrorMs:peer.sensor?.clockState==='bounded' ? window.watchFusionPlayout?.sourceErrorMs?.(peer, coordination, now) ?? null : null, adjustmentMs:finite(peer.adjustmentMs),
@@ -264,12 +265,13 @@
       peers:rows,activity};
     const key = JSON.stringify([ref,phaseMs,relative.groupPhase,relative.timelinePhase,playbackPlateau.state,linkedSource?.audioRoute,members,reporting,
       rows.map(p => [p.device,p.playerOffsetMs,p.corrections,p.action,p.buffering,p.startupPhase,p.audioReadiness,p.seekHealth?.recoveryAttempts,p.signals])]);
+    const acquisitionState=p=>/^(?:tv-rate-trial-|tv-decoder-|tv-post-release-|output-phase-unverified$|tv-no-advertised-fine-rate$|rate-evidence-inconclusive$|rate-burst-complete$|locked$|fine-drift-refining$|correction-cooldown$|settling$|observing$)/.test(p?.action||'')||/^tv-rate-trial-/.test(p?.decoderRecovery?.arbiterReason||''), acquisitionChanged=(p,q)=>p.role==='viewer'&&Number.isFinite(p.reportAgeMs)&&p.reportAgeMs>=0&&p.reportAgeMs<=1500&&(acquisitionState(p)||acquisitionState(q))&&(q.action!==p.action||q.decoderRecovery?.arbiterReason!==p.decoderRecovery?.arbiterReason);
     const changed = activity?.localParticipation!==previousActivity?.localParticipation || activity?.sourceContinuity!==previousActivity?.sourceContinuity || rows.some(p=>p.freeze?.transition) || key !== lastKey && rows.some(p=>p.signals.length) || ref !== (entries.at(-1)?.ref) ||
       row.source !== (entries.at(-1)?.source ?? null) || row.segmentSequence !== entries.at(-1)?.segmentSequence ||
       row.groupPhase !== entries.at(-1)?.groupPhase || row.timelinePhase !== entries.at(-1)?.timelinePhase ||
       row.linkedSourceEvidence?.audioRoute !== entries.at(-1)?.linkedSourceEvidence?.audioRoute ||
       row.linkedSourceEvidence?.mode !== entries.at(-1)?.linkedSourceEvidence?.mode || row.linkedSourceEvidence?.sourcePlayerSilenced !== entries.at(-1)?.linkedSourceEvidence?.sourcePlayerSilenced ||
-      row.expectedMemberCount !== entries.at(-1)?.expectedMemberCount || row.roster?.members !== entries.at(-1)?.roster?.members || row.outputs !== entries.at(-1)?.outputs || row.roster?.reporting !== entries.at(-1)?.roster?.reporting || [...nextRowsByMember].some(([id,p])=>{const q=lastRowsByMember.get(id);return q&&(q.startupPhase!==p.startupPhase||q.audioReadiness!==p.audioReadiness||q.decoderRecovery?.outcome!==p.decoderRecovery?.outcome||q.decoderRecovery?.steps!==p.decoderRecovery?.steps||((q.action==='tv-decoder-settling')!==(p.action==='tv-decoder-settling')));});
+      row.expectedMemberCount !== entries.at(-1)?.expectedMemberCount || row.roster?.members !== entries.at(-1)?.roster?.members || row.outputs !== entries.at(-1)?.outputs || row.roster?.reporting !== entries.at(-1)?.roster?.reporting || [...nextRowsByMember].some(([id,p])=>{const q=lastRowsByMember.get(id);return q&&(q.startupPhase!==p.startupPhase||q.audioReadiness!==p.audioReadiness||q.decoderRecovery?.outcome!==p.decoderRecovery?.outcome||q.decoderRecovery?.steps!==p.decoderRecovery?.steps||((q.action==='tv-decoder-settling')!==(p.action==='tv-decoder-settling'))||acquisitionChanged(p,q));});
     if (!changed && now - lastAt < (performance.now() < burstUntil ? 500 : lastHealthCritical ? 1100 : 4500)) return;
     lastKey = key; lastAt = now; previousActivity=activity;lastRowsByMember=nextRowsByMember;
     row.localRuntime=runtimeEvidence(); entries.push(row); summarizeTrack(row); prune();
@@ -365,7 +367,7 @@
     prune(true);
     return {format:'WatchFusion room sync trace v3',generatedAt:new Date().toISOString(),windowMs:MAX_AGE,
       disclosure:'Player timing, source-supplied song titles and durations, user control intents and redacted transitions only; no audio, URLs, tokens or microphone measurements. Titles are included only when the user copies this local log. Up to 32 per-video sampled summaries survive detailed-row expiry; cleared on room change or Clear. Room spread uses a common timestamp and room anchor; individual target and linked-source errors remain separate. Clock-only spread upper estimates omit decoder sampling and output latency. Activity labels distinguish local availability and sampled viewer source-following; missing intervals are not passes. Qualified samples are not a strict error bound. Player timing does not measure speaker latency; clock bounds include unknown asymmetry.',
-      diagnosticsVersion:'v13.10.8x-room-recovery',traceVersion:'adaptive-room-06je-trace',retention:{maxSnapshots:MAX_ENTRIES,maxEvents:MAX_EVENTS,droppedSnapshots,droppedEvents},localRuntime:runtimeEvidence(),localActuator:localActuatorEvidence(),trackSummaries:trackSummaries.map(t=>({...t})),snapshots:entries,events};
+      diagnosticsVersion:'v13.10.8x-room-recovery',traceVersion:'adaptive-room-06je-trace',clientBuild:window.watchFusionPresentation?.build==='wf-06jid'?'wf-06jid':null,serverBuild:window.watchFusionPresentation?.serverBuild?.()==='wf-06jid'?'wf-06jid':null,retention:{maxSnapshots:MAX_ENTRIES,maxEvents:MAX_EVENTS,droppedSnapshots,droppedEvents},localRuntime:runtimeEvidence(),localActuator:localActuatorEvidence(),trackSummaries:trackSummaries.map(t=>({...t})),snapshots:entries,events};
   }
   function exported() { return JSON.stringify(exportPayload(),null,2); }
   // Yield to playback while exporting a fixed, redacted snapshot.

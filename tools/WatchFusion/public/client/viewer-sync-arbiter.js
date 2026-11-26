@@ -339,7 +339,7 @@
         if (!io.speakerPhaseVerified?.()) {
           plateau=null;const p=plateauGate?.consider({scope,nowMs,error,io,quietStallMs,quietRejoinMs,leadSec:model.leadSec,verifiedFixed:model.rateHonored===false && model.rateRejections>=2});
           if(p?.action==='rejoin'){reason='tv-healthy-plateau-no-speaker-proof';return;}
-          const trialReason=rateRecheck?.snapshot()?.reason;reason=trialReason==='no-advertised-rate-actuator'?'tv-no-advertised-fine-rate':trialReason==='per-video-trial-spent'?'tv-rate-trial-spent':'output-phase-unverified';return;
+          const trialReason=rateRecheck?.snapshot()?.reason;reason=({'no-advertised-rate-actuator':'tv-no-advertised-fine-rate','per-video-trial-spent':'tv-rate-trial-spent','stable-rate-trial-dwell':'tv-rate-trial-dwell','rate-trial-awaiting-qualified-reference':'tv-rate-trial-awaiting-reference','rate-trial-quiet-time':'tv-rate-trial-awaiting-quiet','rate-trial-precision':'tv-rate-trial-awaiting-precision','rate-trial-motion':'tv-rate-trial-awaiting-motion'})[trialReason]||'output-phase-unverified';return;
         }
         if (absolute <= PLATEAU_MIN_SEC + EPS_SEC || plateauSpent || !io.referenceTrusted?.() || (uncertaintyMs > 0 && absolute * 1000 - uncertaintyMs <= 50)) { plateau = null; reason = 'fine-drift-awaiting-capability'; return; }
         if (!plateau || Math.sign(plateau.error) !== Math.sign(error) || Math.abs(plateau.error - error) > .08) plateau = {since: nowMs, error};

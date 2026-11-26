@@ -33,7 +33,120 @@ function lab({rates=[.75,1],trusted=true,mirror=false,source=true,actualRate=tru
 function play(L,{end=76000,step=250}={}){
  for(let t=50000;t<=end;t+=step){L.at(t);L.arb.tick('room:video:epoch:seg3',t,L.io);}
 }
+// Simulate background timers at 1s while fresh source events arrive every 200ms.
+function hiddenHostLab({initial=1.018,host=true,source=true,contradicted=false,rateHonored=true,hidden=true}={}){
+  let now=0,position=30+initial,speed=1,interval,timeout,seq=0,notes=[],ops=[],visibility;
+  const c={console,Math,Number,Date,Map,Set,JSON,performance:{now:()=>now},document:{hidden,addEventListener:(n,fn)=>{if(n==='visibilitychange')visibility=fn;}},setInterval:fn=>{interval=fn;return 1;},setTimeout:(fn,ms)=>{timeout={id:++seq,fn,at:Math.ceil((now+ms)/1000)*1000};return seq;},clearTimeout:id=>{if(timeout?.id===id)timeout=null;}};c.window=c.globalThis=c;
+  const target=()=>30+now/1000,p={getCurrentTime:()=>position,getPlaybackRate:()=>speed,getAvailablePlaybackRates:()=>[.75,1,1.25],setPlaybackRate:r=>{ops.push(r);if(rateHonored)speed=r;},getPlayerState:()=>1,getVideoData:()=>({video_id:'vid'}),getDuration:()=>1000};
+  Object.assign(c,{roomId:'room',ytPlayer:p,ytPlayerReady:true,playerInitializing:false,primingPlayer:false,isHost:()=>host,state:{source:{videoId:'vid'},playback:{rate:1,paused:false,ended:false},linkedSourceActive:true,presentationEpoch:1,playoutSegment:1},estimatedServerNow:()=>now,watchFusionYouTubeTarget:target,watchPartyClock:{precise:()=>true,rttMs:()=>5},watchFusionViewerArbiter:{owns:()=>false,snapshot:()=>({timelineObservedAtMs:now,timelineErrorMs:(target()-position)*1000})},watchFusionPlayout:{status:()=>({source:source?'live':'stale',reference:'linked-tab',uncertaintyMs:10,mirrorContradicted:contradicted}),sourceBuffering:()=>false},WatchFusionHostSeekPolicy:{sourceBlocker:()=>source&&!contradicted?null:'host-source-unverified'},watchFusionRoomSyncLog:{note:(kind,detail)=>notes.push({kind,...detail})}});
+  vm.runInNewContext(read('public/client/zero-converge.js'),c);const controller=c.WatchFusionZeroConverge;
+  return {c,ops,notes,controller,residual:()=>Math.round((position-target())*1000),speed:()=>speed,visible:()=>{c.document.hidden=false;visibility?.();},run:(end,period=200)=>{while(now<end){now+=50;position+=.05*speed;if(timeout&&now>=timeout.at){const f=timeout.fn;timeout=null;f();}if(now%1000===0)interval();if(period&&now%period===0)controller.sourceWake?.();}}};
+}
+async function run06jidgChecks(check){
+ await check('WF06JIDG-01:fast hidden source events drive bounded host rate correction in both directions despite 1s timers',()=>{for(const initial of [1.018,-.85]){const L=hiddenHostLab({initial});L.run(30000);assert.ok(Math.abs(L.residual())<350,`residual ${L.residual()}`);assert.ok(L.ops.some(x=>x=== (initial>0?.75:1.25)));assert.equal(L.speed(),1);}});
+ await check('WF06JIDG-02:missing slow or ineligible source events never authorize hidden rate changes',()=>{for(const config of [{period:0},{period:1000},{host:false},{source:false},{contradicted:true},{initial:.1}]){const L=hiddenHostLab(config);L.run(20000,config.period??200);assert.deepEqual(L.ops,[]);}});
+ await check('WF06JIDG-03:source event interruption restores base and requires fresh continuous cadence before new work',()=>{const L=hiddenHostLab();L.run(4000);assert.equal(L.speed(),.75);L.run(5500,0);assert.equal(L.speed(),1);assert.ok(L.notes.some(x=>x.kind==='zero-actuator-finished'&&['page-hidden','background-source-cadence-lost','rate-timer-overrun'].includes(x.reason)));const n=L.ops.length;L.run(7000);assert.equal(L.ops.length,n);});
+ await check('WF06JIDG-04:visibility return and segment transition release background rate ownership',()=>{for(const kind of ['visible','segment']){const L=hiddenHostLab();L.run(4000);assert.equal(L.speed(),.75);if(kind==='visible')L.visible();else{L.c.state.playoutSegment++;L.run(4200);}assert.equal(L.speed(),1);}});
+ await check('WF06JIDG-05:background gross correction never uses a short precision pulse and no-motion remains unproved',()=>{const L=hiddenHostLab({rateHonored:false});L.run(25000);assert.equal(L.speed(),1);assert.ok(L.ops.length>0);assert.ok(L.ops.filter(r=>r!==1).length<=3);assert.ok(!L.notes.some(x=>x.kind==='zero-actuator-verified'&&x.reason==='verified'));});
+}
+// Background linked-source watchdog tests exercise the actual client functions.
+function backgroundLinkLab(){
+ const src=read('public/client/linked-tab.js'),a=src.indexOf('  function peerReady()'),b=src.indexOf('  function active()',a);assert.ok(a>=0&&b>a);
+ let now=0,connections=0,sent=0;const events=[],ctx={document:{hidden:true},state:{linkedSourceActive:true,playback:{paused:false,ended:false}},link:{roomId:'room'},roomId:'room',host:true,peer:{socket:{readyState:1},viewerId:'viewer',control:()=>{sent++;return true;}},pendingControls:new Map(),peerCreatedAt:0,lastLinkedSampleAt:0,recoveryWindowAt:0,recoveryCount:0,lastRecoveryAt:-Infinity,CONTROL_ECHO_TTL_MS:2500,SEEK_ACK_TTL_MS:4200,VOLUME_ECHO_TTL_MS:3000,performance:{now:()=>now},Date:{now:()=>100000+now},status:()=>{}};
+ ctx.window={watchFusionRoomSyncLog:{note:(name,data)=>events.push({name,...data})}};ctx.roomProof=()=>ctx.link?.roomId===ctx.roomId?{}:undefined;ctx.isHost=()=>ctx.host;ctx.canControl=()=>ctx.host&&!!ctx.roomProof();ctx.connectPeer=()=>{connections++;ctx.peerCreatedAt=now;ctx.lastLinkedSampleAt=0;};vm.runInNewContext(src.slice(a,b),ctx);
+ return {ctx,events,connections:()=>connections,sent:()=>sent,at:t=>{now=t;ctx.connectionWatchdog();},clock:t=>{now=t;}};
+}
+async function run06jidfChecks(check){
+ await check('WF06JIDF-01:hidden active linked host recovers a disconnected socket using existing backoff',()=>{const L=backgroundLinkLab();L.ctx.peer.socket.readyState=3;L.at(4000);assert.equal(L.connections(),0);L.at(4001);assert.equal(L.connections(),1);L.at(9000);assert.equal(L.connections(),1);L.at(9001);assert.equal(L.connections(),2);for(let t=14000;t<=30000;t+=500)L.at(t);assert.equal(L.connections(),2);assert.equal(L.events.filter(x=>x.name==='linked-auto-reconnect').length,2);});
+ await check('WF06JIDF-02:hidden active host recovers stale metadata and a connected socket without a first sample',()=>{for(const missing of [true,false]){const L=backgroundLinkLab();if(!missing)L.ctx.lastLinkedSampleAt=100000;L.at(6500);assert.equal(L.connections(),0);L.at(6501);assert.equal(L.connections(),1);assert.equal(L.events[0].reason,'stale-metadata');}});
+ await check('WF06JIDF-03:healthy hidden linked host never reconnects and ineligible hidden states stay inert',()=>{const L=backgroundLinkLab();for(let t=1000;t<=60000;t+=1000){L.ctx.lastLinkedSampleAt=100000+t-100;L.at(t);}assert.equal(L.connections(),0);for(const mode of ['paused','ended','detached','not-host','wrong-room','unlinked']){const x=backgroundLinkLab();if(mode==='paused')x.ctx.state.playback.paused=true;if(mode==='ended')x.ctx.state.playback.ended=true;if(mode==='detached')x.ctx.state.linkedSourceActive=false;if(mode==='not-host')x.ctx.host=false;if(mode==='wrong-room')x.ctx.roomId='different';if(mode==='unlinked')x.ctx.link=null;x.ctx.peer.socket.readyState=3;x.at(10000);assert.equal(x.connections(),0,mode);}});
+ await check('WF06JIDF-04:hidden reconnect does not replay expired or pending transport commands',()=>{const L=backgroundLinkLab();L.ctx.pendingControls.set('play',{queued:true,at:0,value:10});L.ctx.replayQueued();assert.equal(L.sent(),0);L.at(3000);assert.equal(L.sent(),0);assert.equal(L.ctx.pendingControls.size,0);L.ctx.pendingControls.set('pause',{queued:true,at:3000,value:10});L.ctx.document.hidden=false;L.at(3100);assert.equal(L.sent(),1);});
+ await check('WF06JIDF-05:background recovery cannot be triggered by failed control send and visible recovery remains available',()=>{const L=backgroundLinkLab();L.clock(7000);assert.equal(L.ctx.recoverLink('control-disconnected'),false);assert.equal(L.ctx.recoverLink('control-send-failed'),false);assert.equal(L.connections(),0);L.ctx.document.hidden=false;assert.equal(L.ctx.recoverLink('control-disconnected'),true);assert.equal(L.connections(),1);});
+}
+// A gross-lag fast trial may qualify on a brief fresh window, but never on stale timing.
+function grossRecoveryLab(){
+ const ctx={Math,Number,Date,Map,Set,Object,JSON};ctx.globalThis=ctx;
+ vm.runInNewContext(read('public/client/viewer-release-evidence.js'),ctx);
+ const gate=ctx.WatchFusionReleaseEvidence.createTvRateRecheckGate();
+ let at=0,lag=1.47,qualified=true,mirror=false,buffering=false,mode='moving',scope='room:video:epoch:seg3',precision=12,player=1,valid=true;
+ const io={baseRate:1,follower:true,hostLinked:false,linkedSourceActive:()=>true,state:()=>player,valid:()=>valid,
+   availableRates:()=>[1,1.25],referenceTrusted:()=>qualified,sourceReferenceQualified:()=>qualified,referenceUncertaintyMs:()=>precision,
+   sourceBuffering:()=>buffering,mirrorContradicted:()=>mirror,now:()=>at,target:()=>30+at/1000+(mode==='jump'?at>=500?.2:0:0),
+   current:()=>mode==='frozen'?30-lag:30+at/1000-lag+(mode==='mismatch'?.15:0)};
+ const sample=(t,patch={})=>{at=t;({lag,qualified,mirror,buffering,mode,scope,precision,player,valid}={lag,qualified,mirror,buffering,mode,scope,precision,player,valid,...patch});return gate.consider({scope,nowMs:at,error:lag,io,rateHonored:false,quietStallMs:30000,quietRejoinMs:30000});};
+ const start=(t=0,patch={})=>{let r=null;for(let v=t;v<=t+750;v+=250)r=sample(v,patch)||r;return r;};
+ const interrupt=(t,elapsed,extra,patch={},verdict=undefined)=>{const before=io.current();at=t+elapsed;qualified=false;({mirror,buffering,valid}={mirror,buffering,valid,...patch});lag-=extra;
+  gate.settle(scope,verdict,{probe:{nowMs:t,current:before},rate:1.25,valid:()=>valid},io);};
+ return {gate,sample,start,interrupt,observe:(t,patch)=>{at=t;({qualified,mirror,buffering,player,valid}={qualified,mirror,buffering,player,valid,...patch});gate.observeLock(scope,t,NaN,io);}};
+}
+async function run06jideChecks(check){
+ await check('WF06JIDE-01:gross stable advancing TV qualifies in 750ms of fresh evidence instead of waiting 2500ms',()=>{
+  const L=grossRecoveryLab();for(let t=0;t<750;t+=250)assert.equal(L.sample(t),null);assert.equal(L.sample(750)?.rate,1.25);assert.equal(L.gate.snapshot().attempts,1);
+ });  await check('WF06JIDE-02:missing reference windows recover without accumulating stale evidence',()=>{
+  const L=grossRecoveryLab();for(let t=0;t<=500;t+=250)assert.equal(L.sample(t),null);assert.equal(L.sample(750,{qualified:false}),null);
+  for(let t=1000;t<1750;t+=250)assert.equal(L.sample(t,{qualified:true}),null);assert.equal(L.sample(1750)?.rate,1.25);
+ });  await check('WF06JIDE-03:fast gross acquisition requires raw motion and fresh noncontradictory reference',()=>{
+  for(const patch of [{mode:'frozen'},{mode:'mismatch'},{mode:'jump'},{qualified:false},{mirror:true},{buffering:true},{precision:36},{player:3},{valid:false},{lag:.79}]){
+   const L=grossRecoveryLab();assert.equal(L.start(0,patch),null,JSON.stringify(patch));assert.equal(L.gate.snapshot().attempts,0);
+  }
+ });  await check('WF06JIDE-04:brief pre-verdict dropout permits only one inconclusive gross retry',()=>{
+  const L=grossRecoveryLab();assert.equal(L.start()?.rate,1.25);L.interrupt(750,250,0);assert.equal(L.sample(1250),null);
+  assert.equal(L.start(1500,{qualified:true})?.rate,1.25);L.interrupt(2250,250,0);assert.equal(L.start(3000,{qualified:true}),null);assert.equal(L.gate.snapshot().attempts,2);
+ });  await check('WF06JIDE-05:measured interrupted gross progress earns at most two fresh continuations',()=>{
+  const L=grossRecoveryLab();assert.equal(L.start()?.rate,1.25);L.interrupt(750,800,.2);assert.equal(L.sample(1750),null);
+  assert.equal(L.start(2000,{qualified:true})?.rate,1.25);L.interrupt(2750,800,.2);assert.equal(L.start(4000,{qualified:true})?.rate,1.25);
+  L.interrupt(4750,800,.2);for(let t=6000;t<=15000;t+=250)assert.equal(L.sample(t,{qualified:true}),null);assert.equal(L.gate.snapshot().attempts,3);
+ });  await check('WF06JIDE-06:contradiction buffering rejection stale scope and invalid job never earn a gross continuation',()=>{
+  for(const mode of ['mirror','buffering','rejected','scope','invalid']){
+   const L=grossRecoveryLab();assert.equal(L.start()?.rate,1.25);L.interrupt(750,800,.2,{mirror:mode==='mirror',buffering:mode==='buffering',valid:mode!=='invalid'},mode==='rejected'?'rejected':undefined);
+   for(let t=2000;t<=7000;t+=250)assert.equal(L.sample(t,{qualified:true,mirror:false,buffering:false,valid:true,...(mode==='scope'?{scope:'room:video:epoch:seg4'}:{})}),null,mode);assert.equal(L.gate.snapshot().attempts,1);
+  }
+ });  await check('WF06JIDE-07:spent expedited trial still waits on unqualified reference instead of dropping seek guard',()=>{
+  const L=grossRecoveryLab();assert.equal(L.start()?.rate,1.25);L.interrupt(750,800,0,{},'rejected');assert.equal(L.sample(2000),null);assert.equal(L.gate.snapshot().watching,true);
+  assert.equal(L.gate.snapshot().reason,'rate-trial-awaiting-qualified-reference');assert.equal(L.sample(2250,{qualified:true}),null);assert.equal(L.gate.snapshot().watching,false);
+ });
+ await check('WF06JIDE-08:contradiction observed between decisions invalidates expedited evidence',()=>{
+  const L=grossRecoveryLab();for(let t=0;t<=500;t+=250)assert.equal(L.sample(t),null);
+  L.observe(625,{mirror:true});assert.equal(L.sample(750,{mirror:false}),null);
+  assert.equal(L.sample(1000),null);assert.equal(L.sample(1250),null);assert.equal(L.sample(1500)?.rate,1.25);
+ });
+}
+// Post-reload decoder progress transfers ordinary rejoin qualification, never actuator ownership.
+function postDecoderLab(){
+ let at=1000,pos=100,lag=1.1,qualified=true,mirror=false,buffer=true,valid=true,playing=1,raw='ROOM:VIDEO:4:7',targetShift=0;const ops=[],c={document:{hidden:false},performance:{now:()=>at},setTimeout:()=>1,clearTimeout(){},storage:{get:()=>null,set:()=>{}},WatchFusionTimelineMath:{observePosition:(t,v)=>({value:v,since:t}),projectedPosition:(t,v)=>v,chooseRate:()=>null}};c.window=c.globalThis=c;
+ for(const f of ['tv-decoder-rescue','viewer-release-evidence','viewer-sync-arbiter'])vm.runInNewContext(read('public/client/'+f+'.js'),c);
+ const d=c.WatchFusionDecoderRescue,o=c.WatchFusionReleaseEvidence.tvRecoveryOwner,a=c.WatchFusionViewerSyncArbiter.createViewerSyncArbiter({timers:{setTimeout:()=>1,clearTimeout(){}}});const io={follower:true,hostLinked:false,tvIdentity:'ROOM:VIDEO:4',baseRate:1,now:()=>at,state:()=>playing,valid:()=>valid,linkedSourceActive:()=>true,current:()=>pos,target:()=>100+(at-1000)/1000+lag+targetShift,referenceTrusted:()=>qualified,sourceReferenceQualified:()=>qualified,referenceUncertaintyMs:()=>12,sourceBuffering:()=>false,mirrorContradicted:()=>mirror,buffered:()=>buffer,availableRates:()=>[1],speakerPhaseVerified:()=>false,rate:v=>ops.push(['rate',v]),pause:()=>{ops.push(['pause']);playing=2;},play:()=>{ops.push(['play']);playing=1;},seek:(v,net)=>{ops.push(['seek',net]);pos=v;}};
+ function set(t,options={}){at=t;({lag,qualified,mirror,buffer,valid,playing,raw,targetShift}={lag,qualified,mirror,buffer,valid,playing,raw,targetShift,...options});pos=options.pos??100+(at-1000)/1000+targetShift;d.observeTransport({scope:raw,nowMs:at,paused:false});}
+ const input=(more={})=>({scope:raw,nowMs:at,playing:true,buffering:false,exhausted:false,stalledMs:0,position:pos,drift:-lag,trusted:qualified,sourceBuffering:false,sourceQualified:qualified,mirrorContradicted:mirror,reload:()=>ops.push(['reload']),rebuild:()=>ops.push(['rebuild']),...more});d.observeTransport({scope:raw,nowMs:at,paused:false});assert.equal(d.consider(input({qualifiedStall:true,exhausted:true,stalledMs:6500,drift:-6})),true);o.release(io.tvIdentity,at);
+ function warmup(mode='good'){for(let t=1000;t<=(mode==='expired'?13500:5000);t+=250){set(t,{...(mode==='good'?{}:{pos:100})});d.settling({scope:raw,nowMs:t,ready:true,playing:true,buffering:false,position:pos,rate:1});}}
+ const tryRejoin=(t,options={})=>{set(t,options);d.consider(input());return !o.block(io.tvIdentity,at,lag,'rejoin',io)&&d.allowAutomaticRejoin({nowMs:at,error:lag,io,lead:1.5});};return {d,o,a,io,c,ops,set,warmup,tryRejoin,input,scope:()=>raw};
+}
+async function run06jidhChecks(check){
+ await check('WF06JIDH-01:measured decoder warmup delegates to one buffered rejoin before the old duplicate timeout',()=>{const L=postDecoderLab();assert.equal(L.o.block(L.io.tvIdentity,1500,1.1,'rejoin',L.io),true);L.warmup();const accepted=[];for(let t=5000;t<=40000;t+=250)if(L.tryRejoin(t))accepted.push(t);assert.deepEqual(accepted,[13000]);assert.deepEqual(L.ops,[['reload']]);});
+ await check('WF06JIDH-02:frozen or expired warmup does not qualify a post-release handoff',()=>{const L=postDecoderLab();L.warmup('frozen');assert.equal(L.o.block(L.io.tvIdentity,5000,1.1,'rejoin',L.io),true);L.warmup('expired');assert.equal(L.o.block(L.io.tvIdentity,14000,1.1,'rejoin',L.io),true);});
+ await check('WF06JIDH-03:source reference interruption resets the buffered rejoin evidence window',()=>{const L=postDecoderLab();L.warmup();for(let t=5000;t<=10000;t+=250)assert.equal(L.tryRejoin(t),false);assert.equal(L.tryRejoin(10250,{qualified:false}),false);const accepted=[];for(let t=10500;t<=25000;t+=250)if(L.tryRejoin(t,{qualified:true}))accepted.push(t);assert.deepEqual(accepted,[18500]);});
+ await check('WF06JIDH-04:unbuffered landing or frozen raw position cannot earn a rejoin',()=>{const L=postDecoderLab();L.warmup();for(let t=5000;t<=16000;t+=250)assert.equal(L.tryRejoin(t,{buffer:false}),false);for(let t=16250;t<=26000;t+=250)assert.equal(L.tryRejoin(t,{buffer:true,pos:100}),false);});
+ await check('WF06JIDH-05:five-second boundary cannot bypass a verified decoder recovery budget',()=>{const L=postDecoderLab();L.warmup();const accepted=[];for(let t=5000;t<=30000;t+=250)if(L.tryRejoin(t,{lag:5.1}))accepted.push(t);assert.deepEqual(accepted,[13000]);});
+ await check('WF06JIDH-06:real arbiter uses existing pause and buffered seek after qualified decoder handoff',()=>{const L=postDecoderLab();L.warmup();let first=null;for(let t=5000;t<=23000;t+=250){L.set(t);L.d.consider(L.input());L.a.tick(L.scope(),t,L.io);if(L.ops.some(x=>x[0]==='seek')){first=t;break;}}assert.ok(first!==null&&first<26000);assert.deepEqual(L.ops,[['reload'],['pause'],['seek',false]]);});
+ await check('WF06JIDH-07:segment change clears measured handoff without replenishing spent rejoin budget',()=>{const L=postDecoderLab();L.warmup();for(let t=5000;t<=13000;t+=250)L.tryRejoin(t);L.set(13500,{raw:'ROOM:VIDEO:4:8'});assert.equal(L.o.block(L.io.tvIdentity,13500,1.1,'rejoin',L.io),true);for(let t=14000;t<=40000;t+=250)assert.equal(L.tryRejoin(t),false);});
+}
+// TV acquisition: shortened qualified dwell, bounded residual finish, and observable blockers.
+function acquisitionLab(initial=.215){let now=0,lag=initial,qualified=true,precision=12,mode='normal',scope='room:video:epoch:seg3',valid=true,mirror=false,buffer=false,rates=[.75,1,1.25],quiet=30000,player=1;const c={};c.globalThis=c;vm.runInNewContext(read('public/client/viewer-release-evidence.js'),c);const gate=c.WatchFusionReleaseEvidence.createTvRateRecheckGate(),target=()=>30+(mode==='frozen'?0:now/1000)+(mode==='jump'&&now>=3200?.2:0),io={baseRate:1,follower:true,hostLinked:false,valid:()=>valid,linkedSourceActive:()=>true,state:()=>player,availableRates:()=>rates,referenceTrusted:()=>qualified,sourceReferenceQualified:()=>qualified,referenceUncertaintyMs:()=>precision,sourceBuffering:()=>buffer,mirrorContradicted:()=>mirror,now:()=>now,target,current:()=>target()-lag+(mode==='mismatch'?.15:0)};
+const set=(t,patch={})=>{now=t;({lag,qualified,precision,mode,scope,valid,mirror,buffer,rates,quiet,player}={lag,qualified,precision,mode,scope,valid,mirror,buffer,rates,quiet,player,...patch});};const sample=(t,patch={})=>{set(t,patch);return gate.consider({scope,nowMs:now,error:lag,io,rateHonored:false,quietStallMs:quiet,quietRejoinMs:quiet});};const observe=(t,patch={})=>{set(t,patch);gate.observeLock(scope,now,NaN,io);};const settle=(t,extra,patch={},verdict=undefined)=>{const before=io.current(),at=now,rate=lag>0?1.25:.75;set(t,{lag:lag-extra,...patch});gate.settle(scope,verdict,{probe:{nowMs:at,current:before},rate,valid:()=>valid},io);};const run=(a,b,patch=()=>({}),step=250)=>{const accepted=[];for(let t=a;t<=b;t+=step){const r=sample(t,patch(t));if(r)accepted.push([t,r.rate]);}return accepted;};return {gate,io,sample,observe,settle,run};}
+async function run06jidiChecks(check){
+ await check('WF06JIDI-01:moderate lead and lag qualify after six seconds quiet plus fresh raw dwell',()=>{for(const error of [.215,-.18]){const L=acquisitionLab(error);assert.deepEqual(L.run(0,8500,t=>({quiet:t})),[[8500,error>0?1.25:.75]]);assert.equal(L.gate.snapshot().attempts,1);}});
+ await check('WF06JIDI-02:frozen raw samples or mismatched projected phase never earn expedited motion proof',()=>{for(const mode of ['frozen','mismatch']){const L=acquisitionLab();assert.deepEqual(L.run(0,16000,()=>({mode}),50),[]);assert.equal(L.gate.snapshot().attempts,0);}const L=acquisitionLab();assert.deepEqual(L.run(1000,5500,()=>({mode:'jump'})),[]);assert.deepEqual(L.run(5750,6000),[[5750,1.25]]);});
+ await check('WF06JIDI-03:reference or precision dropout between decisions restarts moderate acquisition dwell',()=>{for(const patch of [{qualified:false},{precision:36},{mirror:true},{buffer:true},{valid:false}]){const L=acquisitionLab();assert.deepEqual(L.run(0,2000),[]);L.observe(2125,patch);assert.deepEqual(L.run(2250,4500,()=>({qualified:true,precision:12,mirror:false,buffer:false,valid:true})),[]);assert.deepEqual(L.run(4750,4750),[[4750,1.25]]);}});
+ await check('WF06JIDI-04:a measured 340ms to 105ms reduction earns exactly one bounded finish',()=>{const L=acquisitionLab(.34);assert.deepEqual(L.run(0,2500),[[2500,1.25]]);L.settle(3440,.235);assert.deepEqual(L.run(3500,6000),[[6000,1.25]]);L.settle(6420,0);assert.deepEqual(L.run(6500,30000),[]);assert.equal(L.gate.snapshot().attempts,2);});
+ await check('WF06JIDI-05:rejected invalid contradictory or rebased trials never earn a narrow residual finish',()=>{for(const mode of ['rejected','invalid','mirror','buffer','untrusted','jump','no-motion','segment']){const L=acquisitionLab(.34);assert.deepEqual(L.run(0,2500),[[2500,1.25]]);L.settle(3440,.235,{...(mode==='invalid'?{valid:false}:mode==='mirror'?{mirror:true}:mode==='buffer'?{buffer:true}:mode==='untrusted'?{qualified:false}:mode==='jump'?{mode:'jump'}:mode==='no-motion'?{lag:.34}:mode==='segment'?{scope:'room:video:epoch:seg4'}:{})},mode==='rejected'?'rejected':undefined);assert.deepEqual(L.run(3500,22000,()=>({lag:.105,qualified:true,precision:12,mirror:false,buffer:false,valid:true,mode:'normal',...(mode==='segment'?{scope:'room:video:epoch:seg4'}:{})})),[],mode);assert.equal(L.gate.snapshot().attempts,1);}});
+ await check('WF06JIDI-06:moderate rate gate identifies quiet reference precision motion and capability blockers',()=>{const L=acquisitionLab();for(const [t,patch,reason] of [[0,{quiet:0},'rate-trial-quiet-time'],[7000,{quiet:30000,qualified:false},'rate-trial-awaiting-qualified-reference'],[7250,{qualified:true,precision:36},'rate-trial-precision'],[7500,{precision:12,mode:'mismatch'},'rate-trial-motion'],[7750,{mode:'normal',rates:[1]},'no-advertised-rate-actuator'],[8000,{rates:[1,1.25]},'stable-rate-trial-dwell']]){assert.equal(L.sample(t,patch),null);assert.equal(L.gate.snapshot().reason,reason);}assert.equal(L.gate.snapshot().attempts,0);});
+ await check('WF06JIDI-07:remote acquisition transitions are captured at fresh report cadence and statuses identify the real gate',()=>{const line=read('public/client/sync-room-log.js').split(/\r?\n/).find(x=>x.includes('const acquisitionState='));assert.ok(line);const changed=new Function(line+'\nreturn acquisitionChanged;')();const p={role:'viewer',reportAgeMs:400,action:'tv-rate-trial-dwell',decoderRecovery:{arbiterReason:'tv-rate-trial-dwell'}},q={...p,action:'output-phase-unverified',decoderRecovery:{arbiterReason:'output-phase-unverified'}};assert.equal(changed(p,q),true);assert.equal(changed(p,p),false);assert.equal(changed({...p,reportAgeMs:1501},q),false);assert.equal(changed({...p,reportAgeMs:null},q),false);assert.equal(changed({...p,role:'host'},q),false);assert.ok(read('public/client/sync-room-log.js').includes('||acquisitionChanged(p,q)'));const arb=read('public/client/viewer-sync-arbiter.js');for(const reason of ['tv-rate-trial-awaiting-quiet','tv-rate-trial-awaiting-reference','tv-rate-trial-awaiting-precision','tv-rate-trial-awaiting-motion','tv-rate-trial-dwell','tv-rate-trial-spent']){assert.ok(arb.includes("'"+reason+"'"));assert.ok(read('public/playback-sync.js').includes("'"+reason+"':"));}assert.ok(read('public/playback-sync.js').includes('speaker phase unverified'));});
+}
 export async function runR14yChecks(check){
+ await run06jideChecks(check);
+ await run06jidfChecks(check);
+ await run06jidgChecks(check);
+ await run06jidhChecks(check); await run06jidiChecks(check);
  await check('WF06JE-01:advancing 330ms post-release TV lag acquires within the shortened qualified window',()=>{
   const L=lab({rates:[1,1.25],startingError:-.33,savedModel:{rateGain:1}});
   play(L,{end:56000,step:50});
@@ -268,7 +381,6 @@ export async function runR14yChecks(check){
   for(let t=5000;t<=20000;t+=250)assert.equal(gate.consider({...input,nowMs:t,error:-.295}),null);
   assert.equal(gate.snapshot().attempts,1);
  });
-
  await check('ADAPTIVE06D-04:follow-up-is-gated-by-advertised-rate-source-trust-and-scope',()=>{
   const L=lab({rates:[.75,1,1.25]}), scope='room:video:epoch:seg3';
   for(const mode of ['no-slow-rate','untrusted','mirror','changed-segment']){
@@ -291,7 +403,6 @@ export async function runR14yChecks(check){
   assert.equal(brake({...job,recheck:false},io,50000),false);
   assert.equal(brake({before:.79},io,50000),false);
  });
-
  await check('ADAPTIVE06E-01:597ms to 362ms inconclusive trial earns exactly one qualified finish',()=>{
   const L=lab({rates:[.75,1,1.25]}), scope='room:video:epoch:seg3';
   const gate=L.ctx.WatchFusionReleaseEvidence.createTvRateRecheckGate();
@@ -326,5 +437,4 @@ export async function runR14yChecks(check){
   assert.equal(gate.consider({...input,nowMs:12500,error:.362})?.rate,1.25);
   assert.equal(gate.snapshot().attempts,2);
  });
-
 }

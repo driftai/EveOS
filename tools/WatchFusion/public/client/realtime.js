@@ -1,5 +1,5 @@
 let realtimeSocket = null;
-let realtimeReconnectTimer = null;
+let realtimeReconnectTimer = null, realtimeHandshakeTimer = null;
 let realtimeReconnectAttempt = 0;
 let realtimeFallback = null;
 let realtimeStarted = false;
@@ -35,6 +35,7 @@ function stopRealtimeSocket() {
   realtimeJoined = false;
   rejectRealtimeChats();
   if (realtimeReconnectTimer) { clearTimeout(realtimeReconnectTimer); realtimeReconnectTimer = null; }
+  if (realtimeHandshakeTimer) { clearTimeout(realtimeHandshakeTimer); realtimeHandshakeTimer = null; }
   const socket = realtimeSocket;
   realtimeSocket = null;
   if (socket) { try { socket.close(1000, 'client closing'); } catch {} }
@@ -61,13 +62,15 @@ function openRealtimeSocket() {
   try {
     const socket = new WebSocket(websocketUrl());
     realtimeSocket = socket;
+    realtimeHandshakeTimer = setTimeout(() => { if (realtimeSocket === socket && realtimeStarted && !realtimeJoined) promoteFallback(); }, 4000);
     socket.onopen = () => {
-      realtimeReconnectAttempt = 0;
+      if (realtimeSocket !== socket || !realtimeStarted) return;
       realtimeJoined = false;
       setStatus(isTryCloudflare ? 'Connected (WebSocket)' : 'Connected');
       socket.send(JSON.stringify({ type: 'join', roomId, memberId: session.memberId }));
     };
     socket.onmessage = event => {
+      if (realtimeSocket !== socket || !realtimeStarted) return;
       let payload;
       try { payload = JSON.parse(event.data); } catch { return; }
       if (payload.type === 'chat-ack') {
@@ -85,15 +88,17 @@ function openRealtimeSocket() {
         return;
       }
       if (payload.type !== 'state' || !payload.state) return;
-      realtimeJoined = true;
       const authorityBefore = playbackAuthorityKey(state);
       if (!acceptRealtimeState(payload.state)) return;
+      realtimeJoined = true; realtimeReconnectAttempt = 0;
+      if (realtimeHandshakeTimer) { clearTimeout(realtimeHandshakeTimer); realtimeHandshakeTimer = null; }
       render();
       syncPlaybackForAuthorityChange(authorityBefore);
     };
     socket.onerror = () => {};
     socket.onclose = () => {
       if (realtimeSocket !== socket || !realtimeStarted) return;
+      if (realtimeHandshakeTimer) { clearTimeout(realtimeHandshakeTimer); realtimeHandshakeTimer = null; }
       realtimeSocket = null;
       realtimeJoined = false;
       rejectRealtimeChats();

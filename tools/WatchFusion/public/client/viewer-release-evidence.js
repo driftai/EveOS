@@ -5,7 +5,6 @@
 (() => {
   'use strict';
   const LATE_RELEASE_RETRY_WINDOW_MS = 22000;
-
   function createReleaseEvidence() {
     let postRelease = null;
     function reset() { postRelease = null; }
@@ -63,7 +62,6 @@
     }
     return {reset, start, observe, qualified, snapshot, canRetry};
   }
-
   function sourceRecoveryHoldEligible({error,recovery,trust,uncertainty,rates,buffering}) {
     return error <= -.20 && error >= -.44 && trust === true && buffering !== true
       && Number.isFinite(uncertainty) && uncertainty >= 0 && uncertainty <= 70
@@ -74,7 +72,6 @@
       && !recovery.authorityBuffering && Number.isFinite(recovery.uncertaintyMs)
       && recovery.uncertaintyMs <= 70;
   }
-
   function createSourceRecoveryGate() {
     const consumed = new Set();
     let candidate = null;
@@ -97,7 +94,6 @@
     }
     return {consider, cancelCandidate, count:() => consumed.size};
   }
-
   // One safe per-video decision after a long, genuine, progressing, stable lead.
   // A 1x TV cannot be fine-rate nudged; never turn 150ms into a blind keyframe seek.
   // Only hold if predicted pause duration is >=80ms *after* known release latency.
@@ -156,7 +152,6 @@
     }
     return {consider,refine,cancelCandidate,snapshot};
   }
-
   // A hard-budgeted rejoin for a *verified fixed-rate* TV after a stable
   // post-resume phase plateau. Reuses the existing paused/keyframe-aware arbiter
   // actuator; it does not seek itself, synthesize clock confidence or infer sound.
@@ -209,8 +204,6 @@
     }
     return {consider,cancelCandidate,snapshot};
   }
-
-
   // R14x: a follower's post-release callback and its decoder cannot both own recovery.
   // This policy observes the iframe media timeline only; it never controls the player.
   function createTvRecoveryOwner() {
@@ -227,7 +220,7 @@
       if (!io?.follower || io?.linkedSourceActive?.()!==true || io.hostLinked || why==='manual') return false;
       const age=at-releasedAt;
       if (!(Number.isFinite(age)&&age>=0&&age<25000&&Number.isFinite(error))) return false;
-      if (why==='stall' || (Math.abs(error)>4 && io.referenceTrusted?.()===true)) return false;
+      if (why==='stall' || (Math.abs(error)>4 && io.referenceTrusted?.()===true)) return false; if(why==='rejoin'&&globalThis.WatchFusionDecoderRescue?.canOwnPostRelease?.(io,at,error)===true){retryCandidate=null;last='decoder-guard-owned';return false;}
       // A healthy advancing TV may nevertheless remain seconds behind after its
       // first release. The old blanket 25s duplicate guard then prevented any
       // recovery for a short next video. Permit exactly ONE buffered retry per
@@ -276,7 +269,6 @@
     function snapshot(){return {owner:last,blocks,heldReads:held.reads};}
     return {scope,release,block,motion,heldMs,snapshot};
   }
-
   // The stable lag plus the lead at play() estimates the decoder's start delay.
   // Reuse it for one buffered retry without changing the stored latency model.
   function createLateReleaseRetryGate() {
@@ -328,10 +320,14 @@
       trial.motion=Number.isFinite(elapsed)&&elapsed>=.5&&elapsed<=12&&Math.sign(extra)===Math.sign(expected)&&
         Math.abs(extra)>=.12&&Math.abs(extra-expected)<=.07;
       if(!trial.finish && !verdict && (trial.error>=.45 || (trial.error>=.25 && trial.motion)))trial.mayFinish=true;
+      trial.tailEligible=!trial.finish&&verdict!=='rejected'&&trial.motion&&Math.sign(expected)===Math.sign(trial.error)&&Number.isFinite(trial.startTarget)&&Number.isFinite(trial.startPos)&&Math.abs(trial.startTarget-trial.startPos-trial.error)<=.035&&Math.abs(job.probe.current-trial.startPos)<=.035&&Math.abs(io?.target?.(io.now())-trial.startTarget-elapsed*io.baseRate)<=.08&&io?.valid?.()===true&&job?.valid?.()!==false&&io?.state?.()===1&&io?.referenceTrusted?.()===true&&io?.sourceReferenceQualified?.(100)===true&&!io?.sourceBuffering?.()&&!io?.mirrorContradicted?.();trial.tailResidual=trial.tailEligible?io.target(io.now())-io.current():null;
+      // A brief loss of the source witness is not a rejected speed command. Only a bounded, freshly qualified continuation can follow.
+      trial.resume=trial.expedited===true&&!verdict&&trial.retries<2&&job?.valid?.()!==false&&io?.valid?.()!==false&&io?.state?.()===1&&io?.sourceReferenceQualified?.(100)===false&&io?.sourceBuffering?.()!==true&&io?.mirrorContradicted?.()!==true&&Number.isFinite(elapsed)&&elapsed>=0&&elapsed<=12&&(trial.motion||(elapsed<.55&&trial.retries===0&&Number.isFinite(extra)&&Math.abs(extra)<=Math.abs(expected)+.07));
     }
     // A new disturbance after a genuinely healthy lock is not the same failed
     // episode. Never rearm an ineffective or rejected actuator from a lock flag.
     function observeLock(scope,nowMs,error,io){
+      if(candidate&&(candidate.raw||candidate.grossAt!=null)&&(candidate.scope!==scope||(candidate.raw&&(!Number.isFinite(io.referenceUncertaintyMs?.())||io.referenceUncertaintyMs()<0||io.referenceUncertaintyMs()>35))||io.state?.()!==1||io.valid?.()===false||io.sourceBuffering?.()===true||io.mirrorContradicted?.()===true||io.sourceReferenceQualified?.(100)!==true||io.referenceTrusted?.()!==true)){if(candidate.raw)candidate=null;else {candidate.grossAt=null;candidate.grossReads=0;}}
       const key=videoKey(scope),prior=spent.get(key);
       if(!prior||prior.scope!==scope||prior.verdict==='rejected'||!(prior.motion||prior.verdict==='honored')||
         !Number.isFinite(error)||Math.abs(error)>.05||io.state?.()!==1||io.sourceReferenceQualified?.(100)!==true||
@@ -354,11 +350,13 @@
       // The first burst may have helped without proving its actuator. A meaningful
       // same-direction reduction can earn one finish, but not an ineffective trial.
       const improvement=prior ? prior.error-Math.abs(error) : 0;
-      const finishing=prior?.mayFinish===true && !prior.finish && prior.scope===scope &&
+      const tail=prior?.tailEligible===true&&!prior.finish&&prior.scope===scope&&Math.sign(error)===Math.sign(prior.error)&&Math.abs(error-prior.tailResidual)<=.06&&Math.abs(error)>.1005&&Math.abs(error)<=.20&&Math.abs(prior.error)-Math.abs(error)>=.12&&Math.abs(error)<=Math.abs(prior.error)*.65;
+      const finishing=tail||prior?.mayFinish===true && !prior.finish && prior.scope===scope &&
         ((error>=.115 && error<=.43 && improvement>=.20 && improvement>=prior.error*.35) ||
         (error<=-.115 && error>=-.43 && (improvement>=.25 ||
           (prior.error>=.25 && prior.error<.45 && prior.motion && improvement>=.12 && improvement>=prior.error*.35))));
-      if (prior && !finishing){reason='per-video-trial-spent';candidate=null;return null;}
+      const resuming=prior?.resume===true && prior.scope===scope && error>=.45 && error<=prior.error+.035 && (prior.motion?improvement>=.06:Math.abs(improvement)<=.07);
+      if (prior && !finishing && !resuming){reason=prior.expedited&&prior.scope===scope&&error>=.45&&error<=2.5&&(io.sourceReferenceQualified?.(100)!==true||io.referenceTrusted?.()!==true||io.sourceBuffering?.()||io.mirrorContradicted?.())?'rate-trial-awaiting-qualified-reference':'per-video-trial-spent';candidate=null;return null;}
       const precision=io.referenceUncertaintyMs?.();
       const largeLag = error >= .35;
       // Moderate residuals after a release can qualify sooner, but only with raw
@@ -366,29 +364,35 @@
       const pos=io.current?.(), target=io.target?.(nowMs), early=!finishing&&error>=.25&&error<.35&&
         Number.isFinite(pos)&&Number.isFinite(target)&&Math.abs(target-pos-error)<=.045&&quietStallMs>=5000&&quietRejoinMs>=6000;
       const dt=(nowMs-candidate?.lastAt)/1000, advancing=!!candidate&&dt>0&&dt<=1&&Math.abs(pos-candidate.pos-dt*io.baseRate)<=.06&&Math.abs(target-candidate.target-dt*io.baseRate)<=.035;
-      const fast=early&&(!candidate||candidate.fast&&advancing);
+      const rawLane=io.valid?.()===true&&((!prior&&Math.abs(error)>=.115&&Math.abs(error)<.35)||tail||(finishing&&prior?.tailEligible===true&&Math.abs(error-prior.tailResidual)<=.06)), rawAgreement=Number.isFinite(pos)&&Number.isFinite(target)&&Math.abs(target-pos-error)<=.035&&Math.abs(error)*1000-precision>50;
+      const fast=rawLane||early&&(!candidate||candidate.fast&&advancing);
+      const gross=!finishing&&(resuming||error>=1)&&Number.isFinite(pos)&&Number.isFinite(target)&&Math.abs(target-pos-error)<=.045&&io.valid?.()!==false;
       const eligible=key.split(':').length===3 && rateHonored===false && !!alternate &&
         io.follower===true && io.hostLinked!==true && io.linkedSourceActive?.()===true &&
         io.sourceReferenceQualified?.(100)===true && io.state?.()===1 &&
         io.referenceTrusted?.()===true && io.sourceBuffering?.()!==true && io.mirrorContradicted?.()!==true &&
         Number.isFinite(precision)&&precision>=0&&precision<=35 &&
-        Number.isFinite(error)&&error>=-.43&&error<=2.5&&Math.abs(error)>=.115 &&
+        Number.isFinite(error)&&error>=-.43&&error<=2.5&&(Math.abs(error)>=.115||tail)&&io.valid?.()!==false&&(!tail||rawLane)&&(!rawLane||rawAgreement)&&
         Number.isFinite(nowMs)&&quietStallMs>=((largeLag||fast)?5000:20000)&&quietRejoinMs>=((largeLag||fast)?6000:25000);
       if(!eligible){
         // An advancing, rate-advertising TV must not fall through to a seek just
         // because fresh source evidence or post-release quiet time is missing.
         const waiting=error>=.45 && error<=2.5 && rateHonored===false && !!alternate &&
           io.follower===true && !io.hostLinked && io.linkedSourceActive?.()===true && io.state?.()===1;
-        reason=waiting?'rate-trial-awaiting-qualified-reference':!alternate?'no-advertised-rate-actuator':'source-motion-or-quiet-time-not-qualified';candidate=null;return null;
+        const timing=io.sourceReferenceQualified?.(100)===true&&io.referenceTrusted?.()===true&&!io.sourceBuffering?.()&&!io.mirrorContradicted?.();
+        reason=waiting?'rate-trial-awaiting-qualified-reference':!alternate?'no-advertised-rate-actuator':rateHonored===false&&io.follower===true&&!io.hostLinked&&io.linkedSourceActive?.()===true&&!timing?'rate-trial-awaiting-qualified-reference':rawLane&&(!Number.isFinite(precision)||precision<0||precision>35||Math.abs(error)*1000-precision<=50)?'rate-trial-precision':rawLane&&!rawAgreement?'rate-trial-motion':rateHonored===false&&io.follower===true&&!io.hostLinked&&io.linkedSourceActive?.()===true&&(quietStallMs<((largeLag||fast)?5000:20000)||quietRejoinMs<((largeLag||fast)?6000:25000))?'rate-trial-quiet-time':'source-motion-or-quiet-time-not-qualified';candidate=null;return null;
       }
-      if(!candidate || candidate.scope!==scope || candidate.rate!==alternate || candidate.fast!==fast || Math.sign(candidate.error)!==Math.sign(error) ||
+      if(rawLane&&candidate?.raw&&candidate.scope===scope&&nowMs===candidate.lastAt)return null;
+      if(!candidate || candidate.scope!==scope || candidate.rate!==alternate || candidate.fast!==fast || candidate.raw!==rawLane || (rawLane&&(!advancing||pos-candidate.pos<dt*io.baseRate*.5||target-candidate.target<dt*io.baseRate*.5)) || Math.sign(candidate.error)!==Math.sign(error) ||
           Math.abs(candidate.error-error)>.035 || nowMs-candidate.lastAt>1000 || nowMs<candidate.lastAt){
-        candidate={scope,rate:alternate,error,at:nowMs,lastAt:nowMs,samples:1,fast,pos,target};reason='stable-rate-trial-dwell';return null;
+        candidate={scope,rate:alternate,error,at:nowMs,lastAt:nowMs,samples:1,fast,raw:rawLane,pos,target,startPos:pos,startTarget:target,grossAt:gross?nowMs:null,grossReads:gross?1:0};reason='stable-rate-trial-dwell';return null;
       }
+      if(!gross||!advancing||candidate.grossAt===null){candidate.grossAt=gross?nowMs:null;candidate.grossReads=gross?1:0;}else candidate.grossReads++;
+      const expedited=gross&&candidate.grossAt!==null&&nowMs-candidate.grossAt>=750&&candidate.grossReads>=4;
       candidate.samples++;candidate.lastAt=nowMs;candidate.pos=pos;candidate.target=target;
-      const dwellMs=finishing ? 4000 : (largeLag||fast) ? 2500 : 10000;
-      if(nowMs-candidate.at<dwellMs || candidate.samples<8){reason='stable-rate-trial-dwell';return null;}
-      spent.set(key,{scope,error,finish:finishing});
+      const dwellMs=rawLane?2500:finishing ? 4000 : (largeLag||fast) ? 2500 : 10000;
+      if(!expedited&&(resuming||nowMs-candidate.at<dwellMs || candidate.samples<8||(rawLane&&pos-candidate.startPos<(nowMs-candidate.at)/1000*io.baseRate*.7))){reason='stable-rate-trial-dwell';return null;}
+      spent.set(key,{scope,error,finish:finishing,expedited:expedited||resuming,retries:resuming?prior.retries+1:0,startPos:pos,startTarget:target});
       candidate=null;attempts++;reason=finishing?'single-advertised-rate-finish':'single-advertised-rate-trial';
       return {rate:alternate};
     }

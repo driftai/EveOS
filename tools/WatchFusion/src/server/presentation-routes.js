@@ -65,6 +65,7 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
       if (prior && prior.outputSession !== report.outputSession) entry.proposals.delete(member.id);
       entry.reports.set(member.id, {
         member: member.publicId, mode: current.mode, receivedAt: at, sampledAt: report.sampledAt, outputSession: report.outputSession,
+        ...(report.clientBuild==='wf-06jid'?{clientBuild:report.clientBuild}:{}),
         playoutSegment:body.segment === segment ? segment : null, positionMs: report.positionMs, roomPositionMs: report.roomPositionMs, rate: report.rate,
         targetPositionMs: metric(report.targetPositionMs, 0, 1e10),
         rttMs: metric(report.rttMs, 0, 5000), offsetMs: metric(report.offsetMs, -1e12, 1e12),
@@ -125,7 +126,7 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
     allowHoldback:entry.current.mode === 'direct' && entry.linkedOutput?.muted === true && time - entry.linkedOutput.at < 1800});
   coordination.mirrorContradicted = entry.mirrorConflict?.segment === segment && time - entry.mirrorConflict.at <= 1500;
   return json(res, 200, {
-    serverReceivedAt: at, serverTime: Date.now(), coordination,
+    serverReceivedAt: at, serverTime: Date.now(), coordination, serverBuild:'wf-06jid',
     ...((body.diagnostics === true || body.trace === true) ? {peers:[...entry.reports.values()], roster:roster(entry, room, time)} : {}),
     ...(body.diagnostics === true ? {proposal:entry.proposals.get(member.id) || null} : {})
   });

@@ -30,7 +30,7 @@
   let manualRestartAt = -Infinity;
   const rebuilds = [];
   // Recovery owns a short, local decoder warmup; never refill action budgets here.
-  let warm = null, rejoinCandidate = null, rejoinSpent = false;
+  let warm = null, rejoinCandidate = null, rejoinSpent = false, recovered = null, transportScope = '', protectedStep = 0;
   function isSettling(raw, at) { return !!warm && raw === warm.scope && !document.hidden && Number.isFinite(at) && at >= warm.at && at-warm.at < 12000; }
   function settling({scope: raw, nowMs: at, ready, playing, buffering, position, rate = 1} = {}) {
     if (!warm) return false;
@@ -42,7 +42,7 @@
       if (dt > 0 && dt <= 1000 && dp >= dt/1000*rate*.65 && dp <= dt/1000*rate*1.35+.025) warm.progress += dt;
       else if (dt !== 0) warm.progress = 0;
     }
-    if (warm.progress >= 3000 && at-warm.at >= 4000) { warm = null; return false; }
+    if (warm.progress >= 3000 && at-warm.at >= 4000) { recovered = {scope:raw,at,step:steps}; protectedStep=steps; warm = null; return false; }
     return true;
   }
   // v13.10.8: the caller's scope is room:video:epoch:playoutSegment. The playout segment bumps on every
@@ -76,7 +76,7 @@
   function enterScope(next, nowMs) {
     if (next === scope) return;
     const first=!scope;
-    warm = null; rejoinCandidate = null; rejoinSpent = false; scope = next; since = 0; steps = 0; lastStepAt = -Infinity; liveSeenAt = -Infinity;
+    warm = null; recovered = null; protectedStep=0; rejoinCandidate = null; rejoinSpent = false; scope = next; since = 0; steps = 0; lastStepAt = -Infinity; liveSeenAt = -Infinity;
     healthySince = 0; healthyAt = -1; healthyPosition = null; healthyProgressMs = 0;
     healthOffsets = [];
     pausedAt = -1; wasRoomPaused = false; outcome = 'scope-change';
@@ -89,6 +89,7 @@
     const next = raw ? dwellScope(raw) : '';
     if (!next || !Number.isFinite(nowMs)) return false;
     enterScope(next,nowMs);
+    if (raw !== transportScope || paused === true) { transportScope=raw; recovered=null; rejoinCandidate=null; }
     if (paused === true) {
       warm = null;
       if (!wasRoomPaused) { pausedAt = nowMs; wasRoomPaused = true; }
@@ -172,6 +173,8 @@
     enterScope(nextScope,nowMs);
     if (input.trusted) liveSeenAt = nowMs;
     const wedged = input.buffering ? true : !!(input.exhausted && input.playing);
+    if(wedged || document.hidden || !input.playing) recovered=null;
+    if(wedged || document.hidden || !input.playing || !input.trusted || input.sourceBuffering || input.sourceQualified===false || input.mirrorContradicted===true) rejoinCandidate=null;
     if (input.manual) return restartAfterSync(input, nowMs, wedged);
     const provenStall = input.qualifiedStall === true && input.trusted === true && !input.sourceBuffering &&
       !document.hidden && !input.buffering && input.exhausted === true && input.playing === true &&
@@ -205,7 +208,7 @@
     const recent = rebuilds.filter(t => nowMs - t < 600000);
     const rebuild = steps === 1 && recent.length < MAX_REBUILDS_PER_10_MIN && typeof input.rebuild === 'function';
     if (steps === 1 && !rebuild) { steps = 2; outcome = 'rebuild-budget-spent'; checkpoint(nowMs); return false; }
-    steps++; lastStepAt = nowMs; since = 0; rejoinCandidate = null; rejoinSpent = false;
+    steps++; lastStepAt = nowMs; since = 0; recovered = null; protectedStep=0; rejoinCandidate = null; rejoinSpent = false;
     warm = {scope:input.scope,at:nowMs,sample:null,progress:0};
     try {
       if (rebuild) { rebuilds.push(nowMs); checkpoint(nowMs); input.rebuild(); outcome = 'player-rebuilt-once'; }
@@ -218,20 +221,30 @@
   // A decoder reload/rebuild is not permission to immediately seek the newly
   // advancing player again. For offsets <=5 s, require a quiet, qualified window; permit at
   // most one ordinary rejoin per decoder recovery step, never a fresh ladder.
+  // The release owner may defer to this guard only after measured decoder warmup.
+  // This grants no command: the existing buffered rejoin guard still must qualify.
+  function canOwnPostRelease(io,at,error) {
+    return !!(recovered && recovered.scope===transportScope && recovered.step===steps && steps>0 && !rejoinSpent && !warm &&
+      Number.isFinite(at) && at>=recovered.at && at-recovered.at<=30000 && error>=.45 && error<=4 &&
+      io?.follower===true && !io.hostLinked && io.tvIdentity===scope && io.valid?.()!==false && !document.hidden &&
+      io.linkedSourceActive?.()===true && io.state?.()===1 && io.referenceTrusted?.()===true &&
+      io.sourceReferenceQualified?.(100)===true && !io.sourceBuffering?.() && !io.mirrorContradicted?.());
+  }
   function allowAutomaticRejoin({nowMs, error, io, lead} = {}) {
-    if (!steps || Math.abs(error) > 5 || (io?.follower !== true && !io?.hostLinked) || io.linkedSourceActive?.() !== true) return true;
+    if (!steps || (Math.abs(error) > 5 && !(protectedStep===steps && io?.follower===true && !io.hostLinked)) || (io?.follower !== true && !io?.hostLinked) || io.linkedSourceActive?.() !== true) return true;
     const precision = io.referenceUncertaintyMs?.(), pos = io.current?.(), target = io.target?.(nowMs);
-    if (rejoinSpent || document.hidden || io.state?.() !== 1 || io.referenceTrusted?.() !== true ||
+    if (rejoinSpent || document.hidden || io.valid?.()===false || (io.tvIdentity && io.tvIdentity!==scope) || io.state?.() !== 1 || io.referenceTrusted?.() !== true ||
         io.sourceReferenceQualified?.(100) !== true || io.mirrorContradicted?.() || io.sourceBuffering?.() ||
         ![nowMs,error,pos,target,precision,lead,io.baseRate].every(Number.isFinite) || io.baseRate <= 0 || precision < 0 || precision > 70 ||
-        io.buffered?.(target+lead) !== true) { rejoinCandidate = null; return false; }
+        Math.abs(target-pos-error)>.14 || io.buffered?.(target+lead) !== true) { rejoinCandidate = null; return false; }
     const c = rejoinCandidate, dt = c ? nowMs-c.at : 0;
     if (c && dt === 0) return false;
     if (!c || dt < 0 || dt > 1000 || Math.abs(c.initialError-error) > .14 ||
+        Math.abs(target-c.target-dt/1000*io.baseRate)>.08 ||
         pos-c.pos < dt/1000*io.baseRate*.5 || pos-c.pos > dt/1000*io.baseRate*1.5+.025) {
-      rejoinCandidate = {at:nowMs,since:nowMs,pos,initialError:error}; return false;
+      rejoinCandidate = {at:nowMs,since:nowMs,pos,target,initialError:error}; return false;
     }
-    c.at=nowMs; c.pos=pos;
+    c.at=nowMs; c.pos=pos;c.target=target;
     if (nowMs-c.since < 8000 || nowMs-lastStepAt < 12000) return false;
     rejoinSpent=true; rejoinCandidate=null; checkpoint(nowMs); return true;
   }
@@ -245,7 +258,7 @@
     ytPlayer = null; ytPlayerReady = false; playerPrimed = false; playerInitializing = false;
     ensurePlayer(videoId, startSeconds);
   }
-  window.WatchFusionDecoderRescue = {version: 'adaptive-room-06jc', consider, qualifiesStall, observeTransport, rebuildPlayer, settling, isSettling, allowAutomaticRejoin,
+  window.WatchFusionDecoderRescue = {version: 'adaptive-room-06jc', consider, qualifiesStall, observeTransport, rebuildPlayer, settling, isSettling, allowAutomaticRejoin, canOwnPostRelease,
     diagnostics: () => ({scope, attempted: steps > 0, steps, outcome, healthyProgressMs: Math.round(healthyProgressMs),
       rearmCount, healCount, lastRearmDwellMs, pauseObserved: wasRoomPaused})};
 })();

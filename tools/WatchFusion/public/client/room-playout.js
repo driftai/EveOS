@@ -1,6 +1,6 @@
 // Playback timing is exchanged during ordinary room playback. Microphone input is never used here.
 (() => {
-  let lease = null, phaseSentAt = -Infinity, latestRoom, nextIdlePoll = 0, lastTransportKey = null;
+  let lease = null, phaseSentAt = -Infinity, latestRoom, nextIdlePoll = 0, lastTransportKey = null, lifecycleKick = null;
   const health = $('roomPlayoutStatus');
   const roomKey = () => roomId && session && state?.presentationEpoch != null && state.playoutSegment != null
     ? [roomId, session.memberId, state.presentationEpoch, state.playoutSegment].join(':') : null;
@@ -13,10 +13,15 @@
     const available = roomKey() && supportedPlayback();
     health.hidden = !available;
     window.watchFusionSyncCenter?.setVisible(available);
-    if (!available) return;
+    if (!available) {if(lifecycleKick!==null)clearTimeout(lifecycleKick);lifecycleKick=null;lastTransportKey=null;return;}
     const lifecycle = roomKey() + ':' + (playing()?'play':'pause');
     if (lifecycle !== lastTransportKey) {
+      const acquire = lastTransportKey===null || lastTransportKey.endsWith(':pause');
       lastTransportKey = lifecycle;
+      if(lifecycleKick!==null)clearTimeout(lifecycleKick);
+      lifecycleKick=null;
+      // Initial play/resume only: a live seek must retain the ordinary exchange cadence.
+      if(acquire&&playing())lifecycleKick=setTimeout(()=>{lifecycleKick=null;if(roomKey()&&roomKey()+':'+(playing()?'play':'pause')===lifecycle)void tick().catch(()=>{});},0);
       window.watchFusionRoomSyncLog?.note?.('room-transition',{
         playing:playing(),segment:state.playoutSegment,positionMs:Math.round((state.playback?.position||0)*1000)});
     }

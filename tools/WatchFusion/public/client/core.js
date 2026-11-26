@@ -313,11 +313,11 @@ function updateLanCopyVisibility() {
 }
 function apiUrl(path) { const value=String(path||''); return transportBaseUrl ? `${transportBaseUrl}${value.startsWith('/')?value:`/${value}`}` : value; }
 function eventStreamUrl(path) { return apiUrl(path); }
-async function loadNetworkInfo() {
+let networkInfoPending=null;function loadNetworkInfo(){if(!networkInfoPending)networkInfoPending=readNetworkInfo().finally(()=>{networkInfoPending=null;});return networkInfoPending;}
+async function readNetworkInfo() {
   try {
-    const res = await fetch(apiUrl('/api/network-info'), { cache: 'no-store' });
+    const {response:res,data}=await roomRequest(apiUrl('/api/network-info'),{cache:'no-store'},2500);
     if (!res.ok) throw new Error('network diagnostics unavailable');
-    const data = await res.json();
     lanNetworkInfo = data;
     transportBaseUrl = data?.requestIsVirtual ? (data?.transportBridge || '') : '';
     if (transportBaseUrl) setStatus(`Virtual adapter bridged via ${transportBaseUrl}`);

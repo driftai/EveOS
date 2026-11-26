@@ -7,8 +7,8 @@
   const Audio = window.AudioContext || window.webkitAudioContext;
   const canRecord = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && !!Audio && !!window.AudioWorkletNode;
   let key = '', peers = [], proposal = null, applied = null, capture = null, result = null;
-  let peerBatch = [], peerBatchAt = 0, peerCoordination = null;
-  let reference = null, receiver = null, requestPending = false, outputSession = makeClientId(), consumedProposal = null;
+  let peerBatch = [], peerBatchAt = 0, peerCoordination = null, observedServerBuild = null;
+  let reference = null, receiver = null, requestPending = false, clockProbeNext = false, outputSession = makeClientId(), consumedProposal = null;
   let videoFrame = null, frameOwner = null, frameCallback = null, statusMessage = '';
   let panelReady = false;
   const sourceSpeaker = 'linked-source';
@@ -25,7 +25,7 @@
     capture?.abort();
     stopTrackingFrames();
     capture = reference = receiver = result = proposal = applied = null;
-    peers = []; peerBatch = []; peerBatchAt = 0; peerCoordination = null;
+    peers = []; peerBatch = []; peerBatchAt = 0; peerCoordination = null; clockProbeNext = false; observedServerBuild = null;
     panelReady = false;
     consumedProposal = null;
     statusMessage = '';
@@ -57,7 +57,7 @@
     const sourceAgeMs = sourceSampleAge();
     const volume = direct ? media.volume : (media.getVolume?.() ?? 100) / 100;
     return {
-      mode: modeName, sampledAt: at, positionMs, roomPositionMs, rate, ...(isHost() && window.WatchFusionMirrorConvergenceGate?.contradicted?.() ? {mirrorContradicted:true} : {}),
+      clientBuild:'wf-06jid', mode: modeName, sampledAt: at, positionMs, roomPositionMs, rate, ...(isHost() && window.WatchFusionMirrorConvergenceGate?.contradicted?.() ? {mirrorContradicted:true} : {}),
       targetPositionMs: Number.isFinite(target) ? target * 1000 : null,
       bufferedUntilMs: direct ? window.watchFusionPlayout?.bufferedUntil(media, position) : null,
       playing: running && (direct ? !media.paused && !media.ended : ytState === 1),
@@ -125,13 +125,14 @@
     frameCallback = video.requestVideoFrameCallback(frame);
   }
 
-  async function exchange(body, signal) {
+  async function exchange(body, signal, onReceived) {
     const active = identity();
     if (!active || state.presentationEpoch == null) throw new Error('Restart WatchFusion to load timing diagnostics.');
     const response = await fetch(apiUrl('/api/rooms/' + encodeURIComponent(roomId) + '/presentation'), {
       method: 'POST', cache: 'no-store', signal, headers: {'Content-Type':'application/json','x-member-id':session.memberId},
       body: JSON.stringify({epoch:state.presentationEpoch, segment:state.playoutSegment, diagnostics:panel.open, ...body})
     });
+    onReceived?.(Date.now()); // timestamp response headers before JSON decoding adds local jitter
     const data = await response.json().catch(() => ({}));
     if (identity() !== active) throw new Error('Room or playback source changed.');
     if (!response.ok) throw new Error(response.status === 404 || response.status === 405
@@ -188,15 +189,18 @@
     const backgroundHost = document.hidden && !!onTiming && isHost() && state?.linkedSourceActive === true && mode()==='youtube' && !state.playback.paused && !state.playback.ended;
     if (!key || requestPending || (document.hidden && !backgroundHost) || (!onTiming && !panel.open)) return;
     if (!document.hidden && (panel.open || onTiming)) trackVideoFrames();
-    const report = timing(), trace = window.watchFusionRoomSyncLog?.wantsSample();
-    const active = key, controller = new AbortController();
+    const report = clockProbeNext ? null : timing(), trace = window.watchFusionRoomSyncLog?.wantsSample();
+    const active = key, segment = state.playoutSegment, output = outputSession, controller = new AbortController(), began = performance.now();
+    const current = () => identity() === active && state?.playoutSegment === segment && outputSession === output;
+    const deadline = onTiming && !state.playback.paused && !state.playback.ended ? 1100 : 1800;
     requestPending = true;
-    const timeout = setTimeout(() => controller.abort(), 1800);
+    const timeout = setTimeout(() => controller.abort(), deadline);
     try {
-      const sentAt = Date.now();
-      const data = await exchange({...(report?.rttMs != null && window.watchPartyClock.precise() ? {report} : {}), trace}, controller.signal);
-      if (active !== key || controller.signal.aborted) return;
-      window.watchPartyClock.update(data.serverTime, sentAt, Date.now(), data.serverReceivedAt);
+      const sentAt = Date.now(); let receivedAt;
+      const data = await exchange({...(report?.rttMs != null && window.watchPartyClock.precise() ? {report} : {}), trace}, controller.signal, at => {receivedAt = at;});
+      if (!current() || controller.signal.aborted || performance.now()-began >= deadline) return;
+      window.watchPartyClock.update(data.serverTime, sentAt, receivedAt, data.serverReceivedAt); clockProbeNext = false;
+      observedServerBuild=data.serverBuild==='wf-06jid'?'wf-06jid':null;
       onTiming?.(data.coordination, roomKey, sentAt);
       if (trace && data.peers) window.watchFusionRoomSyncLog?.observe(data.peers, data.coordination, data.roster);
       if (data.peers) { peerBatch = data.peers; peerBatchAt = Date.now(); peerCoordination = data.coordination; if (statusMessage === 'Timing reports briefly unavailable.') statusMessage = ''; }
@@ -209,7 +213,8 @@
       peers = data.peers;
       updatePanel();
     } catch (error) {
-      if (active === key && panel.open && !capture && !controller.signal.aborted && error?.name !== 'AbortError') setStatus(/Restart WatchFusion/.test(error?.message || '') ? error.message : 'Timing reports briefly unavailable.');
+      if (current() && !controller.signal.aborted && error?.message === 'Stale or invalid playback timing.' && report) clockProbeNext = true;
+      if (current() && panel.open && !capture && !controller.signal.aborted && error?.name !== 'AbortError') setStatus(/Restart WatchFusion/.test(error?.message || '') ? error.message : 'Timing reports briefly unavailable.');
     } finally {
       clearTimeout(timeout);
       requestPending = false;
@@ -419,6 +424,7 @@
   }
 
   window.watchFusionPresentation = {
+    build:'wf-06jid', serverBuild:()=>observedServerBuild,
     render: updatePanel,
     exchange: report, peerCandidate,
     open: () => panel.open,
