@@ -13,6 +13,9 @@
   const MAX_FINE_COMMAND = 650, MAX_CATCHUP_COMMAND = 1800;
   const PHASE_SLACK_MS = 18, RESTORE_LIMIT = 500;
   const MEASUREMENT_REARM_MS = 60000, MAX_MEASUREMENT_REARMS = 1, EARLY_SAMPLE_MS = 150;
+  const RETENTION_LOCK_MS = 15000;
+  let observedPlayer = null, displayQuietUntil = -Infinity;
+  let retentionLockAt = null;
   let restoring = null, learnedPlayer = null, learnedRoom = '', verifiedRates = new Map();
   let lastTick = null, tickGapMs = null, maxTickGapMs = 0;
   let scope = '', samples = [], job = null, pending = null, lastAt = -Infinity;
@@ -64,12 +67,24 @@
       Number.isFinite(c.sourcePhaseMs) && Math.abs(c.sourcePhaseMs)<=100 && age>=0 && age<=600 &&
       Number.isFinite(a?.timelineErrorMs) && Math.abs(a.timelineErrorMs-e)<=20;
   }
+  // Small host-only trim: a quiet residual just outside the normal fine band
+  // is actionable only with a tight local clock and fresh independent witness.
+  function microTrusted(t,e,at,j=null) {
+    const c=window.watchFusionPlayout?.status?.(), a=arbiter()?.snapshot?.(), clock=window.watchPartyClock;
+    const age=at-a?.timelineObservedAtMs, rtt=clock?.rttMs?.();
+    const witnessError=j && a?.timelineObservedAtMs<=j.at ? j.beforeRaw : e;
+    return c?.reference==='linked-tab' && c.source==='live' && Number.isFinite(c.uncertaintyMs) &&
+      c.uncertaintyMs>=0 && c.uncertaintyMs<=12 && clock?.precise?.()===true &&
+      window.WatchFusionHostSeekPolicy?.sourceBlocker?.(t)===null &&
+      Number.isFinite(rtt) && rtt>=0 && rtt<=12 && age>=0 && age<=300 &&
+      Math.abs(a.timelineErrorMs-witnessError)<=5;
+  }
   function finish(why,verify=false) {
     const j=job; if (!j) return;
-    job=null; clearTimeout(j.timer); lastAt=now(); samples=[];
+    job=null; clearTimeout(j.timer); lastAt=now(); samples=[]; retentionLockAt=null;
     // Keep measured motion as provisional evidence across a temporary trust veto.
     // Never continue actuation or credit motion until the same reference is qualified again.
-    const interrupted=(j.host || j.viewerWitness) && j.ack!==null && j.best>=6 &&
+    const interrupted=!j.micro && (j.host || j.viewerWitness) && j.ack!==null && j.best>=6 &&
       ['reference-changed','reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(why) &&
       key()===scope && j.player===ytPlayer && j.roomRate===state?.playback?.rate;
     try {
@@ -80,10 +95,10 @@
         if (!Number.isFinite(r) || Math.abs(r-j.rate)<.015 || Math.abs(r-j.base)<.015) j.player.setPlaybackRate(j.base);
       }
     } catch {}
-    if (j.host && j.player===ytPlayer && !otherOwner()) restoring={player:j.player,base:j.base,rate:j.rate,at:lastAt,scope};
+    if (j.player===ytPlayer && !otherOwner()) restoring={player:j.player,base:j.base,rate:j.rate,at:lastAt,scope};
     reason=why;
     // An ambiguous time read is not proof of an incapable rate actuator.
-    if (why==='implausible-phase-sample') { j.cap.contaminated++; j.cap.retryable++; }
+    if (why==='implausible-phase-sample') { j.cap.contaminated++; j.cap.retryable=Math.min(j.cap.attempts,j.cap.retryable+1); }
     lastTrial={verificationReason:why,verdict:verify?'awaiting-settled-evidence':'inconclusive', requestedRate:j.rate,
       baseRate:j.base, elapsedMs:Math.round(lastAt-j.at), ackMs:j.ack===null?null:Math.round(j.ack-j.at),
       measuredPhaseMs:Math.round(j.best), sampleRebased:!!j.evidenceAnchor, beforeMs:Math.round(j.before), residualMs:null};
@@ -96,13 +111,13 @@
     // It cannot prove improvement, but may participate in one bounded retry.
     if(pending.host && ['mirror-contradicted','verification-context-changed'].includes(why) && pending.ack!==null && pending.best>=6 &&
         pending.player===ytPlayer && pending.roomRate===state?.playback?.rate &&
-        pending.reference===window.watchFusionPlayout?.status?.()?.reference) pending.cap.retryable++;
+        pending.reference===window.watchFusionPlayout?.status?.()?.reference) pending.cap.retryable=Math.min(pending.cap.attempts,pending.cap.retryable+1);
     pending=null;
     lastTrial={...lastTrial,verdict:'inconclusive',verificationReason:why};
     note('zero-actuator-verification-lost',{reason:why});
   }
   function reset(next,why) {
-    finish('interrupted'); scope=next; samples=[]; pending=null; model.clear(); pulses=strikes=0;
+    finish('interrupted'); scope=next; observedPlayer=ytPlayer; samples=[]; pending=null; model.clear(); pulses=strikes=0; retentionLockAt=null;
     if(!host() || learnedPlayer!==ytPlayer || learnedRoom!==roomId || !next){verifiedRates.clear();learnedPlayer=ytPlayer;learnedRoom=roomId;}
     medianMs=madMs=lastErrorMs=null; hostProbeUsed=hostProbeProven=false; lastTrial=null; reason=why;
   }
@@ -111,6 +126,7 @@
     try {
       const at=now(), elapsed=at-j.at, b=blocked();
       if (key()!==scope || j.player!==ytPlayer || b || state.playback.rate!==j.roomRate) return finish(b||'scope-changed');
+      if (!j.micro && elapsed>j.limit+150) return finish('rate-timer-overrun');
       const t=target(), pos=Number(ytPlayer.getCurrentTime?.()), r=rateNow();
       if (![t,pos,r].every(Number.isFinite)) return finish('invalid-actuator-sample');
       if (window.watchFusionPlayout?.status?.()?.reference!==j.reference ||
@@ -123,6 +139,29 @@
       const targetProgress=(t-origin.t)*1000;
       if (Math.abs((t-j.target)*1000-elapsed*j.base)>45 || progress<0 || progress>elapsed*j.base*1.8+50 ||
           observed<0 || observed>span*j.base*1.8+50) return finish('clock-or-media-discontinuity');
+      if(j.viewerRetention){
+        const c=window.watchFusionPlayout?.status?.(),serverNow=estimatedServerNow();
+        const independent=c?.anchorPositionMs+(serverNow-c?.anchorAt)*c?.rate+c?.phaseMs;
+        if(c?.reference!=='linked-tab'||c.source!=='live'||!window.watchFusionPlayout?.hasSourceReference?.(c,serverNow)||
+          !Number.isFinite(c.uncertaintyMs)||c.uncertaintyMs<0||c.uncertaintyMs>35||
+          !Number.isFinite(c.sourcePhaseMs)||Math.abs(c.sourcePhaseMs)>100||!Number.isFinite(independent)||
+          Math.abs(independent-t*1000)>35)return finish('viewer-retention-reference-lost');
+      }
+      if(j.micro||j.precisionStep){
+        // No extra actuation when the short read is ambiguous. Unlike a long
+        // pulse, one 50ms sample can support a bounded 12.5ms trim, but only
+        // settled base-rate evidence can certify the result.
+        if(!microTrusted(t,err,at,j) || elapsed>j.limit+25) return finish('micro-reference-or-timer-unverified');
+        if(Math.abs(r-j.rate)<.015 && j.ack===null)j.ack=at;
+        const possible=Math.abs(j.rate-j.base)*elapsed;
+        if(Math.abs(targetProgress-span*j.base)>4 || extra>possible+4 || phase>possible+4 ||
+            Math.abs(extra-phase)>4 || extra< -4 || phase< -4 ||
+            (Math.abs(r-j.base)>=.015 && Math.abs(r-j.rate)>=.015))return finish('implausible-phase-sample');
+        if(j.ack!==null && elapsed>=50 && extra>=6 && phase>=6)j.best=Math.max(j.best,Math.min(extra,phase));
+        if(j.best>=6 || Math.abs(err)<=8 || Math.sign(err)!==Math.sign(j.before) || elapsed>=j.limit)
+          return finish(j.micro?'micro-pulse-complete':'precision-step-complete',j.best>=6);
+        j.timer=setTimeout(monitor,ACTIVE_PERIOD);return;
+      }
       // The getter marks acknowledgement, not success. Raw media advancement
       // plus signed phase change must independently support a correction.
       if (Math.abs(r-j.rate)<.015 && j.ack===null) j.ack=at;
@@ -149,6 +188,7 @@
       if (j.ack!==null && span>=100 && observed>=span*j.base*.5 && extra>=6 && phase>=6) {
         j.best=Math.max(j.best,Math.min(extra,phase));
       }
+      if(j.viewerRetention && Math.sign(j.before)*err<=Math.max(16,window.watchFusionPlayout?.status?.()?.uncertaintyMs+8)) return finish('viewer-retention-floor',j.best>=6);
       if (j.evidenceAnchor && Math.abs(err)<=ENTER+8) return finish('rebased-near-target',j.best>=6);
       if (j.best>=Math.max(6,j.goal-j.brakeMs) || (Math.sign(err)!==Math.sign(j.before) && Math.abs(err)>ENTER)) return finish('pulse-complete',true);
       if (j.ack===null && elapsed>=ACK_LIMIT) return finish('rate-ack-timeout',true);
@@ -160,61 +200,83 @@
     const raw=(t-pos)*1000;
     if (Math.sign(raw)!==Math.sign(m)||Math.abs(raw-m)>12) {reason='measurement-jitter';return;}
     const step=Math.abs(rate-base), magnitude=Math.min(Math.abs(m),Math.abs(raw));
-    const goal=Math.min(magnitude*.70,magnitude-8);
+    let goal=Math.min(magnitude*.70,magnitude-8);
     // A small offset is not enough excitation to qualify an unknown actuator.
     // Preserve fine lock rather than deliberately overshoot to prove capability.
     const precision=window.watchFusionPlayout?.status?.()?.uncertaintyMs;
     // Tight, quiet host clocks can safely attempt a small trim before the
     // residual grows past 40ms. Retain the old excitation floor otherwise.
+    const viewerRetention=!host() && magnitude>=50 && magnitude<=OUTER &&
+      magnitude-precision>=30 && mad<=4 && Math.abs(raw-m)<=8 && viewerTrusted(t,raw,at);
+    if(viewerRetention)goal=Math.min(goal,magnitude-Math.max(16,precision+8));
+    if(!host() && precision>=20 && magnitude<=precision+8 && viewerTrusted(t,raw,at)){reason='fine-drift-below-reference-precision';return;}
     const tightHost=host()&&precision<=10&&mad<=3&&Math.abs(raw-m)<=6;
     const minProbe=host()?Math.max(24,2*precision+(tightHost?10:20)):24;
-    if (goal<10 || (cap.status!=='verified' && Math.abs(m)<minProbe)) {reason='fine-probe-insufficient-excitation';return;}
-    // Re-arm a budget of measurement-limited trials, once per scope,
+    const micro=host() && base===1 && step>=.24 && step<=.26 && magnitude>ENTER && magnitude<=24 &&
+      magnitude>=precision+5 && mad<=2 && Math.abs(raw-m)<=3 &&
+      Math.max(...samples.map(s=>s.e))-Math.min(...samples.map(s=>s.e))<=5 && microTrusted(t,raw,at);
+    if(host() && base===1 && step>=.24 && step<=.26 && magnitude<=24 && cap.microUsed){reason='micro-probe-budget-used';return;}
+    if(host() && base===1 && step>=.24 && step<=.26 && magnitude<=24 && !micro){reason='micro-reference-unqualified';return;}
+    const precisionStep=host() && base===1 && step>=.24 && step<=.26 && magnitude>24 && magnitude<=40 &&
+      magnitude>=precision+12 && mad<=2 && Math.abs(raw-m)<=3 &&
+      Math.max(...samples.map(s=>s.e))-Math.min(...samples.map(s=>s.e))<=5 && microTrusted(t,raw,at);
+    if (!micro && !precisionStep && (goal<10 || (cap.status!=='verified' && Math.abs(m)<minProbe))) {reason='fine-probe-insufficient-excitation';return;}
+    // Re-arm a budget of measurement-limited trials, once since last verified improvement,
     // after a new stable/qualified window and a long quiet interval. A genuine
     // no-ack or no-effect actuator never earns retries from this path.
     if (cap.attempts>=MAX_ATTEMPTS && cap.retryable===cap.attempts &&
-        cap.rearms<MAX_MEASUREMENT_REARMS && at-cap.lastAt>=MEASUREMENT_REARM_MS) {
+        (cap.rearms-(cap.rearmAtProof||0))<MAX_MEASUREMENT_REARMS && at-cap.lastAt>=MEASUREMENT_REARM_MS &&
+        (!cap.viewerNeutral || viewerTrusted(t,raw,at))) {
       cap.attempts=cap.contaminated=cap.retryable=0; cap.rearms++;
       note('zero-actuator-measurement-rearmed',{reason:'fresh-stable-evidence',attempts:cap.rearms});
     }
     if (cap.attempts>=MAX_ATTEMPTS || at-cap.lastAt<(cap.status==='verified'?SETTLE:RETRY_MS)) {reason=cap.attempts>=MAX_ATTEMPTS?'rate-probe-budget-exhausted':'rate-probe-cooldown';return;}
     cap.attempts++; cap.lastAt=at;
-    const limit=catchup?MAX_CATCHUP_COMMAND:MAX_FINE_COMMAND;
+    // One bounded micro trial per direction until a verified quiet lock; no extra retry
+    // budget, and no attempt to excite an already aligned player.
+    if(micro)cap.microUsed=true;
+    const limit=micro||precisionStep?100:catchup?MAX_CATCHUP_COMMAND:MAX_FINE_COMMAND;
     job={player:ytPlayer,at,position:pos,target:t,before:m,beforeRaw:raw,mad,base,rate,roomRate:state.playback.rate,
       reference:window.watchFusionPlayout?.status?.()?.reference, viewerWitness:viewerTrusted(t,raw,at),
-      goal,limit,cap,host:host(),brakeMs:host()?Math.min(goal*.4,cap.tailMs||0):0,ack:null,best:0,evidenceAnchor:null,timer:null};
+      goal,limit,cap,micro,precisionStep,viewerRetention,host:host(),brakeMs:host()?Math.min(goal*.4,cap.tailMs||0):0,ack:null,best:0,evidenceAnchor:null,timer:null};
     if(host())hostProbeUsed=true;
     try {ytPlayer.setPlaybackRate(rate);} catch {finish('rate-change-failed');return;}
-    job.timer=setTimeout(monitor,ACTIVE_PERIOD); samples=[]; pulses++; reason='converging-to-zero';
+    job.timer=setTimeout(monitor,ACTIVE_PERIOD); samples=[]; pulses++; reason=precisionStep?'qualified-precision-step':viewerRetention?'qualified-viewer-retention':'converging-to-zero';
     note('zero-converge-pulse', {errorMs: Math.round(m),rate,durationMs:Math.round(goal/step)});
   }
   function tick() {
     const tickAt=now(); tickGapMs=lastTick===null?null:Math.round(tickAt-lastTick);lastTick=tickAt;
     if(tickGapMs!==null && tickGapMs>=0)maxTickGapMs=Math.max(maxTickGapMs,tickGapMs);
-    if(tickGapMs>=1500)note('runtime-timer-gap',{durationMs:tickGapMs,hidden:document.hidden===true});
-    const next=key(); if(next!==scope || (host()&&(learnedPlayer!==ytPlayer||learnedRoom!==roomId)))reset(next,'new-scope');
+    if(tickGapMs>=1500){finish('rate-timer-overrun');samples=[];retentionLockAt=null;discardPending('runtime-timer-gap');note('runtime-timer-gap',{durationMs:tickGapMs,hidden:document.hidden===true});}
+    const next=key(); if(next!==scope || observedPlayer!==ytPlayer || (host()&&(learnedPlayer!==ytPlayer||learnedRoom!==roomId)))reset(next,'new-scope');
     if(job)return;
     const at=now(), b=blocked();
     if(restoring){
       const r=restoring;
-      if(!host() || r.player!==ytPlayer || r.scope!==scope || otherOwner() || state?.playback?.rate!==r.base) restoring=null;
+      if(r.player!==ytPlayer || r.scope!==scope || otherOwner() || state?.playback?.rate!==r.base) restoring=null;
       else if(Math.abs(rateNow()-r.base)<.015){restoring=null;note('zero-actuator-finished',{reason:'base-rate-confirmed',durationMs:Math.round(at-r.at)});}
       else if(at-r.at>=RESTORE_LIMIT){restoring=null;discardPending('base-rate-unconfirmed');note('zero-actuator-finished',{reason:'base-rate-unconfirmed',durationMs:Math.round(at-r.at)});}
       else{reason='restoring-base-rate';return;}
     }
-    if(b){samples=[];if(pending?.viewerWitness && pending.ack!==null && pending.best>=6 && ['reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(b))pending.interrupted=true; if(!pending?.interrupted || at-pending.endedAt>8000 || !['reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(b))discardPending(b);reason=b;return;}
+    if(b){retentionLockAt=null;samples=[];if(pending?.viewerWitness && pending.ack!==null && pending.best>=6 && ['reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(b))pending.interrupted=true; if(!pending?.interrupted || at-pending.endedAt>8000 || !['reference-not-live','mirror-contradicted','reference-too-uncertain'].includes(b))discardPending(b);reason=b;return;}
     const base=Math.min(2,Math.max(.25,Number(state.playback.rate)||1));
-    if(at-lastAt<SETTLE){samples=[];reason='settling';return;}
-    if(!Number.isFinite(rateNow())||Math.abs(rateNow()-base)>.015){samples=[];discardPending('manual-or-foreign-rate');reason='manual-or-foreign-rate';return;}
+    if(at<displayQuietUntil){samples=[];retentionLockAt=null;reason='display-requalifying';return;}
+    if(at-lastAt<SETTLE){retentionLockAt=null;samples=[];reason='settling';return;}
+    if(!Number.isFinite(rateNow())||Math.abs(rateNow()-base)>.015){retentionLockAt=null;samples=[];discardPending('manual-or-foreign-rate');reason='manual-or-foreign-rate';return;}
     const t=target(),pos=Number(ytPlayer.getCurrentTime?.());
-    if(![t,pos].every(Number.isFinite)){samples=[];discardPending('no-target');reason='no-target';return;}
+    if(![t,pos].every(Number.isFinite)){retentionLockAt=null;samples=[];discardPending('no-target');reason='no-target';return;}
     const e=(t-pos)*1000;lastErrorMs=Math.round(e);
-    samples.push({at,e,pos});samples=samples.filter(s=>at-s.at<=WINDOW);
+    const prev=samples.at(-1);
+    if(prev && (at-prev.at>750 || Math.abs((pos-prev.pos)*1000-(at-prev.at)*base)>45 || Math.abs(e-prev.e)>45)){
+      samples=[];retentionLockAt=null;discardPending('observation-discontinuity');
+    }
+    samples.push({at,e,pos});samples=samples.filter(s=>at-s.at<=WINDOW).slice(-12);
     if(samples.length<8||at-samples[0].at<MIN_SPAN){reason='measuring';return;}
     const values=samples.map(s=>s.e),m=median(values),mad=median(values.map(v=>Math.abs(v-m)));
     medianMs=Math.round(m);madMs=Math.round(mad);
     const elapsed=at-samples[0].at, movement=(pos-samples[0].pos)*1000;
     const stable=mad<=9&&Math.max(...values)-Math.min(...values)<=40&&movement>=elapsed*base*.8&&movement<=elapsed*base*1.2;
+    if((pending?.micro||pending?.precisionStep) && (!microTrusted(t,e,at) || Math.abs((t-pending.target)*1000-(at-pending.at)*base)>8)) discardPending('micro-verification-unqualified');
     if(pending?.interrupted){
       const p=pending, continuous=Math.abs((t-p.target)*1000-(at-p.at)*p.base)<=35;
       if(p.player!==ytPlayer || p.roomRate!==state.playback.rate || at-p.endedAt>8000 || !continuous)discardPending('interrupted-evidence-expired');
@@ -228,25 +290,53 @@
       if(!stable&&at-p.endedAt<8000){reason='rate-verification-measuring';return;}
       const improved=Math.abs(p.before)-Math.abs(m);
       const proven=stable&&at-p.endedAt<=8000&&p.ack!==null&&p.best>=6&&improved>=Math.max(6,2*(p.mad+mad)+2)&&
+        (!p.micro || (mad<=2 && Math.abs(m)<=10 && Math.abs(improved-p.best)<=5 &&
+          Math.max(...values)-Math.min(...values)<=5)) &&
+        (!p.precisionStep || (mad<=2 && Math.abs(improved-p.best)<=5 && Math.abs(m)<Math.abs(p.before) &&
+          Math.sign(m)===Math.sign(p.before) && Math.max(...values)-Math.min(...values)<=5)) &&
+        (!p.viewerRetention || (viewerTrusted(t,m,at) && Math.abs((t-p.target)*1000-(at-p.at)*p.base)<=35 && improved<=p.best+18)) &&
         (!p.interrupted || (improved<=p.best+35 && Math.sign(m)===Math.sign(p.before) && (p.host || viewerTrusted(t,m,at))));
       p.cap.status=proven?'verified':'inconclusive';
-      if(proven){p.cap.attempts=p.cap.contaminated=p.cap.retryable=0;strikes=0;if(host()){
+      if(proven){p.cap.attempts=p.cap.contaminated=p.cap.retryable=0;p.cap.rearmAtProof=p.cap.rearms;strikes=0;
+        if(p.micro)p.cap.microProven=true;
+        if(host()){
         hostProbeProven=true;const tail=Math.max(0,Math.min(150*Math.abs(p.rate-p.base),improved-p.best));
         p.cap.tailMs=p.cap.tailMs==null?tail:(p.cap.tailMs+tail)/2;
         if(verifiedRates.size>=16)verifiedRates.delete(verifiedRates.keys().next().value);
         verifiedRates.set(p.base+':'+p.rate,{tailMs:p.cap.tailMs});
       }}else {
+        if(p.micro)p.cap.microProven=false;
         // Clean raw motion with a neutral settled result is ambiguous, not
         // proof of a dead actuator. Do not rearm a no-motion or worsening trial.
-        if(p.host&&stable&&at-p.endedAt<=8000&&p.ack!==null&&p.best>=6&&improved>=-3) p.cap.retryable++;
+        if((p.host || (p.viewerWitness && viewerTrusted(t,m,at) && Math.abs((t-p.target)*1000-(at-p.at)*p.base)<=35)) && stable && at-p.endedAt<=8000 &&
+            p.ack!==null && p.best>=6 && improved>=-3 && p.cap.retryable<p.cap.attempts) {
+          p.cap.retryable++;if(!p.host)p.cap.viewerNeutral=true;
+        }
         strikes++;if(host())verifiedRates.delete(p.base+':'+p.rate);
       }
       lastTrial={...lastTrial,verdict:p.cap.status,verificationReason:proven?'settled-improvement':'settled-insufficient-evidence',residualMs:Math.round(m),improvementMs:Math.round(improved)};
       note('zero-actuator-verified',{reason:p.cap.status,beforeMs:Math.round(p.before),residualMs:Math.round(m),progressMs:Math.round(improved)});
       pending=null;
     }
-    if(!stable){reason='measurement-jitter';return;}
-    if(Math.abs(m)<=ENTER){reason='zero-band';return;}
+    if(!stable){retentionLockAt=null;reason='measurement-jitter';return;}
+    if(Math.abs(m)<=ENTER){
+      // A genuinely quiet, continuously measured new lock earns another small
+      // trim in the SAME direction. A lock flag or hidden interval never does.
+      const quiet=host() && Math.abs(m)<=10 && mad<=2 && Math.abs(e-m)<=3 &&
+        Math.max(...values)-Math.min(...values)<=5 && microTrusted(t,e,at);
+      if(!quiet)retentionLockAt=null;
+      else {
+        if(retentionLockAt===null)retentionLockAt=at;
+        if(at-retentionLockAt>=RETENTION_LOCK_MS)for(const cap of model.values()) {
+          if(cap.microUsed && cap.microProven && cap.status==='verified'){
+            cap.microUsed=false;cap.microProven=false;cap.microRearms=(cap.microRearms||0)+1;
+            note('zero-actuator-measurement-rearmed',{reason:'qualified-fine-lock-retention',attempts:cap.microRearms});
+          }
+        }
+      }
+      reason='zero-band';return;
+    }
+    retentionLockAt=null;
     const catchup=host()&&m>OUTER&&m<=MAX_HOST;
     if(Math.abs(m)>OUTER&&!catchup){reason='outside-fine-band';return;}
     if(host()&&!hostTrusted(t,m,at,catchup)){reason='host-locked-dual-clock-unverified';return;}
@@ -257,13 +347,22 @@
     start(at,t,pos,m,mad,base,rate,model.get(id),catchup);
   }
   setInterval(()=>{try{tick();}catch{reset('','converge-error');}},PERIOD);
-  document.addEventListener('visibilitychange',()=>{if(document.hidden){
+  document.addEventListener('visibilitychange',()=>{retentionLockAt=null;if(document.hidden){
     // Release the actuator immediately; do not erase same-segment budgets
     // or learned capability just because the window lost visibility.
     finish('page-hidden'); discardPending('page-hidden'); samples=[]; reason='page-hidden';
-  }});
-  window.WatchFusionZeroConverge={version:'adaptive-actuator-06jd',isApplying:()=>!!job||!!restoring||now()-lastAt<600,
+  }else{samples=[];reason='foreground-requalifying';if(lastTick===null||now()-lastTick>=PERIOD)try{tick();}catch{reset('','converge-error');}}});
+  let lastDisplayEvent=-Infinity, lastDisplayReason=null;
+  function displayTransition(event) {
+    const at=now(), change=event?.type==='resume'?'page-resume':document.fullscreenElement||document.webkitFullscreenElement?'fullscreen-enter':'fullscreen-exit';
+    if(change===lastDisplayReason&&at-lastDisplayEvent<100)return;lastDisplayEvent=at;lastDisplayReason=change;
+    finish('display-transition'); discardPending('display-transition');samples=[];retentionLockAt=null;
+    displayQuietUntil=at+SETTLE;reason='display-requalifying';
+    note('runtime-resume',{reason:change});
+  }
+  for(const event of ['fullscreenchange','webkitfullscreenchange','resume'])document.addEventListener(event,displayTransition);
+  window.WatchFusionZeroConverge={version:'adaptive-actuator-06jh',isApplying:()=>!!job||!!restoring||now()-lastAt<600,
     diagnostics:()=>({reason,pulses,strikes,tickGapMs,maxTickGapMs,restoring:!!restoring,errorMs:lastErrorMs,medianMs,madMs,active:!!job,
       hostRateRecheck:{used:hostProbeUsed,measuredImprovement:hostProbeProven},
-      actuator:lastTrial,capabilities:[...model].map(([rate,v])=>({rate,status:v.status,attempts:v.attempts,contaminated:v.contaminated,retryable:v.retryable,rearms:v.rearms}))})};
+      actuator:lastTrial,capabilities:[...model].map(([rate,v])=>({rate,status:v.status,attempts:v.attempts,contaminated:v.contaminated,retryable:v.retryable,rearms:v.rearms,microRearms:v.microRearms||0}))})};
 })();

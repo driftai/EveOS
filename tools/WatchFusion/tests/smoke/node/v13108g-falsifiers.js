@@ -10,11 +10,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
-
 const ROOT = process.env.WF_FALSIFIER_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const read = rel => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const exists = rel => fs.existsSync(path.join(ROOT, rel));
-
 function host() {
   let now = 0; const notes = [];
   const ctx = {window: {watchFusionRoomSyncLog: {note: (kind, detail) => notes.push({kind, ...detail})}}, performance: {now: () => now}, console, Math, Number};
@@ -36,8 +34,105 @@ function verify(H, at, ownedMs, resumed, endMs, heldReading = null) {
   }
   return null;
 }
-
 export async function runV13108gChecks(check) {
+  const microEpisode=(mode='clean')=>{
+    const ctx=world(),p=fakePlayer(ctx,{position:29.982});roomGlobals(ctx,p,{targetOffsetSec:0,host:true,uncertaintyMs:11});
+    const events=[];let started=0, witness=null;
+    ctx.watchFusionPlayout.status=()=>({source:'live',reference:'linked-tab',uncertaintyMs:mode==='uncertain'?20:11});
+    ctx.watchPartyClock={precise:()=>mode!=='thin',rttMs:()=>mode==='thin'?58:5};
+    ctx.WatchFusionHostSeekPolicy={sourceBlocker:()=>mode==='disagree'?'host-source-disagrees':null};
+    ctx.watchFusionViewerArbiter.snapshot=()=>p.rate!==1&&witness?witness:({timelineErrorMs:(ctx.watchFusionYouTubeTarget()-p.position)*1000,timelineObservedAtMs:ctx.clock()-(mode==='stale'?500:0)});
+    ctx.watchFusionRoomSyncLog={note:(kind,detail)=>events.push({kind,...detail})};
+    p.setPlaybackRate=r=>{p.calls.push(['rate',r]);if(r!==1){started++;witness=ctx.watchFusionViewerArbiter.snapshot();}p.rate=r;};
+    if(mode==='ignored'||mode==='jump')ctx.tick=at=>{p.position=29.982+at/1000;};
+    if(mode==='jump')p.getCurrentTime=()=>p.position+(p.rate!==1?.034:0);
+    if(mode==='already-close')p.position=29.993;
+    vm.runInContext(read('public/client/zero-converge.js'),ctx);
+    return {ctx,p,events,starts:()=>started,error:()=>Math.abs(ctx.watchFusionYouTubeTarget()-p.position)*1000};
+  };
+  await check('WF06JF-01:qualified 18ms host residual reaches 10ms without a seek and holds',()=>{
+    const L=microEpisode();L.ctx.advance(8000);assert.ok(L.error()<=10,`residual ${L.error()}`);
+    assert.equal(L.starts(),1);assert.equal(L.p.rate,1);
+    assert.ok(L.events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'));
+    for(let i=0;i<20;i++){L.ctx.advance(1000);assert.ok(L.error()<=10);}
+    assert.ok(L.p.calls.every(([k])=>k==='rate'));
+  });
+  await check('WF06JF-02:small trim excludes thin stale disputed uncertain and already close clocks',()=>{
+    for(const mode of ['thin','stale','disagree','uncertain','already-close']){
+      const L=microEpisode(mode);L.ctx.advance(30000);assert.equal(L.starts(),0,mode);assert.equal(L.p.rate,1);
+    }
+  });
+  await check('WF06JF-03:short acknowledged ignored or jumped samples cannot certify motion or repeat',()=>{
+    for(const mode of ['ignored','jump']){
+      const L=microEpisode(mode);L.ctx.advance(100000);assert.equal(L.starts(),1,mode);assert.equal(L.p.rate,1);
+      assert.ok(!L.events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'),mode);
+      assert.ok(L.error()>=17&&L.error()<=19,mode);
+    }
+  });
+  await check('WF06JF-04:micro trim releases on reference loss and cannot certify a displaced settled target',()=>{
+    for(const mode of ['veto','shift']){
+      const L=microEpisode();L.ctx.advance(2250);assert.equal(L.p.rate,1.25);
+      if(mode==='veto')L.ctx.WatchFusionHostSeekPolicy.sourceBlocker=()=> 'host-source-disagrees';
+      else L.ctx.setTimeout(()=>{L.ctx.watchFusionYouTubeTarget=()=>30+L.ctx.clock()/1000+.008;},75);
+      L.ctx.advance(10000);assert.equal(L.p.rate,1);assert.equal(L.starts(),1);
+      assert.ok(!L.events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'),mode);
+    }
+  });
+  await check('WF06JG-01:verified micro trim rearms only after quiet fine lock and corrects a new same-direction drift',()=>{
+    const L=microEpisode();L.ctx.advance(24000);assert.equal(L.starts(),1);assert.ok(L.error()<=10);
+    L.p.position=L.ctx.watchFusionYouTubeTarget()-.018;L.ctx.advance(8000);
+    assert.ok(L.error()<=10,`retained residual ${L.error()}`);assert.equal(L.starts(),2);assert.equal(L.p.rate,1);
+    assert.equal(L.events.filter(e=>e.reason==='qualified-fine-lock-retention').length,1);
+    assert.ok(L.p.calls.every(([k])=>k==='rate'));
+  });
+  await check('WF06JG-02:no micro rearm on hidden interval or unverified fine lock',()=>{
+    for(const mode of ['hidden','untrusted']){
+      const L=microEpisode();L.ctx.advance(8000);assert.equal(L.starts(),1);assert.ok(L.error()<=10);
+      if(mode==='hidden')L.ctx.document.hidden=true;
+      else L.ctx.watchFusionViewerArbiter.snapshot=()=>({timelineErrorMs:100,timelineObservedAtMs:L.ctx.clock()});
+      L.ctx.advance(25000);L.ctx.document.hidden=false;
+      L.ctx.watchFusionViewerArbiter.snapshot=()=>({timelineErrorMs:(L.ctx.watchFusionYouTubeTarget()-L.p.position)*1000,timelineObservedAtMs:L.ctx.clock()});
+      L.p.position=L.ctx.watchFusionYouTubeTarget()-.018;L.ctx.advance(8000);assert.equal(L.starts(),1,mode);
+      assert.equal(L.p.rate,1);assert.ok(!L.events.some(e=>e.reason==='qualified-fine-lock-retention'));
+    }
+  });
+  const retentionEpisode=(mode='clean')=>{
+    const ctx=world(),p=fakePlayer(ctx,{position:29.921});roomGlobals(ctx,p,{targetOffsetSec:0,uncertaintyMs:30});
+    const events=[];let starts=0;
+    ctx.watchFusionPlayout.status=()=>({source:'live',reference:'linked-tab',sourcePhaseMs:0,uncertaintyMs:30,anchorPositionMs:30000,anchorAt:1.7e12,rate:1,phaseMs:0});
+    ctx.watchFusionPlayout.hasSourceReference=()=>mode!=='unqualified';
+    ctx.watchFusionViewerArbiter.snapshot=()=>({timelineErrorMs:(ctx.watchFusionYouTubeTarget()-p.position)*1000,timelineObservedAtMs:ctx.clock()});
+    ctx.watchFusionRoomSyncLog={note:(kind,detail)=>events.push({kind,...detail})};
+    p.setPlaybackRate=r=>{p.calls.push(['rate',r]);if(r!==1)starts++;else if(p.rate!==1&&starts<=3){p.position=ctx.watchFusionYouTubeTarget()-.079;}p.rate=r;};
+    if(mode==='ignored')ctx.tick=at=>{p.position=29.921+at/1000;};
+    if(mode==='timer-overrun'){const set=ctx.setTimeout;ctx.setTimeout=(fn,ms)=>set(fn,ms===50?1000:ms);}
+    vm.runInContext(read('public/client/zero-converge.js'),ctx);
+    return {ctx,p,events,starts:()=>starts,error:()=>Math.abs(ctx.watchFusionYouTubeTarget()-p.position)*1000};
+  };
+  await check('WF06JG-03:qualified TV 79ms plateau gets a bounded fresh trial after neutral measured motion',()=>{
+    const L=retentionEpisode();L.ctx.advance(115000);
+    assert.ok(L.starts()>=4&&L.starts()<=6,`starts ${L.starts()}`);assert.ok(L.error()<=50,`residual ${L.error()}`);
+    assert.ok(L.events.some(e=>e.kind==='zero-actuator-measurement-rearmed'&&e.reason==='fresh-stable-evidence'));
+    assert.ok(L.events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'));assert.equal(L.p.rate,1);
+    assert.ok(L.p.calls.every(([k])=>k==='rate'));
+  });
+  await check('WF06JG-04:ignored or unqualified TV plateau cannot earn extra neutral-motion budget',()=>{
+    for(const mode of ['ignored','unqualified']){
+      const L=retentionEpisode(mode);L.ctx.advance(140000);assert.ok(L.starts()<=3,mode);assert.equal(L.p.rate,1);
+      assert.ok(!L.events.some(e=>e.kind==='zero-actuator-measurement-rearmed'),mode);
+      assert.ok(!L.events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'),mode);
+    }
+  });
+  await check('WF06JG-05:qualified viewer retention releases immediately on fresh-source loss',()=>{
+    const L=retentionEpisode();L.ctx.advance(2250);assert.equal(L.p.rate,1.25);
+    L.ctx.watchFusionPlayout.hasSourceReference=()=>false;L.ctx.advance(50);
+    assert.equal(L.p.rate,1);assert.ok(L.events.some(e=>e.reason==='viewer-retention-reference-lost'));
+    assert.ok(!L.events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'));
+  });
+  await check('WF06JG-06:late timer restores normal rate without certifying the overrun',()=>{
+    const L=retentionEpisode('timer-overrun');L.ctx.advance(3300);assert.equal(L.p.rate,1);
+    assert.ok(L.events.some(e=>e.reason==='rate-timer-overrun'));assert.ok(!L.events.some(e=>e.kind==='zero-actuator-verified'));
+  });
   // A TV that actually changes speed can lose reference confidence before the
   // settled window. Repeated temporary vetoes must not strand a real residual.
   const viewerEpisode=(mode='clean')=>{
@@ -113,7 +208,6 @@ export async function runV13108gChecks(check) {
       assert.equal(ctx.WatchFusionZeroConverge.diagnostics().hostRateRecheck.measuredImprovement,false,mode);
     }
   });
-
   await check('V13108G-01:trace-attempt-1-worse-landing-stops-the-actuator-instead-of-retrying', () => {
     const {H, notes, kinds} = host();
     const t1 = drive(H, {errorMs: 327}, 2000, 12000);
@@ -129,7 +223,6 @@ export async function runV13108gChecks(check) {
     assert.equal(H.diagnostics().attempts, 1);
     assert.ok(!kinds().includes('host-source-settled'));
   });
-
   await check('V13108G-02:a-held-player-reading-and-a-brief-dip-never-count-as-landing', () => {
     const {H} = host();
     const t2 = drive(H, {errorMs: 434}, 2000, 12000);
@@ -147,7 +240,6 @@ export async function runV13108gChecks(check) {
     assert.equal(d.outcome, 'solo-source-no-progress'); assert.notEqual(d.stage, 'settled');
     assert.equal(drive(b.H, {errorMs: 520}, t + 9500, t + 60000), null, 'never amplified into another attempt');
   });
-
   await check('V13108G-03:measured-progress-keeps-the-bounded-retry-and-settles', () => {
     const {H, notes} = host();
     const t1 = drive(H, {errorMs: 600}, 2000, 12000);

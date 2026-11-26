@@ -11,12 +11,11 @@
   // Correction burst: 500 ms snapshots for 6 s reveal landing/rebound; local-only, normal cadence 4.5 s.
   const BURST = /^(?:host-source-(?:rejoin-accepted|landing-incomplete|backoff|settled)|host-rejoin-accepted|rejoin-landing|zero-converge-pulse)$/;
   let burstUntil = -Infinity, lastHealthKey = '', lastHealthCritical = false;
-  let entries = [], events = [], roomScope = '', lastPeers = new Map(), lastKey = '', lastAt = 0, requestAt = -Infinity;
+  let entries = [], events = [], roomScope = '', lastPeers = new Map(), lastRowsByMember = new Map(), lastKey = '', lastAt = 0, requestAt = -Infinity;
   let lastRendered = '', lastSegmentKey = '', segmentSequence = 0;
   let observedSong = 0, lastSongKey = '', trackSummaries=[], previousActivity=null;
   let plateauScope = '', plateauSamples = [];
   const finite = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : null;
-  const memberName = id => (state?.members || []).find(m => m.id === id)?.name || 'Viewer';
   // Explicit opt-in title in copied diagnostics, never a URL, artwork, token, or full metadata blob.
   const title = value => typeof value === 'string' ? value.replace(/(?:https?:\/\/|www\.)\S+/gi,'[link]').replace(/[\u0000-\u001f\u007f]/g,' ').trim().slice(0,110)||null : null;
   const timeMs = sec => Number.isFinite(sec) && sec>=0 && sec<43200 ? Math.round(sec*1000) : null;
@@ -154,7 +153,7 @@
       || /^(?:viewer-stalled-while-playing|viewer-warming-after-play|stall-recovery-exhausted|auto-correction-suspended|rejoin-|stall-kick|settling|tv-decoder-settling)/.test(peer.recentCorrection || '')
       || peer.decoderRecovery?.outcome === 'terminal-recovery-spent';
   }
-  function strip(peer, now, coordination, commonRoomMs) {
+  function strip(peer, now, coordination, commonRoomMs, names) {
     const projected = window.WatchFusionPrecisionPolicy?.comparisonPosition(peer,now,state?.playoutSegment);
     const rawPhase = finite(peer.positionMs - peer.roomPositionMs);
     const targetError = Number.isFinite(peer.targetPositionMs) ? finite(peer.positionMs - peer.targetPositionMs) : null;
@@ -200,7 +199,7 @@
       Number.isFinite(targetError) && Math.abs(targetError)<=50;
     const recoveryMeaning=peer.hostRecovery?.outcome==='no-healthy-peer-witness'
       ? (hostInBand?'not-needed-host-in-band':'no-qualified-peer-witness') : null;
-    return {device:memberName(peer.member), role:peer.member===state?.hostId?'host':'viewer',
+    return {device:names.get(peer.member)||'Viewer', role:peer.member===state?.hostId?'host':'viewer',
       hostRecoveryMeaning:recoveryMeaning, playing:peer.playing, buffering:peer.buffering,
       reportAgeMs:reportAge, playerOffsetMs:live&&!unverifiedDecoder?rawPhase:null,
        rawOffsetMs:rawPhase, comparisonOffsetMs:live&&!unverifiedDecoder&&!['held','slow','jumped'].includes(peer.sensor?.timelineState)&&Number.isFinite(projected)&&Number.isFinite(commonRoomMs)?finite(projected-commonRoomMs):null, targetErrorMs:live&&!unverifiedDecoder?targetError:null, sourceErrorMs:peer.sensor?.clockState==='bounded' ? window.watchFusionPlayout?.sourceErrorMs?.(peer, coordination, now) ?? null : null, adjustmentMs:finite(peer.adjustmentMs),
@@ -236,7 +235,11 @@
   function emit(now, peers, coordination, roster) {
     recordSegment(); const room = state?.playback, anchorAt = room?.projectedAt ?? state?.serverTime, commonRoomMs = Number.isFinite(room?.position)&&Number.isFinite(anchorAt)&&Number.isFinite(room.rate)&&room.rate>0 ? room.position*1000+(!room.paused&&!room.ended?Math.max(0,now-anchorAt)*room.rate:0) : null;
     const localId=session?.publicId??(typeof isHost==='function'&&isHost()?state?.hostId:session?.memberId);
-    const rows = peers.map(p => strip(p, now, coordination, commonRoomMs)), localRow=rows[peers.findIndex(p=>p.member===localId)];
+    const names=new Map((state?.members||[]).map(m=>[m.id,m.name]));
+    // Departed members cannot accumulate diagnostic state indefinitely. Retain current reporters even during roster propagation.
+    const reportingIds=new Set(peers.map(p=>p.member));for(const id of lastPeers.keys())if(!names.has(id)&&!reportingIds.has(id))lastPeers.delete(id);
+    const rows = peers.map(p => strip(p, now, coordination, commonRoomMs, names)), localRow=rows[peers.findIndex(p=>p.member===localId)];
+    const nextRowsByMember=new Map(peers.map((p,i)=>[p.member,rows[i]]));
     rows.sort((a,b) => a.device.localeCompare(b.device));
     const relative = group(rows), linkedSource = linkedSourceEvidence(peers,coordination,now);
     const playbackPlateau = plateauEvidence(rows,relative,coordination,now);
@@ -266,9 +269,9 @@
       row.groupPhase !== entries.at(-1)?.groupPhase || row.timelinePhase !== entries.at(-1)?.timelinePhase ||
       row.linkedSourceEvidence?.audioRoute !== entries.at(-1)?.linkedSourceEvidence?.audioRoute ||
       row.linkedSourceEvidence?.mode !== entries.at(-1)?.linkedSourceEvidence?.mode || row.linkedSourceEvidence?.sourcePlayerSilenced !== entries.at(-1)?.linkedSourceEvidence?.sourcePlayerSilenced ||
-      row.expectedMemberCount !== entries.at(-1)?.expectedMemberCount || row.roster?.members !== entries.at(-1)?.roster?.members || row.outputs !== entries.at(-1)?.outputs || row.roster?.reporting !== entries.at(-1)?.roster?.reporting || rows.some(p=>{const q=entries.at(-1)?.peers?.find(x=>x.device===p.device);return q&&(q.startupPhase!==p.startupPhase||q.audioReadiness!==p.audioReadiness||q.decoderRecovery?.outcome!==p.decoderRecovery?.outcome||q.decoderRecovery?.steps!==p.decoderRecovery?.steps||((q.action==='tv-decoder-settling')!==(p.action==='tv-decoder-settling')));});
+      row.expectedMemberCount !== entries.at(-1)?.expectedMemberCount || row.roster?.members !== entries.at(-1)?.roster?.members || row.outputs !== entries.at(-1)?.outputs || row.roster?.reporting !== entries.at(-1)?.roster?.reporting || [...nextRowsByMember].some(([id,p])=>{const q=lastRowsByMember.get(id);return q&&(q.startupPhase!==p.startupPhase||q.audioReadiness!==p.audioReadiness||q.decoderRecovery?.outcome!==p.decoderRecovery?.outcome||q.decoderRecovery?.steps!==p.decoderRecovery?.steps||((q.action==='tv-decoder-settling')!==(p.action==='tv-decoder-settling')));});
     if (!changed && now - lastAt < (performance.now() < burstUntil ? 500 : lastHealthCritical ? 1100 : 4500)) return;
-    lastKey = key; lastAt = now; previousActivity=activity;
+    lastKey = key; lastAt = now; previousActivity=activity;lastRowsByMember=nextRowsByMember;
     row.localRuntime=runtimeEvidence(); entries.push(row); summarizeTrack(row); prune();
     const local=rows.find(p=>p.freeze), health=local?.freeze;
     const healthKey=health ? [health.state,health.guard,health.owner].join(':') : '';
@@ -292,7 +295,7 @@
     if (scope === roomScope) return;
     roomScope = scope;
     entries = []; events = []; trackSummaries=[]; previousActivity=null; droppedSnapshots=droppedEvents=0;
-    lastPeers.clear();
+    lastPeers.clear();lastRowsByMember.clear();
     lastKey = lastRendered = '';lastSegmentKey='';segmentSequence=0;lastHealthKey='';lastHealthCritical=false;observedSong=0;lastSongKey='';plateauScope='';plateauSamples=[];
     window.WatchFusionFreezeTelemetry?.reset?.();
     resetCopy(); lastAt = 0; requestAt = -Infinity; area.value = '';
@@ -424,7 +427,7 @@
     finally {copyBusy=false; if(copy)copy.disabled=false;}
   }
   copy?.addEventListener('click', copyLog);
-  clear?.addEventListener('click', () => {resetCopy();entries=[];events=[];trackSummaries=[];previousActivity=null;lastAt=0;requestAt=-Infinity;droppedSnapshots=droppedEvents=0;lastPeers.clear();lastKey='';lastRendered='';observedSong=0;lastSongKey='';area.value='';render();});
+  clear?.addEventListener('click', () => {resetCopy();entries=[];events=[];trackSummaries=[];previousActivity=null;lastAt=0;requestAt=-Infinity;droppedSnapshots=droppedEvents=0;lastPeers.clear();lastRowsByMember.clear();lastKey='';lastRendered='';observedSong=0;lastSongKey='';area.value='';render();});
   panel.addEventListener('toggle',()=>{if(!panel.open)resetCopy();render();});
   area.addEventListener?.('blur',render);
   for(const [event,kind] of [['visibilitychange','visibility'],['freeze','freeze'],['resume','resume']]) document.addEventListener?.(event,()=>{requestAt=-Infinity;note('runtime-'+kind,{hidden:document.hidden===true});});

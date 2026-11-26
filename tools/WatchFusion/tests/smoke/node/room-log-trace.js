@@ -15,7 +15,7 @@ function loadRoomLog() {
     estimatedServerNow:() => serverNow, setTimeout, console};
   context.window = context;
   vm.runInNewContext(source, context, {filename:'sync-room-log.js'});
-  return {log:context.window.watchFusionRoomSyncLog, advance:ms => {serverNow += ms;}};
+  return {ctx:context,log:context.window.watchFusionRoomSyncLog, advance:ms => {serverNow += ms;}};
 }
 
 export async function runRoomLogChecks(check) {
@@ -36,6 +36,7 @@ export async function runRoomLogChecks(check) {
   await run06jPrecisionChecks(check);
   await runActivityChecks(check);
   await runCopyIsolationChecks(check);
+  await run06jhChecks(check);
 }
 
 // 06j: identical media samples against different private target leases are not a room comparison.
@@ -208,5 +209,77 @@ async function runCopyIsolationChecks(check){
     playerState=2;ctx.onYouTubeStateChange({data:2});assert.equal(controls.length,0);
     ctx.applyingRemote=false;playerState=1;ctx.sampleLinkedYoutubePosition();assert.equal(controls.length,0);
     now+=250;position=50;ctx.sampleLinkedYoutubePosition();assert.deepEqual(controls,[['seek',50]]);
+  });
+}
+
+// 06jh: display lifecycle, 26ms excitation gap, repeat retention, and diagnostic load.
+async function run06jhChecks(check){
+  const episode=(offset=.026,mode='clean',host=true)=>{
+    const ctx=world(),p=fakePlayer(ctx,{position:30-offset}),events=[],listeners={};let starts=0,witness=null;
+    roomGlobals(ctx,p,{targetOffsetSec:0,host,uncertaintyMs:11});
+    ctx.document.addEventListener=(k,fn)=>{(listeners[k]??=[]).push(fn);};
+    ctx.watchFusionPlayout.status=()=>({source:'live',reference:'linked-tab',uncertaintyMs:11,sourcePhaseMs:0,anchorPositionMs:30000,anchorAt:1.7e12,rate:1,phaseMs:0});
+    ctx.watchFusionPlayout.hasSourceReference=()=>true;
+    ctx.watchPartyClock={precise:()=>mode!=='thin',rttMs:()=>mode==='thin'?60:5};
+    ctx.WatchFusionHostSeekPolicy={sourceBlocker:()=>mode==='disputed'?'host-source-disagrees':null};
+    ctx.watchFusionViewerArbiter.snapshot=()=>ctx.ytPlayer.rate!==1&&witness?witness:({timelineErrorMs:(ctx.watchFusionYouTubeTarget()-ctx.ytPlayer.position)*1000,timelineObservedAtMs:ctx.clock()});
+    ctx.watchFusionRoomSyncLog={note:(kind,detail)=>events.push({kind,...detail})};
+    p.setPlaybackRate=r=>{p.calls.push(['rate',r]);if(r!==1){starts++;witness=ctx.watchFusionViewerArbiter.snapshot();}p.rate=r;};
+    if(mode==='jump'||mode==='ignored')ctx.tick=at=>{p.position=30-offset+at/1000;};
+    if(mode==='jump')p.getCurrentTime=()=>p.position+(p.rate!==1?.073:0);
+    vm.runInContext(clientSource('zero-converge'),ctx);
+    return {ctx,p,events,starts:()=>starts,error:()=>Math.abs(ctx.watchFusionYouTubeTarget()-p.position)*1000,display:(on,type='fullscreenchange')=>{ctx.document.fullscreenElement=on?{}:null;for(const fn of listeners[type]||[])fn({type});}};
+  };
+  await check('WF06JH-01:precise 26ms host residual is trimmed without inventing actuator motion',()=>{
+    for(const offset of [.026,.037]){const h=episode(offset);h.ctx.advance(18000);assert.ok(h.error()<=16,`residual ${h.error()}`);assert.equal(h.p.rate,1);
+    assert.ok(h.events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'));assert.ok(h.p.calls.every(([k])=>k==='rate'));}
+  });
+  await check('WF06JH-02:fullscreen interrupts an active trim and preserves spent budget',()=>{
+    const h=episode(.018);h.ctx.advance(2250);assert.equal(h.p.rate,1.25);h.display(true);h.display(true,'webkitfullscreenchange');
+    assert.equal(h.p.rate,1);assert.equal(h.ctx.WatchFusionZeroConverge.diagnostics().actuator.verificationReason,'display-transition');
+    h.ctx.advance(8000);assert.equal(h.starts(),1);assert.ok(!h.events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'));
+    assert.equal(h.events.filter(e=>e.reason==='fullscreen-enter').length,1);h.display(false);assert.ok(h.events.some(e=>e.reason==='fullscreen-exit'));
+  });
+  await check('WF06JH-03:repeated verified micro locks do not exhaust after three lifetime rearms',()=>{
+    const h=episode(.018);for(let i=0;i<6;i++){h.p.position=h.ctx.watchFusionYouTubeTarget()-.018;h.ctx.advance(24000);assert.ok(h.error()<=10,`episode ${i} residual ${h.error()}`);assert.equal(h.p.rate,1);}
+    assert.equal(h.starts(),6);assert.equal(h.events.filter(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified').length,6);
+  });
+  await check('WF06JH-04:precision step rejects a 73ms cached jump and respects clock vetoes',()=>{
+    for(const mode of ['thin','disputed','jump','ignored']){const h=episode(.026,mode);h.ctx.advance(150000);assert.equal(h.p.rate,1);assert.ok(!h.events.some(e=>e.kind==='zero-actuator-verified'&&e.reason==='verified'),mode);assert.ok(h.starts()<=6,mode);if(mode==='thin'||mode==='disputed')assert.equal(h.starts(),0,mode);else {assert.ok(h.starts()>0,mode);if(mode==='jump')assert.ok(h.events.some(e=>e.reason==='implausible-phase-sample'),mode);}}
+  });
+  await check('WF06JH-05:same-segment viewer player replacement discards old capability evidence',()=>{
+    const h=episode(.079,'ignored',false);h.ctx.advance(9000);assert.equal(h.starts(),1);
+    const newPlayer=fakePlayer(h.ctx,{position:h.ctx.watchFusionYouTubeTarget()-.079});newPlayer.last=h.ctx.clock();h.ctx.ytPlayer=newPlayer;
+    h.ctx.advance(250);assert.equal(h.ctx.WatchFusionZeroConverge.diagnostics().capabilities.length,0);
+    h.ctx.advance(9000);assert.ok(Math.abs(h.ctx.watchFusionYouTubeTarget()-newPlayer.position)*1000<50);assert.equal(newPlayer.rate,1);assert.equal(h.p.rate,1);
+  });
+  await check('WF06JH-06:large-room trace retains bounded history across 40 tracks and member churn',()=>{
+    const h=loadRoomLog(),c=h.ctx;c.state.hostId='tv';c.state.playoutSegment=4;c.state.playback={position:1,projectedAt:1000,rate:1,paused:false};c.state.source={videoId:'song0'};let rosterScans=0;
+    c.WatchFusionPrecisionPolicy={comparisonPosition:(p,at)=>p.positionMs+(at-p.sampledAt)*p.rate};
+    for(let i=0;i<1300;i++){h.advance(5000);c.state.source.videoId='song'+Math.floor(i/32);const now=c.estimatedServerNow();
+      c.state.members=Array.from({length:16},(_,j)=>({id:j===0?'tv':j===15?'churn-'+i:'p'+j,name:'Device '+j}));
+      c.state.members.find=function(...args){rosterScans++;return Array.prototype.find.apply(this,args);};
+      const peers=c.state.members.map((m,j)=>({member:m.id,playoutSegment:4,ready:true,playing:true,buffering:false,sampledAt:now,positionMs:now+j,roomPositionMs:now,targetPositionMs:now,rate:1,startupPhase:'fine-locked',audible:true,sensor:{clockState:'bounded',clockBoundMs:5,timelineState:'advancing',audibleOutput:'player'}}));
+      h.log.observe(peers,{reference:'room-clock',source:'live',segment:4},{members:16,reporting:16});h.log.note('runtime-resume',{reason:'fullscreen-enter'});
+    }
+    for(let i=0;i<600;i++)h.log.note('runtime-resume',{reason:'fullscreen-exit'});
+    const r=JSON.parse(h.log.export());assert.equal(r.snapshots.length,1200);assert.equal(r.events.length,1800);assert.equal(r.trackSummaries.length,32);
+    assert.equal(r.retention.droppedSnapshots,100);assert.ok(r.retention.droppedEvents>=100);assert.equal(r.snapshots.at(-1).timelinePlayerCount,16);assert.equal(r.snapshots.at(-1).timelineSpreadMs,15);assert.equal(rosterScans,0);
+  });
+  await check('WF06JH-07:duplicate display names do not invent repeated peer-state transitions',()=>{
+    const h=loadRoomLog(),c=h.ctx;c.state.hostId='tv';c.state.playoutSegment=4;c.state.playback={position:1,projectedAt:1000,rate:1,paused:false};c.state.source={videoId:'song'};c.state.members=[{id:'tv',name:'TV'},{id:'phone',name:'TV'}];
+    c.WatchFusionPrecisionPolicy={comparisonPosition:p=>p.positionMs};
+    const sample=(changed=false)=>{const now=c.estimatedServerNow(),peers=c.state.members.map((m,i)=>({member:m.id,playoutSegment:4,ready:true,playing:true,buffering:false,sampledAt:now,positionMs:now+i,roomPositionMs:now,targetPositionMs:now,rate:1,startupPhase:i&&!changed?'decoder-confirmed':'fine-locked',audible:true,sensor:{clockState:'bounded',clockBoundMs:5,timelineState:'advancing',audibleOutput:'player'}}));h.log.observe(peers,{reference:'room-clock',source:'live',segment:4},{members:2,reporting:2});};
+    sample();h.advance(500);sample();assert.equal(JSON.parse(h.log.export()).snapshots.length,1);h.advance(500);sample(true);assert.equal(JSON.parse(h.log.export()).snapshots.length,2);
+  });
+  await check('WF06JH-08:40 new video scopes each qualify independently without inherited correction state',()=>{
+    const h=episode(.018);for(let i=0;i<40;i++){const video='video'+i;h.ctx.state.source.videoId=h.p.videoId=video;h.ctx.state.playoutSegment++;h.p.position=h.ctx.watchFusionYouTubeTarget()-.018;h.ctx.advance(9000);assert.ok(h.error()<=10,`video ${i}`);assert.equal(h.p.rate,1);assert.equal(h.ctx.WatchFusionZeroConverge.diagnostics().pulses,1);}
+    assert.equal(h.starts(),40);assert.ok(h.p.calls.every(([k])=>k==='rate'));
+  });
+  await check('WF06JH-09:measurement retry budget renews only after verified improvement',()=>{
+    const h=episode(.079,'clean',false),original=h.p.setPlaybackRate;let startsAt=0;
+    h.p.setPlaybackRate=r=>{if(r===1&&h.p.rate!==1&&h.starts()-startsAt<=3)h.p.position=h.ctx.watchFusionYouTubeTarget()-.079;original(r);};
+    for(let i=0;i<2;i++){startsAt=h.starts();h.p.position=h.ctx.watchFusionYouTubeTarget()-.079;h.ctx.advance(125000);assert.ok(h.error()<=50,`episode ${i} residual ${h.error()}`);assert.ok(h.starts()-startsAt>=4&&h.starts()-startsAt<=6);assert.equal(h.p.rate,1);}
+    assert.equal(h.events.filter(e=>e.reason==='fresh-stable-evidence').length,2);
   });
 }
