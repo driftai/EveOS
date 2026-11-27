@@ -6,6 +6,10 @@ const path = require('node:path');
 const terminal = require('./machine-spaces-terminal-qualify');
 
 const CONTROL_TESTS = Object.freeze([
+  'tests/chatgpt-continuity.test.js',
+  'tests/chatgpt-continuity-state.test.js',
+  'tests/publication-preflight.test.js',
+  'tests/deterministic-test-evidence.test.js',
   'tests/provider-content-rehydration.test.js',
   'tests/dex-origin-finalization.test.js',
   'tests/provider-control-origin-race.test.js',
@@ -26,16 +30,8 @@ const CONTROL_TESTS = Object.freeze([
 ]);
 
 function runControlTests() {
-  const result = spawnSync(process.execPath, ['--test', ...CONTROL_TESTS], {
-    cwd: process.cwd(), encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024
-  });
-  return {
-    status: result.status === 0 ? 'PASS' : 'FAIL',
-    exitCode: result.status,
-    tests: [...CONTROL_TESTS],
-    stdout: String(result.stdout || '').trim(),
-    stderr: String(result.stderr || '').trim()
-  };
+  const result = require('./deterministic-test-evidence.cjs').run(CONTROL_TESTS, { cwd: process.cwd() });
+  return { ...result, tests: [...CONTROL_TESTS] };
 }
 
 function runExternalAdapterLive(enabled) {
