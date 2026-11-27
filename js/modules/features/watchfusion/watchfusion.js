@@ -13,7 +13,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     let detachedWindow = null;
     let detachedPresence = false;
     let detachedPresenceUrl = '';
-    let runtimePollTimer = null;
+    let runtimePollTimer = null, refreshFlight = null, originUpgrade = null, lastOriginErrorAt = 0, lastOriginCheckAt = 0;
 
     function registryPort(name, fallback = 0) {
         return Number(window.EveOSPortRegistry?.get?.(name, fallback)) || Number(fallback) || 0;
@@ -250,20 +250,25 @@ window.EveWatchFusion = window.EveWatchFusion || {};
         });
         return overlay;
     }
-    async function refresh(options = {}) {
+    function refresh(options = {}) {
+        if (refreshFlight) return options.reloadUi || options.force ? refreshFlight.then(() => refresh(options)) : refreshFlight;
+        refreshFlight = refreshOnce(options).finally(() => { refreshFlight = null; }); return refreshFlight;
+    }
+    async function refreshOnce(options = {}) {
         ensureOverlay();
         let controlled = null;
         try {
             controlled = await request('/api/watchfusion/status');
             controllerAvailable = true;
             controlPortCurrent = sensor()?.matchesControlStatus?.(controlled) !== false;
-            sensor()?.configureExposure?.(controlled);
+            if (controlPortCurrent) sensor()?.configureExposure?.(controlled);
         } catch {
             controllerAvailable = false;
             controlPortCurrent = null;
         }
-        const preferredRuntime = runtimeUrl(controlled || status)?.href;
-        const direct = await sensor()?.probe?.(controlPortCurrent === false ? null : preferredRuntime);
+        const h=sensor()?.heartbeatState?.(), activeUrl=h?.embedded?h.embeddedUrl:h?.detached?h.detachedUrl:'';
+        const preferredRuntime = sensor()?.isCanonical?.(activeUrl) ? activeUrl : runtimeUrl(controlled || status)?.href;
+        const direct = await sensor()?.probe?.(controlPortCurrent === false ? null : preferredRuntime, { retryCanonical: frame?.dataset.loaded !== '1' || options.reloadUi === true });
         if (direct) {
             const controlWasStale = controllerAvailable && (controlPortCurrent === false || controlled?.running !== true);
             status = {
@@ -291,14 +296,30 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                 message: 'Local control is off. You can still browse WatchFusion feature areas; enable control only when you need live runtime actions.'
             };
         }
-        sensor()?.configureExposure?.(status);
+        if (controlPortCurrent !== false) sensor()?.configureExposure?.(status);
+        const selected = embeddedUrl(); let upgrade = false;
+        try { const prior = new URL(h?.embedded ? h.embeddedUrl : frame?.src), next = new URL(selected); upgrade = !!(direct && sensor()?.isCanonical?.(next.origin) && !sensor()?.isCanonical?.(prior.origin) && prior.origin !== next.origin); } catch {}
+        if (status?.running && sensor()?.hasCanonical?.() && direct && !sensor()?.isCanonical?.(direct.origin)) status.message += ' · SSLIP unavailable; temporary fallback in use.';
+        if (upgrade && frame?.dataset.loaded === '1') status.message += ' · SSLIP ready; an unused workspace can recover automatically. Unload active media, then Refresh to switch.';
         renderStatus();
         window.dispatchEvent(new CustomEvent('eve:watchfusion-status', { detail: { ...status } }));
-        if (options.reloadUi === true && status?.running && frame?.dataset.loaded === '1' && !frame.hidden) {
-            window.EveWatchFusionFrameCapabilities?.reload?.(true);
-        }
+        if (upgrade && frame?.dataset.loaded === '1' && !frame.hidden) requestOriginUpgrade(selected, options.reloadUi === true);
+        else if (options.reloadUi === true && status?.running && frame?.dataset.loaded === '1' && !frame.hidden) window.EveWatchFusionFrameCapabilities?.reload?.(true);
         return status;
     }
+    function requestOriginUpgrade(selected, manual) {
+        if (detachedPresence || originUpgrade && Date.now() - originUpgrade.at < 2000 || !manual && Date.now()-lastOriginCheckAt<15000) return;
+        try { const h=sensor()?.heartbeatState?.(), current=new URL(h?.embeddedUrl || frame.src), next=new URL(selected);
+            if (!h?.embedded || !sensor()?.isCandidateOrigin?.(current.origin) || !sensor()?.isCanonical?.(next.origin) || current.origin===next.origin) return;
+            lastOriginCheckAt=Date.now();originUpgrade={at:lastOriginCheckAt,id:window.crypto?.randomUUID?.() || String(Math.random()),origin:current.origin,selected,frameSrc:frame.src};
+            frame.contentWindow.postMessage({source:'EveOS',version:1,type:'watchfusion:origin-idle-check',requestId:originUpgrade.id,manual},current.origin);
+        } catch { originUpgrade=null; }
+    }
+    window.addEventListener('message',event=>{const d=event.data,p=originUpgrade;
+        if(event.source===frame?.contentWindow&&sensor()?.isCandidateOrigin?.(event.origin)&&!sensor()?.isCanonical?.(event.origin)&&d?.source==='WatchFusion'&&d.version===1&&d.type==='watchfusion:origin-error'&&[101,150,153].includes(d.code)&&Date.now()-lastOriginErrorAt>=15000){lastOriginErrorAt=Date.now();void refresh({force:true});return;}
+        if(!p||event.source!==frame?.contentWindow||event.origin!==p.origin||d?.source!=='WatchFusion'||d.version!==1||d.type!=='watchfusion:origin-idle-ready'||d.requestId!==p.id||Date.now()-p.at>2000||frame.src!==p.frameSrc||frame.hidden||detachedPresence)return;
+        originUpgrade=null; if(d.idle===true&&sensor()?.isCanonical?.(new URL(p.selected).origin))frame.src=p.selected;
+    });
     async function setupCore() {
         if (busy) return status;
         busy = true;
@@ -334,7 +355,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
                 frame.dataset.loaded = '';
                 if (!enabled || !status?.running) frame.src = 'about:blank';
             }
-            await refresh();
+            await refresh({force:true});
         } catch (error) {
             status = { ...(status || {}), state: status?.running ? 'running' : 'degraded', message: error?.message || 'WatchFusion lifecycle request failed.' };
         } finally {

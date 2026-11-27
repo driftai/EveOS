@@ -8,7 +8,7 @@ import {
   localCanonicalHostUrl,
   originForRequest,
   preferredLanAddress,
-  logNetworkStartup
+  logNetworkStartup, withNetworkSnapshot
 } from './src/server/network.js';
 import { pruneRooms } from './src/server/room-store.js';
 import { handleMediaRoute } from './src/server/media-routes.js';
@@ -41,7 +41,7 @@ function shouldRedirectToCanonicalHost(req, url) {
 }
 
 export function createServer() {
-  const server = http.createServer(async (req, res) => {
+  async function handleRequest(req, res) {
     try {
       res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
       applyApiCors(req, res);
@@ -81,6 +81,22 @@ export function createServer() {
       console.error(error);
       return json(res, 500, { error: 'server error' });
     }
+  }
+  const server = http.createServer(async (req, res) => {
+    // Only the frequent read-only health/network discovery requests use the
+    // worker snapshot. Privileged setup and other routes retain live authorization.
+    const target = String(req.url || '').split('?')[0];
+    // A direct loopback health check with no browser/forwarded origin needs no
+    // interface enumeration at all; keep local control responsive if discovery is slow.
+    const directLoopbackHealth = target === '/api/health' &&
+      /^(?:127\.0\.0\.1|localhost|127-0-0-1\.sslip\.io)(?::\d+)?$/i.test(String(req.headers.host || '')) &&
+      /^(?:127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/i.test(String(req.socket?.remoteAddress || '')) &&
+      !req.headers.origin && !req.headers['x-forwarded-host'];
+    if (!directLoopbackHealth && (target === '/api/health' || target === '/api/network-info')) {
+      try { return await withNetworkSnapshot(() => handleRequest(req, res)); }
+      catch { return json(res, 503, { error:'Network interface probe unavailable' }); }
+    }
+    return handleRequest(req, res);
   });
 
   attachLiveStreams(server);

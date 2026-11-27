@@ -248,7 +248,7 @@ async function handleBridgeCommand(msg) {
       else await chrome.tabs?.reload?.(id, { bypassCache: true });
       safeSend({ type: 'tab_reloaded', tabId: id }); return;
     }
-    if (msg.type === 'request_tabs') return await publishTabs({ force: true });
+    if (msg.type === 'request_tabs' && Object.prototype.hasOwnProperty.call(msg, 'activationNonce')) { if (typeof msg.activationNonce !== 'string' || !/^[a-f0-9]{32}$/.test(msg.activationNonce) || msg.requestId !== 'activation-witness-'+msg.activationNonce) return; try { const witness = await globalThis.WatchFusionActivationWitness?.(msg.activationNonce); safeSend({ type: 'bridge_activation_witness', requestId: msg.requestId, witness: witness || null }); } catch { safeSend({ type: 'bridge_activation_witness', requestId: msg.requestId, witness: null }); } return; } if (msg.type === 'request_tabs') return await publishTabs({ force: true });
     if (await providerTargetSpawnApi.handle(msg, { chromeApi: chrome, getProvider, waitForTabComplete, ensureProviderAdapter, publishTabs, safeSend })) return;
     if (msg.type === 'ensure_target') {
       const provider = getProvider(msg.providerId);

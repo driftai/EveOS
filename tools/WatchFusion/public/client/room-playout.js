@@ -11,8 +11,10 @@
   function render() {
     if (!health) return;
     const available = roomKey() && supportedPlayback();
-    health.hidden = !available;
-    window.watchFusionSyncCenter?.setVisible(available);
+    const solo = window.WatchFusionSoloDiagnostics?.active?.() === true;
+    health.hidden = !available && !solo;
+    window.watchFusionSyncCenter?.setVisible(available || solo);
+    try { window.WatchFusionSoloDiagnostics?.render?.(); } catch {}
     if (!available) {if(lifecycleKick!==null)clearTimeout(lifecycleKick);lifecycleKick=null;lastTransportKey=null;return;}
     const lifecycle = roomKey() + ':' + (playing()?'play':'pause');
     if (lifecycle !== lastTransportKey) {

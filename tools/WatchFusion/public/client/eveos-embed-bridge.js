@@ -27,7 +27,22 @@
   let requestAttempts = 0;
   let reattachPromise = null;
   let incomingTransferId = '';
+  let originUserTouched = false, originLockUntil = 0; for(const type of ['pointerdown','keydown','touchstart','click']) window.addEventListener(type,event=>{if(Date.now()<originLockUntil){event.preventDefault();event.stopImmediatePropagation();return;}if(event.isTrusted)originUserTouched=true;},true);
   const completedTransferIds = new Set();
+  const CLIENT_REVISION='solo12', refreshKey='watchfusion:iframe-refresh-revision';
+  let refreshVerified=false, refreshChecking=false;
+  function refreshIdle(){try{return role==='embedded'&&active&&!applying&&!pendingTransfer&&!!sessionId&&['/','/index.html'].includes(location.pathname)&&!roomId&&!(typeof roomFromUrl==='function'&&roomFromUrl())&&!window.watchFusionLinkedTab?.active?.()&&state?.source?.kind==='ready'&&!sourceInputDirty&&!document.body.inert&&Date.now()>=originLockUntil&&!window.__watchFusionContinuityApplying;}catch{return false;}}
+  async function checkClientRevision(){
+    if(role!=='embedded'||refreshChecking||document.hidden)return;refreshChecking=true;
+    try{
+      const prior=sessionStorage.getItem(refreshKey);if(!prior&&!refreshIdle())return;
+      const res=await fetch('/api/health',{cache:'no-store',signal:AbortSignal.timeout(3000)});if(!res.ok)return;const health=await res.json(),revision=health.iframeClientRevision;
+      if(health.app!=='WatchFusion'||health.ok!==true||typeof revision!=='string'||!/^solo[0-9]+(?:-r[0-9]+)?$/.test(revision))return;
+      if(revision===CLIENT_REVISION){if(prior===revision){sessionStorage.removeItem(refreshKey);refreshVerified=performance.getEntriesByType?.('navigation')?.[0]?.type==='reload';}return;}
+      if(prior===revision||!refreshIdle())return;
+      sessionStorage.setItem(refreshKey,revision);originLockUntil=Date.now()+2200;location.reload();
+    }catch{}finally{refreshChecking=false;}
+  }
 
   function makeId() {
     try {
@@ -168,6 +183,15 @@
     if (!eveHost || event.source !== eveHost) return;
     const data = event.data;
     if (!data || data.source !== 'EveOS' || data.version !== 1) return;
+
+    if (data.type === 'watchfusion:origin-idle-check') {
+      if (role !== 'embedded' || !active || applying || pendingTransfer || typeof data.requestId !== 'string' || data.requestId.length > 100) return;
+      let idle = false;
+      try { idle = (data.manual === true || !originUserTouched) && ['/', '/index.html'].includes(location.pathname) && !roomId && !(typeof roomFromUrl === 'function' && roomFromUrl()) && !window.watchFusionLinkedTab?.active?.() && state?.source?.kind === 'ready' && !sourceInputDirty && !document.body.inert && Date.now()>=originLockUntil && !window.__watchFusionContinuityApplying; } catch {}
+      if (idle) originLockUntil=Date.now()+2200;
+      eveHost.postMessage({source:'WatchFusion',version:1,type:'watchfusion:origin-idle-ready',requestId:data.requestId,idle}, event.origin === 'null' ? '*' : event.origin);
+      return;
+    }
 
     if (data.type === 'watchfusion:continuity-config') {
       if (data.role !== role || !data.sessionId) return;
@@ -383,10 +407,11 @@
     capture: () => stateBridge?.captureSnapshot?.(),
     reattach: reattachToEveOS
   });
-  window.watchFusionEveBridge = Object.freeze({ heartbeat });
+  window.watchFusionEveBridge = Object.freeze({ heartbeat, refreshVerified:()=>refreshVerified, originFailure(code){if(role==='embedded'&&[101,150,153].includes(code)){try{eveHost.postMessage({source:'WatchFusion',version:1,type:'watchfusion:origin-error',code},'*');return true;}catch{}}return false;} });
 
   ensureReattachButton();
   sampleStorageAccess().finally(heartbeat);
+  if(embedded){void checkClientRevision();window.setInterval(checkClientRevision,5000);}
   window.setInterval(() => {
     ensureReattachButton();
     heartbeat();

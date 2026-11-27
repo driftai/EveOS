@@ -191,7 +191,7 @@
               <details id="syncCenterMore" class="sync-center-more">
                 <summary><span class="sync-center-more-label">Timing &amp; diagnostics</span><span class="sync-center-more-note">Optional · view device details</span><span class="sync-chevron" aria-hidden="true"></span></summary>
                 <div class="sync-center-body">
-                  <div class="sync-center-info"><span class="sync-center-info-mark" aria-hidden="true">i</span><span><strong>Player timing is automatic.</strong> Speaker output latency can differ across devices and is not directly measured by the room clock.</span></div>
+                  <div class="sync-center-info"><span class="sync-center-info-mark" aria-hidden="true">i</span><span><strong>Player timing is automatic.</strong> Speaker output latency is not directly measured by player timeline diagnostics.</span></div>
                   <details id="devicePlaybackTiming" class="device-playback-timing" hidden>
                     <summary><span class="sync-subtitle">Manual offset<span class="sync-sublabel">Only for persistent audio differences on this device</span></span><span id="deviceTimingSummary"></span><span class="sync-chevron" aria-hidden="true"></span></summary>
                     <div class="device-timing-controls">
@@ -243,14 +243,14 @@
                     </div>
                   </details>
                   <details id="syncRoomLog" class="sync-log-panel">
-                    <summary>Room sync log <span aria-hidden="true">·</span> recent timing</summary>
-                    <p class="sync-log-description">Players report timing here automatically. The log flags large or stale offsets and stays in this browser until copied.</p>
+                    <summary>Sync log <span aria-hidden="true">·</span> recent timing</summary>
+                    <p class="sync-log-description">Timing is recorded automatically. The log flags large or stale offsets and stays in this browser until copied.</p>
                     <div class="sync-log-actions">
                       <button id="syncRoomLogCopy" class="secondary" type="button">Copy log</button>
                       <button id="syncRoomLogClear" class="secondary" type="button">Clear</button>
                       <span id="syncRoomLogCount">Gathering timing…</span>
                     </div>
-                    <textarea id="syncRoomLogText" rows="5" readonly spellcheck="false" aria-label="Recent room synchronization activity"></textarea>
+                    <textarea id="syncRoomLogText" rows="5" readonly spellcheck="false" aria-label="Recent synchronization activity"></textarea>
                   </details>
                 </div>
               </details>

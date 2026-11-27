@@ -4,12 +4,37 @@ import { broadcastState, getMember, getRoom, hasRoom, publicState, resolveRoomId
 import { json, readBody } from './http-utils.js';
 import { observeLinkedPlayout } from './presentation-routes.js';
 import { parseYoutubeUrl } from './youtube.js';
+import { networkProbeStats } from './network.js';
 
 const streams = new Map();
 const token = () => crypto.randomBytes(24).toString('hex');
 const send = (socket, data) => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(data)); };
 const text = (value, limit = 200) => String(value || '').slice(0, limit);
 const authorized = (stream, secret) => stream && secret === stream.publisherToken;
+const navigationReasons=new Set(['playlist-row','native-index','native-player','verified-playlist-link','playlist-ambiguous','playlist-adjacent-unavailable','playlist-unverified','verified-indexed-link','playlist-current-ambiguous','playlist-index-missing','playlist-boundary','playlist-selection-mismatch','playlist-index-conflict','playlist-index-target-missing','playlist-panel-missing','native-unavailable','invalid-page','probe-disabled','probe-execution-error','no-source-tab','source-tab-unavailable','source-link-changed','no-execution-ack','probe-delivery-error','source-disconnected','request-conflict']);
+function navigationStatus(socket,id,action,outcome,reason,target='',index=0){
+  if(!Number.isSafeInteger(id)||id<=0||!['next','prev'].includes(action))return;
+  if(!['accepted','rejected','unknown'].includes(outcome))outcome='unknown';
+  if(!navigationReasons.has(reason))reason='no-execution-ack';
+  target=typeof target==='string'&&/^[A-Za-z0-9_-]{11}$/.test(target)?target:'';
+  index=Number.isSafeInteger(index)&&index>0&&index<=999999?index:0;
+  send(socket,{type:'status',status:`wf-navigation-result|${id}|${action}|${outcome}|${reason}|${target}|${index}`});
+}
+function navigationRequest(stream,socket,credential,action,id,at){
+  const requests=stream.navigationRequests??=new Map();
+  for(const [key,request] of requests)if(at-request.at>12000||request.socket.readyState!==WebSocket.OPEN||request.publisher!==stream.publisher)requests.delete(key);
+  if(stream.publisher?.readyState!==WebSocket.OPEN){navigationStatus(socket,id,action,'rejected','source-disconnected');return false;}
+  if(requests.has(id)||requests.size>=16){navigationStatus(socket,id,action,'rejected','request-conflict');return false;}
+  requests.set(id,{socket,credential,action,at,publisher:stream.publisher});return true;
+}
+function navigationResult(stream,publisher,message,at){
+  const request=stream.navigationRequests?.get(message.value);
+  if(!request||request.publisher!==publisher||request.action!==message.action||at-request.at>12000)return;
+  stream.navigationRequests.delete(message.value);
+  const c=request.credential;
+  if(!(roomAccess(c.roomId,c.memberId,stream.id)?.host||(!stream.linkedMemberId&&c.owner)))return;
+  navigationStatus(request.socket,message.value,message.action,message.outcome,message.reason,message.target,message.index);
+}
 export function ownsLinkedSource(room, member, proof) {
   const stream = streams.get(room.linkedSourceId);
   return !!member && !!stream && stream.linkedMemberId === member.id && stream.roomId === room.id
@@ -135,6 +160,18 @@ function relayLinkedPlayout(stream, raw = {}) {
     playing:!state.paused && !state.ended && Math.abs(state.rate - room.playback.rate) < .01, buffering:state.buffering
   }, state.relayReceivedAt);
 }
+// Per-publisher clock-offset floor: excess transit delay is measurable even without a shared wall clock.
+// Reject only negotiated linked-source telemetry; legacy live publishers are unchanged.
+function sourceDelivery(raw,now,state){
+  if(!Number.isSafeInteger(raw?.deliverySeq)||raw.deliverySeq<=0)return null;
+  const seq=raw.deliverySeq,sent=raw.publisherSentAt,sampled=raw.sampledAt;
+  if(seq<=state.seq||!Number.isFinite(sent)||!Number.isFinite(sampled)||sampled<=0||sent<sampled||sent-sampled>900||sent<=state.sent)return {seq,accept:false,lag:0};
+  state.seq=seq;state.sent=sent;const transit=now-sent;
+  state.floor=Math.min(state.floor,transit);const lag=Math.max(0,Math.round(transit-state.floor));
+  const qualified=Number.isFinite(raw.serverSampledAt)&&raw.serverSampledAt>0&&Number.isFinite(raw.uncertaintyMs)&&raw.uncertaintyMs>=0&&raw.uncertaintyMs<=75;
+  const age=qualified?now-raw.serverSampledAt-raw.uncertaintyMs:sent-sampled+lag;
+  return {seq,accept:lag<=900&&age<=900&&(!qualified||now-raw.serverSampledAt>=-50),lag:Math.min(60000,lag)};
+}
 function metadata(value = {}) {
   const pageUrl = /^https?:\/\//i.test(String(value.pageUrl || '')) ? text(value.pageUrl, 2048) : '';
   const relayReceivedAt = Date.now();
@@ -147,6 +184,7 @@ function metadata(value = {}) {
     ...(typeof value.tabMuted === 'boolean' ? {tabMuted:value.tabMuted} : {}), ...(typeof value.sourcePlayerSilenced === 'boolean' ? {sourcePlayerSilenced:value.sourcePlayerSilenced} : {}),
     publisherReceivedAt: Math.max(0, Number(value.publisherReceivedAt) || 0),
     publisherSentAt: Math.max(0, Number(value.publisherSentAt) || 0), relayReceivedAt,
+    ...Object.fromEntries(['probeRefreshes','probeRefreshSkipped','muteAudits','publisherBufferBytes','publisherSkipped','publisherRejected','publisherAckRttMs'].filter(k=>Number.isSafeInteger(value[k])&&value[k]>=0&&value[k]<=1000000).map(k=>[k,value[k]])),
     currentTime: Math.max(0, Number(value.currentTime) || 0), duration: Math.max(0, Number(value.duration) || 0),
     rate: Math.min(4, Math.max(0.25, Number(value.rate) || 1)),
     volume: pageUrl && !Number.isFinite(value.volume) ? null : Math.min(1, Math.max(0, Number(value.volume) || 0)),
@@ -159,9 +197,11 @@ export function attachLiveStreams(server) {
     if (String(req.url).split('?')[0] !== '/live-ws') return;
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws));
   });
+  let loopAt=Date.now(),loopDelay=0,loopDelayAt=0;
+  const loopMonitor=setInterval(()=>{const now=Date.now(),delay=Math.max(0,now-loopAt-250);loopAt=now;if(delay>100||now-loopDelayAt>1500){loopDelay=Math.min(60000,Math.round(delay));loopDelayAt=now;}},250);loopMonitor.unref?.();
   wss.on('connection', socket => {
     let stream, peerId, publisher = false, credential;
-    let count = 0, windowAt = Date.now();
+    let count = 0, windowAt = Date.now();const delivery={seq:0,sent:0,floor:Infinity};
     const authTimer = setTimeout(() => socket.close(1008, 'Authentication required'), 5000);
     socket.on('message', raw => {
       try {
@@ -185,7 +225,7 @@ export function attachLiveStreams(server) {
           } else {
             peerId = crypto.randomUUID(); stream.viewers.set(peerId, socket);
             send(socket, { type: 'ready', iceServers: iceServers(), peer: peerId });
-            send(socket, { type: 'metadata', metadata: { ...stream.metadata, relaySentAt: Date.now() } });
+            if(!stream.metadata.deliverySeq||Date.now()-stream.metadata.relayReceivedAt<=900)send(socket, { type: 'metadata', metadata: { ...stream.metadata, relaySentAt: Date.now() } });
             send(socket, { type: 'status', status: stream.publisher ? 'Connecting live media…' : 'Waiting for source…' });
             send(stream.publisher, { type: 'viewer', peer: peerId });
           }
@@ -201,9 +241,15 @@ export function attachLiveStreams(server) {
           const signal = payload.description ? { description: { type: payload.description.type, sdp: text(payload.description.sdp, 64000) } } : { candidate: payload.candidate };
           send(publisher ? stream.viewers.get(message.peer) : stream.publisher, { type: 'signal', peer: publisher ? message.peer : peerId, signal });
         } else if (publisher && message.type === 'metadata') {
+          const proof=sourceDelivery(message.metadata,receivedAt,delivery);
+          if(proof){send(socket,{type:'status',status:`wf-source-receipt|${proof.seq}|${proof.accept?'accepted':'rejected'}`});if(!proof.accept)return;}
           stream.metadata = metadata(message.metadata);
+          if(proof){Object.assign(stream.metadata,{deliverySeq:proof.seq,relayLagMs:proof.lag,relayLoopDelayMs:loopDelay});
+            if(typeof networkProbeStats==='function'){const n=networkProbeStats();Object.assign(stream.metadata,{relayNetworkProbeMs:n.ms,relayNetworkProbeSequence:n.sequence,relayNetworkProbeAgeMs:n.ageMs});}}
           relayLinkedPlayout(stream, message.metadata);
-          for (const viewer of stream.viewers.values()) send(viewer, { type: 'metadata', metadata: { ...stream.metadata, relaySentAt: Date.now() } });
+          for (const viewer of stream.viewers.values()) {if(proof&&(viewer.bufferedAmount||0)>65536)continue;send(viewer, { type: 'metadata', metadata: { ...stream.metadata, relaySentAt: Date.now() } });}
+        } else if (publisher && message.type === 'navigation-result') {
+          navigationResult(stream,socket,message,receivedAt);
         } else if (!publisher && message.type === 'sync-sample' && stream.roomId) {
           const sample = audioSyncSample(message.sample);
           if (sample) { stream.syncSamples.set(peerId, sample); broadcastAudioSync(stream); }
@@ -212,7 +258,9 @@ export function attachLiveStreams(server) {
           const canControl = roomHost || (!stream.linkedMemberId && credential.owner);
           if (!canControl) return send(socket, { type: 'status', status: 'Only the host controls this live source.' });
           if (!['play', 'pause', 'toggle', 'seek', 'rate', 'volume', 'prev', 'next', 'jump', 'shuffle', 'loop'].includes(message.action)) return;
-          send(stream.publisher, { type: 'control', action: message.action, value: Number(message.value) || 0 });
+          const value=Number(message.value)||0;
+          if(['next','prev'].includes(message.action)&&Number.isSafeInteger(value)&&value>0&&!navigationRequest(stream,socket,credential,message.action,value,receivedAt))return;
+          send(stream.publisher, { type: 'control', action: message.action, value });
         } else if (message.type === 'ping') send(socket, {type:'pong', sentAt:message.sentAt, receivedAt, serverTime:Date.now()});
       } catch { send(socket, { type: 'status', status: 'Invalid live message' }); }
     });
@@ -221,9 +269,11 @@ export function attachLiveStreams(server) {
       if (!stream) return;
       if (publisher && stream.publisher === socket) {
         stream.publisher = null;
+        stream.navigationRequests?.clear();
         for (const viewer of stream.viewers.values()) send(viewer, { type: 'status', status: 'Source disconnected · waiting for it to return' });
       } else if (peerId) {
         stream.viewers.delete(peerId);
+        for(const [id,request] of stream.navigationRequests||[])if(request.socket===socket)stream.navigationRequests.delete(id);
         stream.syncSamples.delete(peerId);
         broadcastAudioSync(stream);
         send(stream.publisher, { type: 'left', peer: peerId });
@@ -239,5 +289,5 @@ export function attachLiveStreams(server) {
       if (Date.now() - stream.at > 120000) dispose(stream);
     }
   }, 30000);
-  timer.unref(); server.on('close', () => { clearInterval(timer); for (const stream of streams.values()) dispose(stream); wss.close(); });
+  timer.unref(); server.on('close', () => { clearInterval(timer);clearInterval(loopMonitor); for (const stream of streams.values()) dispose(stream); wss.close(); });
 }

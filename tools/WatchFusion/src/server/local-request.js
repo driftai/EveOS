@@ -1,4 +1,4 @@
-import os from 'node:os';
+import { networkInterfacesSnapshot } from './network.js';
 
 function hostnameFromHost(value) {
   const raw = String(value || '').split(',')[0].trim();
@@ -21,7 +21,7 @@ function normalizedAddress(value) {
 function hostMachineAddresses() {
   const out = new Set(['127.0.0.1', '::1']);
   try {
-    for (const entries of Object.values(os.networkInterfaces() || {})) {
+    for (const entries of Object.values(networkInterfacesSnapshot() || {})) {
       for (const entry of entries || []) if (entry?.address) out.add(normalizedAddress(entry.address));
     }
   } catch {}

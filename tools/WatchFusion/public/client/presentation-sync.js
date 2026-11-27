@@ -155,7 +155,7 @@
   function updatePanel() {
     const current = identity();
     if (key !== current) { key = current; invalidate(); }
-    panel.hidden = !current;
+    if(!current && window.WatchFusionSoloDiagnostics?.active?.())return; panel.hidden = !current;
     if (!current || !panel.open) return;
     if (proposal?.expiresAt <= estimatedServerNow()) proposal = null;
     if (reference && !capture && Date.now() - reference.recordedAt > 120000) reference = receiver = result = null;

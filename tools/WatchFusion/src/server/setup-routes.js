@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { PROJECT_ROOT, NUVIO_ROOT, NUVIO_DIST, VOXELVISION_ROOT } from './config.js';
 import { json, readBody } from './http-utils.js';
 import { isHostLocalRequest } from './local-request.js';
@@ -19,35 +19,32 @@ function exists(...parts) {
   return fs.existsSync(path.join(...parts));
 }
 
-function commandWorks(command, args = []) {
-  try {
-    const result = spawnSync(command, args, {
-      cwd: PROJECT_ROOT,
-      encoding: 'utf8',
-      windowsHide: true,
-      timeout: 5000,
-      stdio: 'ignore'
-    });
-    return result.status === 0;
-  } catch {
-    return false;
-  }
+function commandWorks(command, args = [], {cwd=PROJECT_ROOT, timeout=5000}={}) {
+  return new Promise(resolve => {
+    try { execFile(command, args, {cwd, timeout, windowsHide:true, maxBuffer:128*1024, shell:false}, error => resolve(!error)); }
+    catch { resolve(false); }
+  });
 }
 
+let toolsProbe = null;
 function youtubeToolsStatus() {
+  if (!toolsProbe) toolsProbe = probeYoutubeTools().finally(() => { toolsProbe = null; });
+  return toolsProbe;
+}
+async function probeYoutubeTools() {
   const tools = path.join(VOXELVISION_ROOT, 'tools');
   const localYtDlp = path.join(tools, 'yt-dlp.exe');
   const localDeno = path.join(tools, 'deno.exe');
   const localFfmpeg = path.join(tools, 'ffmpeg.exe');
   const localFfprobe = path.join(tools, 'ffprobe.exe');
-  const ytDlpReady = exists(localYtDlp) && commandWorks(localYtDlp, ['--version']);
-  const denoReady = exists(localDeno) && commandWorks(localDeno, ['--version']);
+  const ytDlpReady = exists(localYtDlp) && await commandWorks(localYtDlp, ['--version']);
+  const denoReady = exists(localDeno) && await commandWorks(localDeno, ['--version']);
   const nodeMajor = Number.parseInt(String(process.versions.node || '').split('.')[0], 10) || 0;
   const nodeEjsReady = nodeMajor >= 22;
   const javascriptReady = nodeEjsReady || denoReady;
   const javascriptProvider = nodeEjsReady ? `Node ${nodeMajor}` : denoReady ? 'portable Deno' : 'missing';
-  const ffmpegReady = exists(localFfmpeg) && commandWorks(localFfmpeg, ['-version']);
-  const ffprobeReady = exists(localFfprobe) && commandWorks(localFfprobe, ['-version']);
+  const ffmpegReady = exists(localFfmpeg) && await commandWorks(localFfmpeg, ['-version']);
+  const ffprobeReady = exists(localFfprobe) && await commandWorks(localFfprobe, ['-version']);
   return {
     ytDlp: { ready: ytDlpReady, provider: ytDlpReady ? 'portable' : 'missing' },
     javascriptRuntime: { ready: javascriptReady, provider: javascriptProvider, nodeMajor },
@@ -77,7 +74,7 @@ async function setupStatus(req) {
     path.join('public', 'index.html'),
     path.join('public', 'js', 'depth-models.js')
   ].every(name => exists(VOXELVISION_ROOT, name));
-  const youtube = youtubeToolsStatus();
+  const youtube = await youtubeToolsStatus();
   const runtimeDeps = ['ws', 'hls.js'].every(name => exists(PROJECT_ROOT, 'node_modules', name));
   const localRequest = isHostLocalRequest(req);
   const canInstall = process.platform === 'win32' && localRequest;
@@ -175,7 +172,8 @@ async function performInstall(component) {
   throw new Error(`Unknown setup component: ${component}`);
 }
 
-function handleOpenExtensionFolder(req, res) {
+let assemblyProbe = null;
+async function handleOpenExtensionFolder(req, res) {
   if (!isHostLocalRequest(req, { allowedExtensionIds: trustedExtensionIds() })) {
     json(res, 403, { ok: false, error: 'The companion folder can be opened only from the host-local WatchFusion URL.' });
     return true;
@@ -187,10 +185,10 @@ function handleOpenExtensionFolder(req, res) {
     return true;
   }
   if (official) {
-    const assembled = spawnSync(process.execPath, [path.resolve(PROJECT_ROOT, '../extensions/assemble.cjs'), '--write'], {
-      cwd: path.resolve(PROJECT_ROOT, '../..'), encoding: 'utf8', windowsHide: true, timeout: 10000
-    });
-    if (assembled.status !== 0) {
+    if (!assemblyProbe) assemblyProbe = commandWorks(process.execPath, [path.resolve(PROJECT_ROOT, '../extensions/assemble.cjs'), '--write'], {
+      cwd:path.resolve(PROJECT_ROOT, '../..'), timeout:10000
+    }).finally(() => { assemblyProbe = null; });
+    if (!await assemblyProbe) {
       json(res, 500, { ok: false, error: 'Could not prepare the EveOS extension. Run npm run build:eveos-extension and retry.' });
       return true;
     }

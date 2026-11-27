@@ -316,3 +316,122 @@
     diagnostics: () => ({scope, attempted: steps > 0, steps, outcome, healthyProgressMs: Math.round(healthyProgressMs),
       rearmCount, healCount, lastRearmDwellMs, pauseObserved: wasRoomPaused})};
 })();
+
+/* Shared linked-host acquisition: actual identity + motion, bounded local recovery. */
+(() => {
+  let job = null, connectionState=null, reportedScope=null, transportCheck=null;
+  const note = (reason, detail = {}) => window.watchFusionRoomSyncLog?.note?.('linked-acquisition', {reason,...detail});
+  function context(m = window.watchFusionLinkedTab?.metadata?.()) {
+    const l = window.watchFusionLinkedTab, e = l?.soloEvidence?.(), id = window.parseYoutubeInput?.(m?.pageUrl || '');
+    if (!l?.active?.() || !e?.scope || !/^[A-Za-z0-9_-]{11}$/.test(id || '') || (roomId && (!isHost() || followsRoomPlayback()))) return null;
+    if (state?.source?.videoId !== id) return {l,e,m,id,waiting:true};
+    return {l,e,m,id,key:JSON.stringify([roomId||'',e.scope,id])};
+  }
+  function current(c) {return !!c && !c.waiting && job?.key === c.key;}
+  function holding() {const c=context();return !!c && (c.waiting || ytPlayer?.getVideoData?.()?.video_id !== c.id || !current(c) || !job.verified);}
+  function terminal(reason,event) {const c=context();if(!c || c.waiting || pendingVideoId!==c.id || (event?.target && event.target !== ytPlayer))return; if(!current(c)) job={key:c.key,step:0,verified:false,previous:null,sourceSince:null,lastAction:performance.now()};job.terminal=reason;note(reason);}
+  function connection(ready,age,hasSample){
+    const next=!ready?'socket-not-ready':!hasSample?'awaiting-source-sample':age>1800?'source-metadata-stale':'source-transport-healthy';
+    if(next!==connectionState){connectionState=next;note(next,{sampleAgeMs:Math.max(0,Math.round(age||0))});}
+  }
+  function cancelTransport(reason){if(transportCheck){note(reason,{action:transportCheck.action});transportCheck=null;}}
+  // A source ACK is a new authoritative transport intent, not another automatic retry.
+  function confirmedTransport(m,action){
+    const c=context(m),age=Date.now()-Number(m?.sampledAt),p=ytPlayer;
+    if(!c||c.waiting||!c.e.connected||!c.e.matches||!Number.isFinite(age)||age<0||age>900||!['play','pause','seek'].includes(action))return false;
+    const identity=p?.getVideoData?.()?.video_id===c.id,ps=p?.getPlayerState?.(),pos=Number(p?.getCurrentTime?.());
+    note('source-transport-confirmed',{action,status:Number.isFinite(ps)?ps:null,positionMs:Number.isFinite(m.currentTime)?Math.round(m.currentTime*1000):null});
+    if(!identity||!ytPlayerReady||(action==='play'&&(m.paused!==false||m.ended||m.buffering))||(action==='pause'&&m.paused!==true))return false;
+    cancelTransport('local-transport-superseded');const held=!current(c)||!job.verified;
+    if(!held&&((action==='play'&&ps===1)||(action==='pause'&&ps===2)||action==='seek')){transportCheck={key:c.key,action,at:performance.now(),pos,stamp:Number(m.sampledAt),first:null};note('local-transport-observing',{action,status:Number.isFinite(ps)?ps:null});return false;}
+    if(current(c)&&job.terminal&&action!=='pause')return false;
+    if(held&&(action==='play'||action==='seek')) {job={key:c.key,step:0,verified:false,previous:null,sourceSince:null,lastAction:performance.now()};note('transport-rearmed',{action});}
+    c.l.suppressPlaybackEcho?.();
+    try{
+      if(action==='pause')p.pauseVideo?.();
+      else if(action==='play')p.playVideo?.();
+      else {const target=window.WatchFusionLinkedPlaybackSync?.projectedPosition?.(m,Date.now());if(!Number.isFinite(target))return false;p.seekTo?.(Math.max(0,target),true);job.alignSpent=true;job.alignAt=performance.now();}
+      transportCheck={key:c.key,action,at:performance.now(),pos,stamp:Number(m.sampledAt),first:null};note('local-transport-requested',{action,status:Number.isFinite(ps)?ps:null});return true;
+    }catch{note('local-transport-failed',{action});return false;}
+  }
+  function observe(m) {
+    const c=context(m);if(!c){cancelTransport('local-transport-cancelled');job=null;return false;} if(c.waiting){cancelTransport('local-transport-track-changed');return true;}
+    const at=performance.now(), age=Date.now()-Number(m.sampledAt), p=ytPlayer, identity=p?.getVideoData?.()?.video_id===c.id, playing=p?.getPlayerState?.()===1;
+    const pos=Number(p?.getCurrentTime?.()), raw=Number(m.currentTime), stamp=Number(m.sampledAt), rate=Number(m.rate)||1;
+    if(reportedScope!==c.e.scope){reportedScope=c.e.scope;const reference=window.parent&&window.parent!==window?'iframe':'standalone';note('solo07-client-running',{reference});note('solo08-client-running',{reference});note('solo09-client-running',{reference});note('solo10-client-running',{reference});note('solo11-client-running',{reference});note('solo12-client-running',{reference});if(window.watchFusionEveBridge?.refreshVerified?.())note('iframe-refresh-executed',{reference});}if(!current(c)){job={key:c.key,step:0,verified:false,previous:null,sourceSince:null,lastAction:at};note('awaiting-motion');}
+    if(transportCheck){const q=transportCheck,expectedPause=q.action==='pause',expectedPlay=q.action==='play';
+      if(q.key!==c.key||(expectedPause&&m.paused===false)||(expectedPlay&&m.paused===true)){transportCheck=null;note('local-transport-superseded',{action:q.action});}
+      else if(at-q.at<=4200&&identity&&ytPlayerReady&&c.e.connected&&c.e.matches&&age>=0&&age<=900&&stamp>q.stamp&&Number.isFinite(pos)){
+        if(!q.first||at-q.first.at>1800)q.first={pos,at,stamp};
+        const motion=q.first&&stamp>q.first.stamp&&at-q.first.at>=250&&pos-q.first.pos>.08;
+        const stopped=q.first&&stamp>q.first.stamp&&at-q.first.at>=250&&Math.abs(pos-q.first.pos)<.08;
+        const target=window.WatchFusionLinkedPlaybackSync?.projectedPosition?.(m,Date.now());
+        const ps=p?.getPlayerState?.(),landed=q.action==='seek'&&Number.isFinite(target)&&Math.abs(target-pos)<=.65;if(landed&&ps===3&&!q.landed){q.landed=true;note('local-seek-landing',{action:q.action,status:ps,positionMs:Math.round(pos*1000),residualMs:Math.round((pos-target)*1000)});}
+        if((expectedPlay&&playing&&motion)||(expectedPause&&ps===2&&stopped)||(landed&&(ps===1||ps===2))){transportCheck=null;note('local-transport-verified',{action:q.action,status:p?.getPlayerState?.(),ackLatencyMs:Math.round(at-q.at),positionMs:Math.round(pos*1000),residualMs:Number.isFinite(target)?Math.round((pos-target)*1000):null});}
+      }
+      if(transportCheck===q&&(at-q.at>=4200||at-q.at>=2500&&((expectedPlay&&!playing)||(expectedPause&&p?.getPlayerState?.()!==2)))){transportCheck=null;const fresh=identity&&ytPlayerReady&&c.e.connected&&c.e.matches&&age>=0&&age<=900&&stamp>q.stamp;note(fresh?'local-transport-unconfirmed':'local-transport-evidence-lost',{action:q.action,status:p?.getPlayerState?.(),ackLatencyMs:Math.round(at-q.at),positionMs:Number.isFinite(pos)?Math.round(pos*1000):null});}
+    }
+    if(m.paused!==false||m.ended||m.buffering||document.hidden||!c.e.connected||!c.e.matches||c.e.pending||!Number.isFinite(age)||age<0||age>900||!Number.isFinite(raw)){job.previous=null;job.sourceSince=null;job.motionSince=null;job.mismatchSince=null;return !identity || (!job.verified && m.paused===false);}
+    if(job.verified&&!identity){job.verified=false;job.previous=null;job.sourceSince=null;job.motionSince=null;job.lastAction=at;}
+    const prev=job.previous;if(prev&&stamp<=prev.stamp)return !job.verified;
+    const dt=prev?(stamp-prev.stamp)/1000:0, ds=prev?raw-prev.raw:0, elapsed=prev?(at-prev.at)/1000:0, dp=prev?pos-prev.pos:0;
+    const sourceMoving=prev&&dt>0&&dt<=1.8&&ds>=Math.max(.015,dt*rate*.35-.05)&&ds<=dt*rate*1.65+.2;
+    if(!sourceMoving)job.sourceSince=null;else if(job.sourceSince===null)job.sourceSince=prev.at;
+    const localMoving=sourceMoving&&prev.player===p&&prev.identity&&prev.playing&&identity&&playing&&ytPlayerReady&&elapsed>0&&elapsed<=1.8&&Number.isFinite(dp)&&dp>=Math.max(.015,elapsed*.25-.05)&&dp<=elapsed*3+.2;
+    job.previous={at,stamp,raw,pos,player:p,identity,playing};
+    if(job.verified){
+      if(!sourceMoving||localMoving||!identity||!ytPlayerReady){job.mismatchSince=null;return false;}
+      if(job.mismatchSince==null)job.mismatchSince=prev.at;
+      if(at-job.mismatchSince<1400)return false;
+      // Re-enter bounded recovery only after a new measured loss of motion.
+      job={key:c.key,step:0,verified:false,previous:null,sourceSince:null,lastAction:at-3500};note('local-motion-lost',{status:p?.getPlayerState?.()});if(p?.getPlayerState?.()===2&&typeof p.playVideo==='function'){job.step=1;job.lastAction=at;c.l.suppressPlaybackEcho?.();note('play-retry',{attempt:1});try{p.playVideo();}catch{note('attempt-failed',{attempt:1});}}return true;
+    }
+    if(localMoving){if(job.motionSince==null){job.motionSince=prev.at;job.motionSamples=0;}job.motionSamples++;if(at-job.motionSince>=(job.alignSpent?700:900)&&job.motionSamples>=2){
+      if(!job.motionNoted){job.motionNoted=true;note('motion-confirmed',{attempt:job.step,positionMs:Math.round(pos*1000)});}
+      const target=window.WatchFusionLinkedPlaybackSync?.projectedPosition?.(m,Date.now()), gap=target-pos;
+      if(!Number.isFinite(gap))return true;
+      if(Math.abs(gap)>1.25 && !job.alignSpent && !job.terminal && typeof p?.seekTo==='function'){
+        job.alignSpent=true;job.alignAt=at;job.previous=null;job.motionSince=null;c.l.suppressPlaybackEcho?.();
+        note('alignment-requested',{positionMs:Math.round(target*1000),residualMs:Math.round(-gap*1000)});try{p.seekTo(Math.max(0,target),true);}catch{}return true;
+      }
+      if(job.alignSpent&&at-job.alignAt<1800&&Math.abs(gap)>.65)return true;
+      if(Math.abs(gap)>1.25&&job.alignSpent&&!job.terminal){if(at-job.alignAt>=3500){job.motionSince=null; /* bounded existing ladder below */}else return true;}else {job.verified=true;job.terminal=null;note(Math.abs(gap)<=.1?'alignment-confirmed':'alignment-handoff',{positionMs:Math.round(pos*1000),residualMs:Math.round(-gap*1000)});return false;}
+    }else return true;}job.motionSince=null;
+    if(job.terminal||job.sourceSince===null||at-job.sourceSince<3500||at-job.lastAction<[3500,5000,8000,8000][Math.min(job.step,3)])return true;
+    if(job.step>=3){if(!job.exhausted){job.exhausted=true;note('budget-exhausted');setStatus('Linked video could not start locally. Source preserved; reconnect or re-link to retry.');}return true;}
+    const target=window.WatchFusionLinkedPlaybackSync?.projectedPosition?.(m,Date.now());if(!Number.isFinite(target))return true;
+    const step=job.step===0&&job.alignSpent&&at-job.alignAt>=3500&&identity&&playing&&localMoving?(job.step=2):++job.step;job.lastAction=at;job.previous=null;job.sourceSince=null; c.l.suppressPlaybackEcho?.();
+    try {
+      if(step===1&&identity&&ytPlayerReady&&typeof p?.playVideo==='function'){note('play-retry',{attempt:step});p.playVideo();}
+      else if(step<=2&&ytPlayerReady&&typeof p?.loadVideoById==='function'){note('reload-requested',{attempt:step,positionMs:Math.round(target*1000)});p.loadVideoById({videoId:c.id,startSeconds:Math.max(0,target)});}
+      else if(step===3){note('rebuild-requested',{attempt:step,positionMs:Math.round(target*1000)});window.WatchFusionDecoderRescue.rebuildPlayer(c.id,target);}
+      else {note('waiting-player-ready',{attempt:step});}
+    }catch{note('attempt-failed',{attempt:step});}
+    return true;
+  }
+  window.WatchFusionLinkedAcquisition={observe,holding,terminal,confirmedTransport,connection,reset:()=>{cancelTransport('local-transport-cancelled');job=null;connectionState=null;}};
+})();
+
+/* Shared source transition qualification. Page navigation can precede actual media metadata. */
+(() => {
+  let candidate=null, mirrorTimer=null;
+  const id=m=>window.parseYoutubeInput?.(m?.pageUrl||'');
+  const cancelMirror=()=>{if(mirrorTimer!==null)clearTimeout(mirrorTimer);mirrorTimer=null;};
+  const reset=()=>{candidate=null;cancelMirror();};
+  function accept(previous,sample,stamp,now){
+    const next=id(sample),old=id(previous),raw=Number(sample.currentTime),rate=Number(sample.rate)||1;
+    if(!next||!old||next===old){candidate=null;return true;}
+    if(!Number.isFinite(raw)||raw<0||!Number.isFinite(stamp)||!Number.isFinite(now)||now-Number(sample.sampledAt)>900||sample.buffering){candidate=null;return false;}
+    const sameTitle=!!previous.title&&sample.title===previous.title, oldTarget=Number(previous.currentTime)+(sample.sampledAt-Number(previous.sampledAt))/1000*(previous.paused||previous.ended?0:(Number(previous.rate)||1));
+    // Reject the previous track's still-advancing metadata under the new page URL.
+    if(sameTitle&&Number.isFinite(oldTarget)&&Math.abs(raw-oldTarget)<1.5){candidate=null;return false;}
+    const p=candidate;if(p&&p.id===next&&now-p.now<120)return false;const dt=p?(stamp-p.stamp)/1000:0, delta=p?raw-p.raw:0;
+    const coherent=p&&p.id===next&&p.paused===sample.paused&&p.title===sample.title&&dt>0&&dt<=1.8&&now-p.now>=120&&Math.abs(delta-(sample.paused?0:dt*rate))<.45;
+    candidate={id:next,stamp,raw,now,paused:sample.paused,title:sample.title,since:coherent?p.since:now};
+    if(!coherent||now-candidate.since<350)return false;
+    if(sameTitle)sample.title='Matching linked video';candidate=null;return true;
+  }
+  // Coalesce burst arrivals; the latest sample wins. Never defer forced/transport/audio mirrors.
+  function queueMirror(fn){const coalesced=mirrorTimer!==null;cancelMirror();mirrorTimer=setTimeout(()=>{mirrorTimer=null;fn();},80);return coalesced;}
+  window.WatchFusionLinkedTransition={accept,reset,queueMirror,cancelMirror};
+})();

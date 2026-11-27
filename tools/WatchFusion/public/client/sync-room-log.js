@@ -11,7 +11,7 @@
   // Correction burst: 500 ms snapshots for 6 s reveal landing/rebound; local-only, normal cadence 4.5 s.
   const BURST = /^(?:host-source-(?:rejoin-accepted|landing-incomplete|backoff|settled)|host-rejoin-accepted|rejoin-landing|zero-converge-pulse)$/;
   let burstUntil = -Infinity, lastHealthKey = '', lastHealthCritical = false;
-  let entries = [], events = [], roomScope = '', lastPeers = new Map(), lastRowsByMember = new Map(), lastKey = '', lastAt = 0, requestAt = -Infinity;
+  let soloCopyScope = ''; let entries = [], events = [], roomScope = '', lastPeers = new Map(), lastRowsByMember = new Map(), lastKey = '', lastAt = 0, requestAt = -Infinity;
   let lastRendered = '', lastSegmentKey = '', segmentSequence = 0;
   let observedSong = 0, lastSongKey = '', trackSummaries=[], previousActivity=null;
   let plateauScope = '', plateauSamples = [];
@@ -222,7 +222,7 @@
   function render() {
     if (!panel.open) return;
     refreshScope();
-    prune();
+    if(window.WatchFusionSoloDiagnostics?.active?.()){const view=window.WatchFusionSoloDiagnostics.logView();if(manualContent===null&&document.activeElement!==area&&view.display!==lastRendered){area.value=view.display||'Gathering linked timing…';lastRendered=view.display;}if(count)count.textContent=manualContent!==null?'Snapshot held · Ctrl+C to copy · close/reopen log for live view':view.count;return;} prune();
     const recent = entries.slice(-15).map(item => {
       const peers = item.peers.map(p => `${p.device}: ${p.targetErrorMs === null ? 'timing unmeasured; raw ' + (p.rawOffsetMs ?? '?') : 'target ' + p.targetErrorMs}ms · startup ${p.startupWaitMs ?? '?'}ms · ${p.corrections ?? '-'} corrections${p.decoderRecovery?.steps||p.decoderRecovery?.stallMs>=6000?' · recovery '+(p.decoderRecovery.outcome??'unknown')+' ('+(p.decoderRecovery.steps??0)+'/2)':''}${p.signals.length ? ' [' + p.signals.join(',') + ']' : ''}`).join(' / ');
       const h=item.peers.find(p=>p.freeze)?.freeze;
@@ -294,7 +294,7 @@
   }
   function refreshScope() {
     const scope = currentScope();
-    if (scope === roomScope) return;
+    const solo=scope?'':window.WatchFusionSoloDiagnostics?.scopeToken?.()||''; if(solo!==soloCopyScope){soloCopyScope=solo;resetCopy();area.value='';} if (scope === roomScope) return;
     roomScope = scope;
     entries = []; events = []; trackSummaries=[]; previousActivity=null; droppedSnapshots=droppedEvents=0;
     lastPeers.clear();lastRowsByMember.clear();
@@ -310,8 +310,8 @@
     droppedSnapshots+=n-entries.length; droppedEvents+=e-events.length;
   }
   function note(kind, detail={}) {
-    refreshScope();
-    if(!roomScope || !/^(?:ui-intent|source-(?:play|pause|volume|track-transition|seek-confirmed|seek-unconfirmed|seek-retry|transport-unconfirmed|transport-retry|command-timeout|volume-unconfirmed)|embedded-control|mirror-(?:request|applied|expired|anchor-rebased)|room-transition|host-rejoin-(?:gated|triggered|accepted|rejected|settled|incomplete|verifying|retry-armed|budget-exhausted|drift-returned)|playlist-(?:transition|resume-attempt|resume-confirmed|resume-blocked|resume-expired|pause-preserved|pause-deferred|preview-guarded)|solo-sync-one-rejoin|zero-converge-pulse|zero-actuator-(?:finished|verified|verification-lost|sample-rejected|measurement-rearmed)|runtime-(?:visibility|freeze|resume|timer-gap)|host-zero-(?:pulse-gated|rate-recheck-verified)|host-hold-(?:started|result)|tv-next-release-model-adjusted|tv-decoder-(?:reload|rebuild|rearmed|recovered|budget-spent|manual-restart|resumed)|room-audio-(?:unlocked|reapplied|needs-tap|deferred|retry-pending)|startup-prime-result|source-stall-held|host-link-(?:lost|resumed|restore-attempt|denied|suppressed)|host-source-(?:rejoin-triggered|rejoin-accepted|rejoin-refused|settled|landing-incomplete|backoff|contradicted)|mirror-drift-observing|rejoin-landing|correction-deadline-missed|host-background-direct-rejoin|sync-health-state)$/.test(kind)) return;
+    refreshScope(); if(!roomScope){try{window.WatchFusionSoloLinkSync?.transport?.(kind);window.WatchFusionSoloDiagnostics?.note?.(kind,detail);}catch{}return;}
+    if(!roomScope || !/^(?:ui-intent|source-(?:play|pause|volume|track-transition|seek-confirmed|seek-unconfirmed|seek-retry|transport-unconfirmed|transport-retry|command-timeout|volume-unconfirmed)|embedded-control|mirror-(?:request|applied|expired|anchor-rebased)|room-transition|host-rejoin-(?:gated|triggered|accepted|rejected|settled|incomplete|verifying|retry-armed|budget-exhausted|drift-returned)|playlist-(?:transition|resume-attempt|resume-confirmed|resume-blocked|resume-expired|pause-preserved|pause-deferred|preview-guarded)|media-player-error|linked-acquisition|solo-sync-one-rejoin|zero-converge-pulse|zero-actuator-(?:finished|verified|verification-lost|sample-rejected|measurement-rearmed)|runtime-(?:visibility|freeze|resume|timer-gap)|host-zero-(?:pulse-gated|rate-recheck-verified)|host-hold-(?:started|result)|tv-next-release-model-adjusted|tv-decoder-(?:reload|rebuild|rearmed|recovered|budget-spent|manual-restart|resumed)|room-audio-(?:unlocked|reapplied|needs-tap|deferred|retry-pending)|startup-prime-result|source-stall-held|host-link-(?:lost|resumed|restore-attempt|denied|suppressed)|host-source-(?:rejoin-triggered|rejoin-accepted|rejoin-refused|settled|landing-incomplete|backoff|contradicted)|mirror-drift-observing|rejoin-landing|correction-deadline-missed|host-background-direct-rejoin|sync-health-state)$/.test(kind)) return;
     recordSegment();
     const fields={};
     for(const key of ['action','reason','playing','paused','positionMs','sampleAgeMs','sourceAgeMs','volumePct','rate','sequence','ackLatencyMs','roundTripMs','reference','hostErrorMs','peerErrorMs','gapMs','peerCount','observedPeerCount','observedPeerErrorMs','peerSpreadMs','dwellMs','attempts','status','backoffMs','muted','generation','step','errorMs','driftMs','beforeMs','residualMs','progressMs','expectedMs','leadMs','landedShortMs','releaseLeadMs','releaseErrMs','holdMs','startLatencyMs','mirrorDriftMs','sourcePhaseMs','clockGapMs','clockEvidence','sampleClock','relayAgeGapMs','durationMs','playerErrorMs','heldMs','owner','guard','hidden','phaseMs','extraMs','targetProgressMs']) {
@@ -363,7 +363,7 @@
     try {const z=window.WatchFusionZeroConverge?.diagnostics?.(), a=window.watchFusionViewerArbiter?.snapshot?.(); return {hidden:typeof document.hidden==='boolean'?document.hidden:null,zeroReason:typeof z?.reason==='string'&&/^[a-z-]{1,48}$/.test(z.reason)?z.reason:null,tickGapMs:finite(z?.tickGapMs),maxTickGapMs:finite(z?.maxTickGapMs),active:z?.active===true,restoring:z?.restoring===true,probeCount:finite(z?.pulses),medianErrorMs:finite(z?.medianMs),madMs:finite(z?.madMs),arbiterErrorMs:finite(a?.timelineErrorMs),lastVerdict:['verified','inconclusive'].includes(z?.actuator?.verdict)?z.actuator.verdict:null,verificationReason:typeof z?.actuator?.verificationReason==='string'&&/^[a-z-]{1,48}$/.test(z.actuator.verificationReason)?z.actuator.verificationReason:null,residualMs:finite(z?.actuator?.residualMs),improvementMs:finite(z?.actuator?.improvementMs),rateMilli:typeof ytPlayer!=='undefined'?finite(ytPlayer?.getPlaybackRate?.()*1000):null};} catch{return null;}
   }
   function exportPayload() {
-    refreshScope();
+    refreshScope(); if(window.WatchFusionSoloDiagnostics?.active?.())return window.WatchFusionSoloDiagnostics.payload();
     prune(true);
     return {format:'WatchFusion room sync trace v3',generatedAt:new Date().toISOString(),windowMs:MAX_AGE,
       disclosure:'Player timing, source-supplied song titles and durations, user control intents and redacted transitions only; no audio, URLs, tokens or microphone measurements. Titles are included only when the user copies this local log. Up to 32 per-video sampled summaries survive detailed-row expiry; cleared on room change or Clear. Room spread uses a common timestamp and room anchor; individual target and linked-source errors remain separate. Clock-only spread upper estimates omit decoder sampling and output latency. Activity labels distinguish local availability and sampled viewer source-following; missing intervals are not passes. Qualified samples are not a strict error bound. Player timing does not measure speaker latency; clock bounds include unknown asymmetry.',
@@ -399,17 +399,17 @@
     event?.preventDefault?.(); event?.stopPropagation?.();
     refreshScope(); if(copyBusy)return;
     if(manualContent!==null){selectManual();return;}
-    copyBusy=true; const generation=copyGeneration;
+    copyBusy=true; const generation=copyGeneration, soloContext=soloCopyScope;
     if(copy){copy.disabled=true;copy.textContent='Copying...';}
     try {
       note('ui-intent',{action:'copy-log'});
       const content=await cooperativeExport();
-      if(generation!==copyGeneration || currentScope()!==roomScope)return;
+      if(generation!==copyGeneration || currentScope()!==roomScope || (window.WatchFusionSoloDiagnostics?.scopeToken?.()||'')!==soloContext)return;
       let copied=false;
       if(navigator.clipboard?.writeText) {
         try {await navigator.clipboard.writeText(content);copied=true;} catch {}
       }
-      if(generation!==copyGeneration || currentScope()!==roomScope)return;
+      if(generation!==copyGeneration || currentScope()!==roomScope || (window.WatchFusionSoloDiagnostics?.scopeToken?.()||'')!==soloContext)return;
       if(!copied) {
         const previous=document.activeElement, temporary=document.createElement('textarea');
         temporary.value=content; temporary.setAttribute('aria-hidden','true');
@@ -429,9 +429,9 @@
     finally {copyBusy=false; if(copy)copy.disabled=false;}
   }
   copy?.addEventListener('click', copyLog);
-  clear?.addEventListener('click', () => {resetCopy();entries=[];events=[];trackSummaries=[];previousActivity=null;lastAt=0;requestAt=-Infinity;droppedSnapshots=droppedEvents=0;lastPeers.clear();lastRowsByMember.clear();lastKey='';lastRendered='';observedSong=0;lastSongKey='';area.value='';render();});
+  clear?.addEventListener('click', () => {resetCopy();if(window.WatchFusionSoloDiagnostics?.active?.()){window.WatchFusionSoloDiagnostics.clear();area.value='';render();return;}entries=[];events=[];trackSummaries=[];previousActivity=null;lastAt=0;requestAt=-Infinity;droppedSnapshots=droppedEvents=0;lastPeers.clear();lastRowsByMember.clear();lastKey='';lastRendered='';observedSong=0;lastSongKey='';area.value='';render();});
   panel.addEventListener('toggle',()=>{if(!panel.open)resetCopy();render();});
   area.addEventListener?.('blur',render);
   for(const [event,kind] of [['visibilitychange','visibility'],['freeze','freeze'],['resume','resume']]) document.addEventListener?.(event,()=>{requestAt=-Infinity;note('runtime-'+kind,{hidden:document.hidden===true});});
-  window.watchFusionRoomSyncLog = {export:exported, wantsSample, observe, note};
+  window.watchFusionRoomSyncLog = {export:exported, wantsSample, observe, note, render};
 })();

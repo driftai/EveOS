@@ -4,13 +4,13 @@ import { LAN_MODE, PORT, PROJECT_ROOT } from './config.js';
 import { counts } from './room-store.js';
 import { TIMING_VERSION } from './playout-coordinator.js';
 import { trustedExtensionIds } from './extension-identity.js';
-import { isHostLocalRequest } from './local-request.js';
+import { isHostLocalRequest, socketIsHostMachine, requestHostIsLocal } from './local-request.js';
 import {
   isVirtualAddress,
   lanUrls,
   localCanonicalHostUrl,
   localEmbedHostUrl,
-  networkAddresses,
+  networkAddresses, networkSnapshotActive,
   originForRequest,
   preferredLanAddress
 } from './network.js';
@@ -29,7 +29,8 @@ function remoteTunnelUrl() {
 export function handleSystemRoute(req, res, parts) {
   if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'health') {
     const { rooms, aliases } = counts();
-    json(res, 200, { ok: true, app: 'WatchFusion', port: PORT, rooms, aliases, time: now(), youtubePlayer: 'iframe-api', timingVersion: TIMING_VERSION });
+    const hostFallbackUrl = socketIsHostMachine(req) && requestHostIsLocal(req) && !req.headers['cf-ray'] && !req.headers['cf-connecting-ip'] ? localEmbedHostUrl(PORT) : null;
+    json(res, 200, { ok: true, app: 'WatchFusion', port: PORT, rooms, aliases, time: now(), youtubePlayer: 'iframe-api', timingVersion: TIMING_VERSION, iframeClientRevision: 'solo12', ...(typeof networkSnapshotActive==='function'&&networkSnapshotActive()?{networkProbeMode:'worker'}:{}), ...(hostFallbackUrl ? {hostFallbackUrl} : {}) });
     return true;
   }
 
@@ -59,6 +60,7 @@ export function handleSystemRoute(req, res, parts) {
   json(res, 200, {
     ok: true,
     app: 'WatchFusion',
+    ...(typeof networkSnapshotActive==='function'&&networkSnapshotActive()?{networkProbeMode:'worker'}:{}),
     port: PORT,
     exposureMode,
     remoteUrl,
@@ -66,6 +68,7 @@ export function handleSystemRoute(req, res, parts) {
     localHost,
     localCanonicalHost: localHost,
     localEmbedHost,
+    loopbackEmbedHost,
     preferredLanAddress: preferredUrls.ip,
     preferredLanIp: preferredAddress,
     preferredLanHost: preferredUrls.host,

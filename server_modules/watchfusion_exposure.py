@@ -6,6 +6,8 @@ from __future__ import annotations
 def reconcile_status(decorated: dict, *, local_url: str, remote_url: str = "",
                      network: dict | None = None) -> dict:
     """Prefer live runtime evidence when persisted exposure metadata is stale."""
+    if network:
+        decorated["hostFallbackUrl"] = str(network.get("loopbackEmbedHost") or "").strip()
     if remote_url:
         host_url = str((network or {}).get("localEmbedHost") or local_url).strip()
         decorated.update(exposureMode="cloudflare", publicUrl=remote_url, url=remote_url, hostUrl=host_url)
@@ -18,7 +20,7 @@ def reconcile_status(decorated: dict, *, local_url: str, remote_url: str = "",
             or ""
         ).strip()
         if lan_url:
-            decorated.update(exposureMode="lan", publicUrl=lan_url, url=lan_url)
+            decorated.update(exposureMode="lan", publicUrl=lan_url, url=lan_url, hostUrl=lan_url)
         return decorated
     if network and network.get("localOnly") is True:
         host_url = str(network.get("localEmbedHost") or local_url).strip()

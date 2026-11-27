@@ -89,3 +89,112 @@
   const diagnostics = () => ({outcome, attempts:plan?.attempts ?? 0, totalAttempts, active:!!plan});
   globalThis.WatchFusionPlaylistContinuity = {onTransition,observe,manualPause,guardPreviewEvent,reset,diagnostics,version:'v13.10.6'};
 })();
+
+/* Explicit linked playlist command lifecycle. Source execution and coherent
+ * media transition are distinct evidence; no automatic replay on ambiguity. */
+(() => {
+  'use strict';
+  function changed(from,to,videoId) {
+    if(!from||!to)return false;
+    try {
+      const a=new URL(from), b=new URL(to), av=videoId(from), bv=videoId(to);
+      if(av&&bv)return av!==bv||!!(a.searchParams.get('list')&&a.searchParams.get('list')===b.searchParams.get('list')&&a.searchParams.get('index')&&b.searchParams.get('index')&&a.searchParams.get('index')!==b.searchParams.get('index'));
+      return a.origin+a.pathname!==b.origin+b.pathname;
+    }catch{return false;}
+  }
+  function create(options) {
+    const {getNotice,setNotice,owner,page,deliver,log,status,ready,videoId}=options;
+    const now=()=>performance.now(), wall=()=>Date.now();
+    let lastId=0;
+    function note(reason,n,reference,action=n.action){log(reason,{action,reference,ackLatencyMs:Math.round(now()-n.at)});}
+    function begin(action) {
+      if(!['next','prev'].includes(action)||!owner()||!ready()||!page()){status('Linked source unavailable for navigation.');return false;}
+      const prior=getNotice();
+      if(prior){prior.queued=action;note('navigation-queued',prior,undefined,action);return true;}
+      const at=now();lastId=Math.max(lastId+1,wall()*1024+Math.floor(Math.random()*1024));
+      const n={id:lastId,action,at,deadline:at+5000,page:page(),owner:owner(),queued:null};
+      setNotice(n);
+      if(!deliver(action,n.id)){setNotice(null);note('navigation-not-delivered',n);status('Linked navigation not delivered · try again.');return false;}
+      note('navigation-requested',n);status('Waiting for linked playlist navigation confirmation…');return true;
+    }
+    function finish(n,reason,reference,allowQueued=false) {
+      if(getNotice()!==n)return;
+      setNotice(null);note(reason,n,reference);
+      status(reason==='navigation-confirmed'?'Linked playlist navigation confirmed.':reason==='navigation-rejected'?'Linked navigation rejected · '+reference:'Linked navigation not verified · check the source.');
+      if(allowQueued&&n.queued){const action=n.queued,scope=n.owner;
+        setTimeout(()=>{if(owner()===scope&&!getNotice()&&ready())begin(action);},0);}
+      else if(n.queued)note('navigation-queue-cancelled',n,undefined,n.queued);
+    }
+    function verify(n) {
+      if(!n.accepted||!n.observed)return;
+      let matches=!n.target||videoId(n.observed)===n.target;
+      try {
+        const a=new URL(n.page),b=new URL(n.observed),list=a.searchParams.get('list');
+        if(n.playlist&&list&&b.searchParams.get('list')!==list)matches=false;
+        if(n.index&&Number(b.searchParams.get('index'))!==n.index)matches=false;
+      }catch{matches=false;}
+      finish(n,matches?'navigation-confirmed':'navigation-target-mismatch',undefined,matches);
+    }
+    function observe(sample,coherent) {
+      const n=getNotice(),age=wall()-Number(sample.sampledAt);
+      if(!n||n.owner!==owner()||now()>n.deadline||!changed(n.page,sample.pageUrl,videoId)||sample.ended||!Number.isFinite(age)||age<0||age>900)return;
+      if(!n.progress){n.progress=true;n.deadline=Math.min(n.at+9000,Math.max(n.deadline,now()+3000));note('navigation-transition-started',n);}
+      if(!coherent)return;
+      n.observed=sample.pageUrl;verify(n);
+    }
+    function receive(message) {
+      const parts=/^wf-navigation-result\|(\d+)\|(next|prev)\|(accepted|rejected|unknown)\|([a-z-]{1,35})\|([A-Za-z0-9_-]{11})?\|(\d{1,6})$/.exec(String(message));
+      if(!parts)return false;
+      const n=getNotice();if(!n||n.owner!==owner()||n.id!==Number(parts[1])||n.action!==parts[2]||now()>n.deadline)return true;
+      const [, , ,outcome,reason,target,index]=parts;note('navigation-execution-'+outcome,n,reason);
+      if(outcome==='rejected'){finish(n,'navigation-rejected',reason,!!n.queued&&n.queued!==n.action&&!n.progress);return true;}
+      if(outcome==='unknown'){n.uncertain=true;return true;}
+      n.accepted=true;n.target=target||'';n.index=Number(index)||0;n.playlist=['playlist-row','native-index','verified-playlist-link','verified-indexed-link'].includes(reason);verify(n);return true;
+    }
+    function cancel(reason='navigation-cancelled'){const n=getNotice();if(n){setNotice(null);note(reason,n);if(n.queued)note('navigation-queue-cancelled',n,undefined,n.queued);}}
+    return {begin,observe,receive,cancel};
+  }
+  globalThis.WatchFusionLinkedNavigation={create};
+})();
+
+/* Source delivery attribution: intervals compare timestamps from the same clock only. */
+(() => {
+  let previous=null,admitted=null,hold=null;
+  function admit(raw,now,scope,normalized){
+    if(!Number.isSafeInteger(raw?.deliverySeq)||raw.deliverySeq<=0)return true;
+    const relay=stamp(raw.relayReceivedAt),sample=stamp(raw.sampledAt),sent=stamp(raw.publisherSentAt);if(!relay||!sample||!sent||sent<sample||sent-sample>900)return false;
+    if(!admitted||admitted.scope!==scope)admitted={scope,floor:now-relay,sample:0,seq:0};
+    if(sample<=admitted.sample)return false;
+    // A new publisher connection can restart its sequence, but never its sample time.
+    admitted.floor=Math.min(admitted.floor,now-relay);const excess=Math.max(0,now-relay-admitted.floor),lag=Number(raw.relayLagMs);
+    if(!Number.isFinite(lag)||lag<0||lag+excess+sent-sample>900)return false;
+    if(normalized&&normalized.sampleClock!=='server-qualified'&&Number.isFinite(normalized.sampledAt))normalized.sampledAt=Math.min(normalized.sampledAt,now-(sent-sample+lag+excess));
+    if(normalized&&(!Number.isFinite(normalized.sampledAt)||now-normalized.sampledAt>900||now-normalized.sampledAt<0))return false;
+    admitted.sample=sample;admitted.seq=raw.deliverySeq;return true;
+  }
+  function holdSteady(previous,next,now,gap,pending){
+    const steady=previous?.pageUrl&&previous.pageUrl===next.pageUrl&&previous.paused===false&&next.paused===false&&!previous.ended&&!next.ended&&!next.buffering&&Math.abs((Number(previous.rate)||1)-(Number(next.rate)||1))<.01&&(!Number.isFinite(next.volume)||Number.isFinite(previous.volume)&&Math.abs(next.volume-previous.volume)<=.02)&&!pending;
+    if(!steady){hold=null;return false;}
+    if(gap>900){hold={page:next.pageUrl,stamp:Number(next.sampledAt),at:now};return true;}
+    if(!hold||hold.page!==next.pageUrl)return false;
+    if(Number(next.sampledAt)>hold.stamp&&now-hold.at>=150){hold=null;return false;}
+    return true;
+  }
+  const stamp=(v)=>Number.isFinite(v)&&v>0?v:null;
+  const count=(v)=>Number.isSafeInteger(v)&&v>=0&&v<=1000000?v:null;
+  function observe(raw,now,scope,log){
+    if(!raw||!scope||!Number.isFinite(now))return;
+    const next={scope,now,sample:stamp(raw.sampledAt),received:stamp(raw.publisherReceivedAt),sent:stamp(raw.publisherSentAt),relay:stamp(raw.relayReceivedAt),refresh:count(raw.probeRefreshes),skipped:count(raw.probeRefreshSkipped),mute:count(raw.muteAudits),skippedSend:count(raw.publisherSkipped),rejected:count(raw.publisherRejected),ack:count(raw.publisherAckRttMs),buffer:count(raw.publisherBufferBytes),lag:count(raw.relayLagMs),loop:count(raw.relayLoopDelayMs),networkSeq:count(raw.relayNetworkProbeSequence),networkMs:count(raw.relayNetworkProbeMs),networkAge:count(raw.relayNetworkProbeAgeMs)};
+    const p=previous; if(!next.sample||p?.scope===scope&&next.sample<=p.sample)return;
+    previous=next;if(!p||p.scope!==scope||now<p.now)return;
+    const delta=k=>p[k]!==null&&next[k]!==null&&next[k]>=p[k]?Math.round(next[k]-p[k]):null;
+    for(const [k,reason] of [['refresh','source-probe-refresh'],['skipped','source-probe-refresh-skipped'],['mute','source-mute-audit'],['skippedSend','source-send-skipped'],['rejected','source-relay-rejected']]){const d=delta(k);if(d>0)log(reason,{sequence:d});}
+    for(const [k,reason,limit] of [['ack','source-receipt-rtt',900],['buffer','source-socket-buffer',4096],['lag','source-relay-lag',350],['loop','source-server-loop-delay',100]])if(next[k]!==null&&next[k]>=limit&&next[k]!==p[k])log(reason,{sampleAgeMs:next[k]});
+    if(next.networkSeq!==null&&next.networkSeq!==p.networkSeq&&next.networkMs!==null&&next.networkMs>=100)log('source-server-network-probe',{sampleAgeMs:next.networkMs,extraMs:next.networkAge});
+    if(now-p.now<=1800)return;
+    // Differences reveal where the gap appeared, without subtracting clocks across devices.
+    for(const [k,reason] of [['sample','source-gap-probe'],['received','source-gap-worker'],['sent','source-gap-publisher'],['relay','source-gap-relay']]){const d=delta(k);if(d!==null)log(reason,{sampleAgeMs:d});}
+    if(next.received!==null&&next.sent!==null&&next.sent>=next.received)log('source-gap-worker-hold',{sampleAgeMs:Math.round(next.sent-next.received)});
+  }
+  globalThis.WatchFusionSourceDelivery={observe,admit,holdSteady,reset:()=>{previous=admitted=hold=null;}};
+})();

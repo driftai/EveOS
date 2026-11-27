@@ -11,5 +11,6 @@ button:hover:not(:disabled) { border-color:#41d3e1; }
 button:focus-visible,textarea:focus-visible { outline:2px solid #41d3e1; outline-offset:2px; }
 #collect { width:100%; }
 nav { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+nav button { flex:1 1 auto; min-width:0; white-space:nowrap; padding-inline:8px; }
 #status { min-height:20px; margin:12px 0 8px; }
 small { display:block; font-size:11px; }

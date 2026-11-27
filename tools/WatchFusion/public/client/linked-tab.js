@@ -3,7 +3,7 @@
   const CONTROL_ECHO_TTL_MS=2500, SEEK_ACK_TTL_MS=4200, SEEK_RETRY_MS=1400;
   let link=null,peer=null,lastMetadata={},loadedPageUrl='',resolvingUrl='',pendingUrl='',resolveRevision=0,applying=false;
   let lastMirrorAnchor=null,mirrorInFlight=false,queuedMirror=null,seekMirrorDue=null;
-  let lastTransportTiming=null, lastSampleAt=0, lastSampleUrl="", playbackEchoUntil=0;
+  let lastTransportTiming=null, lastSampleAt=0, lastSampleUrl="", transitionPending=false, playbackEchoUntil=0, soloRateEchoUntil=0, audioEchoUntil=0;
   const pendingControls=new Map(); let transportNotice=null;
   const VOLUME_ECHO_TTL_MS = 3000;
   let queuedVolume = null, volumeTimer = null, confirmedVolume = null, zeroVolumeSince = 0, trackTransitions = 0;
@@ -11,9 +11,9 @@
   function pinnedVolume(){return roomProof() && isHost() && state?.roomAudioPinned === true && Number.isFinite(state.playback?.volume) ? (state.playback.muted ? 0 : state.playback.volume/100) : null;}
   $('liveVolume')?.addEventListener('pointerdown',()=>{volumePointerHeld=true;});
   for(const kind of ['pointerup','pointercancel','blur'])window.addEventListener(kind,()=>{volumePointerHeld=false;});
-  let peerCreatedAt = 0, lastLinkedSampleAt = 0, recoveryWindowAt = 0;
+  let peerCreatedAt = 0, lastLinkedSampleAt = 0, recoveryWindowAt = 0, soloResolvedKey = ""; const soloSourceKey = () => {const s=state?.source||{},id=s.videoId||window.parseYoutubeInput?.(s.originalUrl||'');return JSON.stringify(id?['youtube',id]:[s.kind,s.url]);};
   let recoveryCount = 0, lastRecoveryAt = -Infinity;
-  function peerReady(){return peer?.socket?.readyState === 1 && !!peer.viewerId;} function backgroundLinkActive(){return !!(roomProof()&&isHost()&&state?.linkedSourceActive===true&&state?.playback?.paused===false&&!state.playback.ended);}
+  function peerReady(){return peer?.socket?.readyState === 1 && !!peer.viewerId;} let navigationNotice=null, navigationAgent=null; function backgroundLinkActive(){return !!(roomProof()&&isHost()&&state?.linkedSourceActive===true&&state?.playback?.paused===false&&!state.playback.ended);}
   function recoverLink(reason){
     if(!link || !canControl() || (document.hidden&&(!backgroundLinkActive()||!['socket-not-ready','stale-metadata'].includes(reason))))return false;
     const now=performance.now();
@@ -31,7 +31,7 @@
     }
     let sent=false;
     try{sent=peer.control(action,value)===true;}catch{}
-    if(pending){pending.queued=!sent;if(sent)pending.lastSent=performance.now();}
+    if(pending){pending.queued=!sent;if(sent){pending.lastSent=performance.now();pending.lastSentWall=Date.now();}}
     if(!sent)recoverLink('control-send-failed');
     return sent;
   }
@@ -42,18 +42,18 @@
       if(!p?.queued)continue;
       const ttl=action==='seek'?SEEK_ACK_TTL_MS:action==='volume'?VOLUME_ECHO_TTL_MS:CONTROL_ECHO_TTL_MS;
       if(performance.now()-p.at>ttl){pendingControls.delete(action);status('Queued source command expired · try again.');continue;}
-      if(deliver(action,p.value,p))window.watchFusionRoomSyncLog?.note?.('linked-queued-control-sent',{action});
+      if(deliver(action,p.value,p)){if(action==='seek')stampSeekDelivery(p);window.watchFusionRoomSyncLog?.note?.('linked-queued-control-sent',{action});}
     }
   }
   function connectionWatchdog(){
-    if(!link || (document.hidden&&!backgroundLinkActive()))return;
+    if(!link || (document.hidden&&!backgroundLinkActive()))return;window.WatchFusionLinkedAcquisition?.connection?.(peerReady(),lastLinkedSampleAt?Date.now()-lastLinkedSampleAt:performance.now()-peerCreatedAt,!!lastLinkedSampleAt);
     if(!peerReady()){
       if(performance.now()-peerCreatedAt>4000)recoverLink('socket-not-ready');
     }else{
       replayQueued();
       if((lastLinkedSampleAt?Date.now()-lastLinkedSampleAt:performance.now()-peerCreatedAt)>6500 && (state?.playback?.paused===false || (!document.hidden&&pendingControls.size)))recoverLink('stale-metadata');
     }
-    for(const [action,p] of pendingControls){
+    if(navigationNotice&&performance.now()>(navigationNotice.deadline??navigationNotice.at+5000)){const n=navigationNotice;status('Linked '+n.action+' unconfirmed · check the source playlist.');if(navigationAgent)navigationAgent.cancel(n.observed?'navigation-transition-unattributed':'navigation-unconfirmed');else{window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason:'navigation-unconfirmed',action:n.action});navigationNotice=null;}} for(const [action,p] of pendingControls){
       const ttl=action==='seek'?SEEK_ACK_TTL_MS:action==='volume'?VOLUME_ECHO_TTL_MS:CONTROL_ECHO_TTL_MS;
       if(performance.now()-p.at>ttl){
         pendingControls.delete(action);
@@ -78,8 +78,8 @@
     return true;
   }
   function canControl(){return link?.roomId ? isHost() && !!roomProof() : !roomId;}
-  function setApplying(value){applying=!!value;}
-  function suppressPlaybackEcho(){if(active())playbackEchoUntil=performance.now()+650;}
+  function setApplying(value,kind){if(kind==='solo-audio'){if(value)audioEchoUntil=performance.now()+250;return;}applying=!!value;}
+  function suppressPlaybackEcho(owner){if(!active())return;if(owner==='solo-rate'&&!roomId)soloRateEchoUntil=performance.now()+650;else playbackEchoUntil=performance.now()+650;}  function soloCorrectionBlock(){return transitionPending?'transition-pending':applying?'source-apply':performance.now()<playbackEchoUntil?'external-echo':window.WatchFusionHostPeerRecovery?.suppressEcho?.()===true?'host-recovery':null;}
   function status(message){if($('liveStatus'))$('liveStatus').textContent=message;}
   function clock(value){const n=Math.max(0,Math.floor(Number(value)||0));return `${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`;}
   async function post(path,body={}){
@@ -110,7 +110,8 @@
   }
   function noticeLabel(n){return ['Waiting for linked source '+n.action+' confirmation…','Source link recovering · '+n.action+' queued, not yet delivered.','Linked '+n.action+' not delivered · source unavailable.','Linked '+n.action+' unconfirmed · source unavailable.','Source '+n.action+' unconfirmed · use Reconnect.'].includes($('liveStatus')?.textContent);}
   function confirmTransportNotice(sample,now){const n=transportNotice,age=now-Number(sample.sampledAt);if(!n||n.link!==link||!n.page||sample.pageUrl!==n.page||!Number.isFinite(age)||age<0||age>1500||Number(sample.sampledAt)<n.at)return;
-    if(n.action==='play'?(sample.paused!==false||sample.ended===true||sample.buffering===true):sample.paused!==true)return;if(noticeLabel(n))status(n.action==='play'?'Linked source playing · confirmed':'Linked source paused · confirmed');transportNotice=null;}
+    if(n.action==='play'?(sample.paused!==false||sample.ended===true||sample.buffering===true):sample.paused!==true)return;if(age>900)return;if(noticeLabel(n))status(n.action==='play'?'Linked source playing · confirmed':'Linked source paused · confirmed');transportNotice=null;window.WatchFusionLinkedAcquisition?.confirmedTransport?.(sample,n.action);return n.action;}
+  function stampSeekDelivery(pending){if(pending&&!pending.firstSentAt){pending.firstSentAt=Date.now();pending.page=lastMetadata.pageUrl;pending.origin={position:lastMetadata.currentTime,stamp:lastMetadata.sampledAt,paused:lastMetadata.paused,rate:lastMetadata.rate};}}
   function control(action,value,explicitRoomVolume=false){
     if(!peer||!canControl()){status('Linked source unavailable · use Reconnect to restore controls.');return false;}
     if (action === 'toggle') {
@@ -126,14 +127,14 @@
       void command('volume',{linkedSource:roomProof(),volume:Math.round(numeric*100),muted:numeric===0,audioIntentAt}).then(ok=>{if(!ok)status('Room volume not confirmed · try again.');else renderControls();}).catch(()=>status('Room volume not confirmed · try again.'));
     } else if (action === 'volume' && pinnedVolume() !== null) return true;
     if (action === 'volume' && (pendingControls.get('volume')?.value ?? lastMetadata.volume) === numeric) return true;
-    if (action === 'play' || action === 'pause') {pendingControls.delete(action === 'play' ? 'pause' : 'play');transportNotice={action,link,page:lastMetadata.pageUrl,at:Date.now()};}
+    if (action === 'play' || action === 'pause') {const opposite=action==='play'?'pause':'play';if(pendingControls.delete(opposite))window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason:'source-command-superseded',action:opposite});transportNotice={action,link,page:lastMetadata.pageUrl,at:Date.now()};}
     if (['seek','play','pause','rate','volume'].includes(action)) {
       const at = performance.now();
-      pendingControls.set(action,{value:numeric,at,sampledAt:Date.now(),lastSent:at,retries:0});
+      if(pendingControls.has(action)&&['seek','play','pause'].includes(action))window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason:'source-command-superseded',action});pendingControls.set(action,{value:numeric,at,sampledAt:Date.now(),lastSent:at,retries:0});
     }
     window.watchFusionRoomSyncLog?.note?.('embedded-control',action==='volume' ? {action,volumePct:Math.round(numeric*100)} :
       action==='rate' ? {action,rate:Math.round(numeric*100)/100} : {action,positionMs:Math.round(numeric*1000)});
-    const delivered=deliver(action,numeric,pendingControls.get(action));
+    if(['next','prev'].includes(action)){navigationAgent??=window.WatchFusionLinkedNavigation?.create?.({getNotice:()=>navigationNotice,setNotice:n=>navigationNotice=n,owner:()=>link,page:()=>lastMetadata.pageUrl,deliver,log:(reason,d)=>window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason,...d}),status,ready:()=>canControl()&&peerReady(),videoId:u=>window.parseYoutubeInput?.(u)});return navigationAgent?.begin(action)??false;} const delivered=deliver(action,numeric,pendingControls.get(action));if(delivered&&action==='seek')stampSeekDelivery(pendingControls.get(action));
     if(!delivered)status('Source link recovering · '+action+' queued, not yet delivered.');
     if (action === 'seek') { status('Seeking linked source · awaiting confirmation…'); renderControls(); }
     if (action === 'play' || action === 'pause') { if(delivered)status('Waiting for linked source ' + action + ' confirmation…'); renderControls(); }
@@ -185,7 +186,7 @@
       scheduleMirror(lastMetadata, true);
       return;
     }
-    if (pending.queued || pending.retries >= 1 || age < SEEK_RETRY_MS) return;
+    if (pending.queued || pending.retries >= 1 || age < SEEK_RETRY_MS || pending.landingSeen || seekLanding(pending,lastMetadata,true)) return;
     if(!deliver('seek',pending.value,pending))return;
     pending.retries++;
     window.watchFusionRoomSyncLog?.note?.('source-seek-retry',{positionMs:Math.round(pending.value*1000)});
@@ -194,33 +195,32 @@
     if (!active() || !peer || !canControl() || document.hidden) return;
     for (const action of ['play','pause']) {
       const p = pendingControls.get(action);
-      if (!p || p.queued || p.retries >= 1 || performance.now() - p.at < 1000) continue;
+      if (!p || p.queued || p.retries >= 1 || performance.now() - (p.lastSent??p.at) < 1000) continue;const age=Date.now()-Number(lastMetadata.sampledAt);if(!Number.isFinite(age)||age<0||age>900||Number(lastMetadata.sampledAt)<(p.lastSentWall??p.sampledAt)||lastMetadata.buffering||pendingSatisfied(action,p,lastMetadata))continue;
       if(!deliver(action,p.value,p))continue;
       p.retries++;
       window.watchFusionRoomSyncLog?.note?.('source-transport-retry',{action});
     }
   }
   setInterval(() => { connectionWatchdog(); retryVolumeControl(); retrySeekControl(); retryTransportControl(); }, 260);
-  function pendingSatisfied(action,pending,metadata){
-    if(action==='seek') {
-      const rate = metadata.paused === true ? 0 : Math.min(2, Math.max(.25, Number(metadata.rate) || 1));
-      const elapsed = Math.max(0, (Number(metadata.sampledAt) - pending.sampledAt) / 1000);
-      const observed = Number(metadata.currentTime);
-      return metadata.currentTime != null && Number.isFinite(observed) && Math.abs(observed - (pending.value + elapsed * rate)) <= .65;
-    }
+  function pendingSatisfied(action,pending,metadata){if(action==='seek')return seekLanding(pending,metadata);
     if(action==='play')return metadata.paused===false;
     if(action==='pause')return metadata.paused===true;
     if(action==='rate')return Math.abs((Number(metadata.rate)||1)-pending.value)<=0.02;
     if(action==='volume')return Number.isFinite(metadata.volume) && Math.abs(metadata.volume-pending.value)<=0.03;
     return true;
   }
+  function seekLanding(pending,metadata,allowBuffering=false){
+    const stamp=Number(metadata.sampledAt),age=Date.now()-stamp,elapsed=(stamp-Number(pending.firstSentAt))/1000; if(!pending.firstSentAt||pending.queued||!pending.page||metadata.pageUrl!==pending.page||!Number.isFinite(age)||age<0||age>900||!Number.isFinite(elapsed)||elapsed<0||performance.now()-pending.at>SEEK_ACK_TTL_MS||metadata.ended||typeof metadata.paused!=='boolean'||(!allowBuffering&&metadata.buffering))return false;
+    const rate=metadata.paused===true||metadata.buffering?0:Math.min(2,Math.max(.25,Number(metadata.rate)||1)),observed=Number(metadata.currentTime); if(metadata.currentTime==null||!Number.isFinite(observed)||observed<pending.value-.65||observed>pending.value+elapsed*rate+.65)return false;
+    const o=pending.origin;if(!o||!Number.isFinite(o.position)||!Number.isFinite(o.stamp)||o.stamp>pending.firstSentAt||pending.firstSentAt-o.stamp>900)return Math.abs(observed-pending.value)<=.65;const baseRate=o.paused?0:Math.min(2,Math.max(.25,Number(o.rate)||1)),natural=o.position+(stamp-o.stamp)/1000*baseRate,atSend=o.position+(pending.firstSentAt-o.stamp)/1000*baseRate;return Math.abs(observed-natural)>.65||Math.abs(atSend-pending.value)<=.65;
+  }
   function applyPendingControls(metadata, sample){
     const next={...metadata},now=performance.now();
     for(const [action,pending] of pendingControls){
-      const sampledAfterCommand = Number(sample.sampledAt) >= pending.sampledAt;
+      const sampledAfterCommand = Number(sample.sampledAt) >= pending.sampledAt; if(action==='seek'&&sampledAfterCommand&&seekLanding(pending,sample,true))pending.landingSeen=true;
       const expired = now - pending.at > (action === 'volume' ? VOLUME_ECHO_TTL_MS : action === 'seek' ? SEEK_ACK_TTL_MS : CONTROL_ECHO_TTL_MS);
       if ((expired && action !== 'volume') || (sampledAfterCommand && pendingSatisfied(action,pending,sample))) {
-        if (expired && action === 'seek') {
+        if (expired && action === 'seek' && !(sampledAfterCommand&&pendingSatisfied(action,pending,sample))) {
           status('Source seek unconfirmed · use Reconnect if playback is still behind.');
           window.watchFusionRoomSyncLog?.note?.('source-seek-unconfirmed',{positionMs:Math.round(pending.value*1000)});
         }
@@ -240,12 +240,12 @@
     }
     return next;
   }
-  function followLocal(metadata,force=false){
-    if(!state?.source || (roomProof() && !isHost()))return;
+  function followLocal(metadata,force=false,sourceSample=metadata){
+    if(transitionPending||!state?.source || (roomProof() && !isHost()))return;
     // The linked-room viewer arbiter owns host transport.
     if(roomId && state.linkedSourceActive === true && state.source.videoId && followsRoomPlayback())return;
     if(state.source.videoId||state.source.kind==='youtube'){
-      window.watchFusionYoutubeFollow?.(metadata,{force});return;
+      window.watchFusionYoutubeFollow?.(metadata,{force,sourceSample});return;
     }
     applying=true;
     try{if(state.source.kind==='media')window.mediaPlayback?.followAttached?.(metadata,{force});}
@@ -258,7 +258,7 @@
   async function rebindAfterHandoff(){const target=link;try{await bindRoom(target,roomId);lastMirrorAnchor=null;status('Linked source restored after host return.');scheduleMirror(lastMetadata,true);}
     catch{mirrorGuard()?.result(false,403,()=>status('Linked source could not be restored · press Reconnect, or unlink and relink.'));}}
   async function mirrorNow(metadata,force=false){
-    if(!active()||!loadedPageUrl)return;
+    if(!active()||!loadedPageUrl||metadata.pageUrl&&metadata.pageUrl!==loadedPageUrl)return;
     const gate=roomId?mirrorGuard()?.gate?.(mirrorAuthority()):null;
     if(gate?.rebind){void rebindAfterHandoff();return false;}
     if(gate&&!gate.allow)return false;
@@ -270,7 +270,7 @@
       queuedMirror={metadata:{...metadata},force:queuedMirror?.force===true||force};
       return false;
     }
-    const plan=window.WatchFusionLinkedPlaybackSync?.mirrorPlan?.(metadata,lastMirrorAnchor,{force});
+    const age=Date.now()-Number(metadata.sampledAt); if(!roomId&&!force&&lastMirrorAnchor&&metadata.paused===false&&!metadata.ended&&!lastMirrorAnchor.paused&&!lastMirrorAnchor.ended&&Math.abs((Number(metadata.rate)||1)-lastMirrorAnchor.rate)<.01&&(!Number.isFinite(metadata.volume)||(Number.isFinite(lastMirrorAnchor.volume)&&Math.abs(metadata.volume-lastMirrorAnchor.volume)<=.02))&&age>900){window.watchFusionRoomSyncLog?.note?.('mirror-stale-skipped',{sampleAgeMs:age});return false;} const plan=window.WatchFusionLinkedPlaybackSync?.mirrorPlan?.(metadata,lastMirrorAnchor,{force});
     if (!plan?.publish) {
       if (roomId) window.WatchFusionMirrorConvergenceGate?.observeSteady?.(plan,metadata,loadedPageUrl);
       return false;
@@ -310,8 +310,8 @@
     }
   }
   function scheduleMirror(metadata,force=false){
-    lastMetadata=metadata;if(!loadedPageUrl)return;
-    void mirrorNow(metadata,force);
+    if(transitionPending||!loadedPageUrl||metadata.pageUrl!==loadedPageUrl)return;lastMetadata=metadata;const helper=window.WatchFusionLinkedTransition,anchor=lastMirrorAnchor,owner=link,page=loadedPageUrl;
+    if(!roomId&&!force&&anchor&&metadata.paused===false&&!metadata.ended&&!metadata.buffering&&!anchor.paused&&!anchor.ended&&Math.abs((Number(metadata.rate)||1)-anchor.rate)<.01&&(!Number.isFinite(metadata.volume)||(Number.isFinite(anchor.volume)&&Math.abs(metadata.volume-anchor.volume)<=.02))&&helper?.queueMirror){if(helper.queueMirror(()=>{if(link===owner&&!roomId&&!transitionPending&&page===loadedPageUrl&&metadata===lastMetadata)void mirrorNow(metadata,false);}))window.watchFusionRoomSyncLog?.note?.('mirror-stale-skipped',{reason:'arrival-coalesced'});return;}helper?.cancelMirror?.();void mirrorNow(metadata,force);
   }
   async function followUrl(url){
     const value=String(url||'').trim();if(!/^https?:\/\//i.test(value)||value===loadedPageUrl||value===resolvingUrl)return;
@@ -329,13 +329,13 @@
     if(revision!==resolveRevision)return;
     resolvingUrl='';
     if(ok){
-      loadedPageUrl=value;lastMirrorAnchor=null;queuedMirror=null;
+      loadedPageUrl=value;lastMirrorAnchor=null;queuedMirror=null;soloResolvedKey=soloSourceKey();
       if (lastMetadata.pageUrl !== value && !roomProof()) clearVolumeDraft();
       for (const action of pendingControls.keys()) if (action !== 'volume') pendingControls.delete(action);
       if (lastMetadata.pageUrl === value) {
         renderControls(lastMetadata);followLocal(lastMetadata,true);scheduleMirror(lastMetadata,true);
       }
-      status('Attached tab state linked · WatchFusion is playing the resolved source.');
+      status('Attached tab state linked · awaiting local playback confirmation.');
     }
     else status('Attached tab is connected, but its playable source could not be resolved yet.');
     const queued=pendingUrl;pendingUrl='';
@@ -359,19 +359,19 @@
     lastTransportTiming=sync?.transportTiming?.(metadata,now)||null;
     if(roomId&&link?.roomId!==roomId)return;
     const sample = sync?.relaySample(metadata, now, window.watchPartyClock?.serverAt?.(now), window.watchPartyClock?.witnessReady?.() ? 45 : null);
-    if (!sample || metadata.status?.startsWith('Waiting for playable media')) return;
-    if (metadata.pageUrl === lastSampleUrl && Number(metadata.sampledAt) <= lastSampleAt) return;
+    if (!sample || metadata.status?.startsWith('Waiting for playable media')||window.WatchFusionSourceDelivery?.admit?.(metadata,now,link?.id,sample)===false) return;
+    if (Number(metadata.sampledAt) <= lastSampleAt) return;
     lastSampleAt = Number(metadata.sampledAt);
-    lastSampleUrl = metadata.pageUrl;lastLinkedSampleAt=now;
-    const previous=lastMetadata;
+    const deliveryGap=lastLinkedSampleAt?now-lastLinkedSampleAt:0;if(lastLinkedSampleAt&&now-lastLinkedSampleAt>1800)window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason:'source-sample-gap',sampleAgeMs:Math.round(now-lastLinkedSampleAt)});window.WatchFusionSourceDelivery?.observe?.(metadata,now,link?.id,(reason,d)=>window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason,...d}));lastSampleUrl = metadata.pageUrl;lastLinkedSampleAt=now;
+    if(typeof navigationAgent!=='undefined')navigationAgent?.observe(sample,false);const previous=lastMetadata; const wasPending=transitionPending;transitionPending=window.WatchFusionLinkedTransition?.accept?.(previous,sample,Number(metadata.sampledAt),now)===false;if(transitionPending){if(!wasPending)window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason:'source-transition-pending'});window.WatchFusionLinkedTransition?.cancelMirror?.();return;}if(wasPending)window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason:'source-transition-coherent'});
     window.WatchFusionPlaylistContinuity?.onTransition?.(previous,sample,{eligible:!!(roomProof()&&isHost())});
     if (previous.pageUrl && previous.pageUrl !== sample.pageUrl) {
-      if(transportNotice&&noticeLabel(transportNotice))status('Linked source changed · matching media…');transportNotice=null;trackTransitions++;
-      volumeRestorePage=''; if(!roomProof()){clearVolumeDraft();pendingControls.delete('volume');}
+      if(transportNotice&&noticeLabel(transportNotice))status('Linked source changed · matching media…');transportNotice=null;trackTransitions++;for(const action of pendingControls.keys())if(['seek','play','pause'].includes(action))window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason:'source-command-track-changed',action});
+      volumeRestorePage=''; for(const action of pendingControls.keys())if(action!=='volume')pendingControls.delete(action);seekMirrorDue=null;window.WatchFusionLinkedAcquisition?.reset?.(); if(!roomProof()){clearVolumeDraft();pendingControls.delete('volume');}
       confirmedVolume = null; zeroVolumeSince = 0;
     }
     lastMetadata = { ...lastMetadata, ...sample, sourcePlayerSilenced:typeof sample.sourcePlayerSilenced==='boolean'?sample.sourcePlayerSilenced:null, volume:reconcileSourceVolume(sample, previous, now) };if(previous.pageUrl&&previous.pageUrl!==sample.pageUrl)window.watchFusionRoomSyncLog?.note?.('source-track-transition',{sequence:trackTransitions,sourceAgeMs:Math.round(now-Number(sample.sampledAt))});
-    if(previous.pageUrl===sample.pageUrl && previous.paused!==undefined && previous.paused!==sample.paused)
+    if(typeof navigationAgent!=='undefined')navigationAgent?.observe(sample,true);if(previous.pageUrl===sample.pageUrl && previous.paused!==undefined && previous.paused!==sample.paused)
       window.watchFusionRoomSyncLog?.note?.(sample.paused?'source-pause':'source-play',
         {positionMs:Math.round((Number(sample.currentTime)||0)*1000),sampleAgeMs:Math.round(now-Number(sample.sampledAt))});
     if(previous.pageUrl===sample.pageUrl && Number.isFinite(previous.volume) && Number.isFinite(sample.volume) &&
@@ -383,26 +383,26 @@
       window.watchFusionRoomSyncLog?.note?.('room-audio-reapplied',{volumePct:Math.round(target*100),reason:'source-track-volume'});
     }
     const pendingSeek = pendingControls.get('seek');
-    const display = applyPendingControls(lastMetadata,sample);confirmTransportNotice(sample,now);
+    const display = applyPendingControls(lastMetadata,sample);const confirmed=confirmTransportNotice(sample,now);if(!confirmed&&previous.pageUrl===sample.pageUrl&&previous.paused!==undefined&&previous.paused!==sample.paused)window.WatchFusionLinkedAcquisition?.confirmedTransport?.(sample,sample.paused?'pause':'play');
     window.WatchFusionPlaylistContinuity?.observe?.(sample,{eligible:!!(roomProof()&&isHost()),connected:peerReady(),pending:pendingControls.has('play'),send:()=>control('play',Number(sample.currentTime)||0)});
     const seekConfirmed = pendingSeek && !pendingControls.has('seek') &&
       Number(sample.sampledAt) >= pendingSeek.sampledAt && pendingSatisfied('seek',pendingSeek,sample);
     if (seekConfirmed) {
-      seekMirrorDue={link,page:sample.pageUrl,at:now}; if(!pendingControls.has('play')&&!pendingControls.has('pause'))status('Source seek confirmed · synchronizing room…');
+      window.WatchFusionLinkedAcquisition?.confirmedTransport?.(sample,'seek');seekMirrorDue={link,page:sample.pageUrl,at:now}; if(!pendingControls.has('play')&&!pendingControls.has('pause'))status(roomId?'Source seek confirmed · synchronizing room…':'Source seek confirmed · synchronizing playback…');
       window.watchFusionRoomSyncLog?.note?.('source-seek-confirmed',{positionMs:Math.round(sample.currentTime*1000),ackLatencyMs:Math.round(performance.now()-pendingSeek.at)});
     }
     renderControls(display);
     if(sample.tabMuted===false&&sample.paused===false)status('Linked tab is still playing sound · WatchFusion asked the extension to mute it. If you hear two copies, reload EveOS Bridge in chrome://extensions.');
     const pageUrl=String(lastMetadata.pageUrl||''); if(document.hidden&&backgroundLinkActive())window.WatchFusionZeroConverge?.sourceWake?.();
     if(pageUrl&&pageUrl!==loadedPageUrl){void followUrl(pageUrl);return;}
-    if (!pendingControls.has('seek')) followLocal(display,!!seekConfirmed);
+    const deliveryHold=window.WatchFusionSourceDelivery?.holdSteady?.(previous,sample,now,deliveryGap,!!seekConfirmed||confirmed||['seek','play','pause','rate'].some(a=>pendingControls.has(a)));if(deliveryHold){window.WatchFusionRoomSyncLog?.note?.('linked-acquisition',{reason:'source-post-gap-hold'});return;}if (!pendingControls.has('seek')) followLocal(display,!!seekConfirmed,lastMetadata);
     const forceSeek=seekMirrorDue?.link===link&&seekMirrorDue.page===pageUrl&&now>=seekMirrorDue.at&&now-seekMirrorDue.at<=SEEK_ACK_TTL_MS;if(!forceSeek||(!pendingControls.has('seek')&&!pendingControls.has('play')&&!pendingControls.has('pause')))seekMirrorDue=null;scheduleMirror(lastMetadata,!!forceSeek);
   }
   function connectPeer(){
-    peer?.stop();if(!link)return;lastSampleAt=0;lastSampleUrl="";lastLinkedSampleAt=0;peerCreatedAt=performance.now();
+    peer?.stop();if(!link)return;if(typeof navigationAgent!=='undefined')navigationAgent?.cancel();transitionPending=false;window.WatchFusionLinkedTransition?.reset?.();lastSampleAt=0;lastSampleUrl="";lastLinkedSampleAt=0;window.WatchFusionSourceDelivery?.reset?.();peerCreatedAt=performance.now();
     peer=new WatchFusionLivePeer({base:location.origin,id:link.id,token:link.publisherToken,roomId,memberId:session?.memberId,
-      onStatus:message=>status(message==='Source connected'?'Attached tab connected · matching media source…':message),
-      onMetadata,onReady:()=>{status('Linked transport connected · awaiting source confirmation…');replayQueued();}});
+      onStatus:message=>{if(typeof navigationAgent==='undefined'||!navigationAgent?.receive(message))status(message==='Source connected'?'Attached tab connected · matching media source…':message);},
+      onMetadata,onClock:(pong,at)=>{const rtt=at-Number(pong.sentAt);if(rtt>=900&&rtt<=60000)window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason:'source-viewer-heartbeat-rtt',sampleAgeMs:Math.round(rtt)});},onReady:()=>{status('Linked transport connected · awaiting source confirmation…');replayQueued();}});
   }
   async function start(){
     if(roomId&&!isHost())return setStatus('Only the host can attach the room source.');
@@ -426,15 +426,15 @@
   async function stop(options={}){
     if(!link)return true;
     clearVolumeDraft();
-    const old=link;link=null;resolveRevision++;resolvingUrl='';pendingUrl='';loadedPageUrl='';lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();confirmedVolume=null;zeroVolumeSince=0;
+    window.WatchFusionLinkedAcquisition?.reset?.();if(typeof navigationAgent!=='undefined')navigationAgent?.cancel();navigationNotice=null;const old=link;link=null;resolveRevision++;resolvingUrl='';pendingUrl='';loadedPageUrl='';lastMirrorAnchor=null;queuedMirror=null;pendingControls.clear();confirmedVolume=null;zeroVolumeSince=0;
     peer?.stop();peer=null;const stopped=await post(`/api/live/${old.id}/stop`,old).catch(()=>null);
     if(stopped?.state&&stopped.state.roomId===roomId&&applyIncomingRoomState(stopped.state))render();
     $('livePairHelp').hidden=true;restoreUi();if(!options.quiet)setStatus('Source tab unlinked · the page was restored to normal.');return true;
   }
-  function reconnect(){if(!link)return start();mirrorGuard()?.reset?.();volumeRestorePage='';pendingControls.clear();confirmedVolume=null;zeroVolumeSince=0;lastMirrorAnchor=null;recoveryCount=0;lastRecoveryAt=-Infinity;connectPeer();status('Reconnecting source · refreshing controls…');return true;}
+  function reconnect(){if(!link)return start();mirrorGuard()?.reset?.();navigationNotice=null;window.WatchFusionLinkedAcquisition?.reset?.();window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason:'manual-reconnect'});volumeRestorePage='';pendingControls.clear();confirmedVolume=null;zeroVolumeSince=0;lastMirrorAnchor=null;recoveryCount=0;lastRecoveryAt=-Infinity;connectPeer();status('Reconnecting source · refreshing controls…');return true;}
   $('linkTabBtn').onclick=()=>{void(active()?stop():start());};
-  window.watchFusionLinkedTab={active,pinnedVolume,promoteToRoom,publishing:()=>!!(roomProof()&&state?.linkedSourceActive),applying:()=>applying || performance.now()<playbackEchoUntil || window.WatchFusionHostPeerRecovery?.suppressEcho?.()===true,setApplying,suppressPlaybackEcho,control,queueVolume,start,stop,reconnect,render:renderControls,
+  window.watchFusionLinkedTab={active,pinnedVolume,promoteToRoom,publishing:()=>!!(roomProof()&&state?.linkedSourceActive),applying:()=>transitionPending || applying || performance.now()<Math.max(playbackEchoUntil,soloRateEchoUntil,audioEchoUntil) || window.WatchFusionHostPeerRecovery?.suppressEcho?.()===true,soloCorrectionBlock,setApplying,suppressPlaybackEcho,control,queueVolume,start,stop,reconnect,render:renderControls,
     metadata:()=>lastMetadata,pendingControl:action=>active() &&
       performance.now() - (pendingControls.get(action)?.at ?? -Infinity) <= (action === 'volume' ? VOLUME_ECHO_TTL_MS : action === 'seek' ? SEEK_ACK_TTL_MS : CONTROL_ECHO_TTL_MS),
-    diagnostics:()=>({transport:lastTransportTiming,peerReady:peerReady(),recoveryCount,lastLinkedSampleAt,mirrorGuard:mirrorGuard()?.diagnostics?.()})};
+    soloEvidence:()=>({scope:link?.id,connected:peerReady(),matches:!transitionPending&&!!loadedPageUrl&&loadedPageUrl===lastMetadata.pageUrl&&soloResolvedKey===soloSourceKey(),pending:["seek","play","pause","rate"].some(a=>pendingControls.has(a))}), diagnostics:()=>({transport:lastTransportTiming,peerReady:peerReady(),recoveryCount,lastLinkedSampleAt,mirrorGuard:mirrorGuard()?.diagnostics?.()})};
 })();

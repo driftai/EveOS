@@ -11,7 +11,8 @@
     let embeddedUrl = '';
     let embeddedStorageAccess = null;
     let exposureOrigin = '';
-    let hostExposureOrigin = '';
+    let hostExposureOrigin = '', fallbackEmbedOrigin = '';
+    let lastCanonical = '';
 
     function port() {
         return Number(window.EveOSPortRegistry?.get?.('WATCHFUSION_PORT')) || 0;
@@ -31,6 +32,7 @@
         const targetPort = port();
         const values = [];
         if (hostExposureOrigin) values.push(hostExposureOrigin);
+        if (fallbackEmbedOrigin) values.push(fallbackEmbedOrigin);
         if (!targetPort) {
             if (exposureOrigin) values.push(exposureOrigin);
             return unique(values);
@@ -62,21 +64,30 @@
         }
     }
 
+    function canonicalOrigin(value) {
+        try { const u = new URL(value); return u.protocol === 'http:' && Number(u.port) === port() && /^(?:\d{1,3}-){3}\d{1,3}\.sslip\.io$/i.test(u.hostname) && !u.username && !u.password ? u.origin : ''; } catch { return ''; }
+    }
     function configureExposure(snapshot) {
+        // A failed status poll is not proof that the previously advertised host changed.
+        if (snapshot?.controllerAvailable === false && snapshot?.directRuntime === true && matchesControlStatus(snapshot) && (canonicalOrigin(hostExposureOrigin) || canonicalOrigin(fallbackEmbedOrigin))) return hostExposureOrigin || fallbackEmbedOrigin;
+        if (!matchesControlStatus(snapshot)) { hostExposureOrigin = fallbackEmbedOrigin = exposureOrigin = lastCanonical = ''; return ''; }
         const mode = String(snapshot?.exposureMode || 'local').toLowerCase();
         const raw = mode === 'lan' || mode === 'cloudflare' ? String(snapshot?.publicUrl || '') : '';
         try {
             const parsed = new URL(raw);
-            exposureOrigin = /^https?:$/.test(parsed.protocol) ? parsed.origin : '';
+            exposureOrigin = /^https?:$/.test(parsed.protocol) && (mode==='cloudflare'||Number(parsed.port)===port()) && !parsed.username && !parsed.password ? parsed.origin : '';
         } catch {
             exposureOrigin = '';
         }
         try {
-            const parsed = new URL(mode === 'lan' ? '' : String(snapshot?.hostUrl || ''));
-            hostExposureOrigin = /^https?:$/.test(parsed.protocol) ? parsed.origin : '';
+            const lanHost = [snapshot?.publicUrl,snapshot?.hostUrl,snapshot?.url].map(canonicalOrigin).find(Boolean);
+            const parsed = new URL(mode === 'lan' ? String(lanHost || '') : String(snapshot?.hostUrl || ''));
+            hostExposureOrigin = /^https?:$/.test(parsed.protocol) && Number(parsed.port)===port() && !parsed.username && !parsed.password ? parsed.origin : '';
         } catch {
             hostExposureOrigin = '';
         }
+        fallbackEmbedOrigin = canonicalOrigin(snapshot?.hostFallbackUrl) || (snapshot?.running === true ? canonicalOrigin(fallbackEmbedOrigin) : '');
+        if (![canonicalOrigin(hostExposureOrigin), fallbackEmbedOrigin].includes(lastCanonical)) lastCanonical = '';
         return hostExposureOrigin || exposureOrigin;
     }
 
@@ -104,7 +115,7 @@
             const heartbeat = heartbeatState();
             try {
                 const embedded = new URL(heartbeat.embedded ? heartbeat.embeddedUrl : '');
-                if (embedded.origin === runtime.origin && isCandidateOrigin(embedded.origin)) url = embedded;
+                if ((embedded.origin === runtime.origin || (canonicalOrigin(runtime.origin) && !canonicalOrigin(embedded.origin))) && isCandidateOrigin(embedded.origin)) url = embedded;
             } catch {}
             url.searchParams.delete('eveos');
             url.searchParams.delete('_wfReload');
@@ -138,7 +149,7 @@
         }
     }
 
-    async function probe(preferredUrl) {
+    async function probe(preferredUrl, { retryCanonical = false } = {}) {
         let preferredOrigin = '';
         if (preferredUrl) {
             try {
@@ -149,17 +160,36 @@
             } catch {}
         }
 
-        if (preferredOrigin) {
+        const canonicals = unique([canonicalOrigin(hostExposureOrigin), fallbackEmbedOrigin]);
+        const preferredCanonical = canonicals.includes(preferredOrigin) ? preferredOrigin : '';
+        // Prefer the active verified SSLIP surface to avoid switching between two healthy aliases.
+        const ordered = unique([preferredCanonical, lastCanonical, ...canonicals]).filter(origin => canonicals.includes(origin));
+        for (const origin of ordered) {
+            const selected = await probeOrigin(origin, 1100);
+            if (selected) { lastCanonical = origin; return selected; }
+        }
+        if (retryCanonical && ordered.length) {
+            const selected = await probeOrigin(ordered[0], 1800);
+            if (selected) { lastCanonical = selected.origin; return selected; }
+        }
+        if (preferredOrigin && !ordered.includes(preferredOrigin)) {
             const preferred = await probeOrigin(preferredOrigin, 1100);
-            if (preferred) return preferred;
+            if (preferred) return recoverHostAlias(preferred, ordered);
         }
 
-        const candidates = candidateOrigins().filter((origin) => origin !== preferredOrigin);
+        const candidates = candidateOrigins().filter(origin => origin !== preferredOrigin && !ordered.includes(origin));
         for (const origin of candidates) {
             const result = await probeOrigin(origin);
-            if (result) return result;
+            if (result) return recoverHostAlias(result, ordered);
         }
         return null;
+    }
+
+    async function recoverHostAlias(result, tried) {
+        const origin=canonicalOrigin(result.payload?.hostFallbackUrl);
+        if (!origin || new URL(origin).hostname.split('.')[0] !== '127-0-0-1' || tried.includes(origin)) return result;
+        fallbackEmbedOrigin=origin; const selected=await probeOrigin(origin,1800);
+        if(selected){lastCanonical=origin;return selected;} return result;
     }
 
     function heartbeatState() {
@@ -209,6 +239,8 @@
         probe,
         probeOrigin,
         heartbeatState,
-        isCandidateOrigin
+        isCandidateOrigin,
+        isCanonical: value => Boolean(canonicalOrigin(value) && [canonicalOrigin(hostExposureOrigin), fallbackEmbedOrigin].includes(canonicalOrigin(value))),
+        hasCanonical: () => Boolean(canonicalOrigin(hostExposureOrigin) || fallbackEmbedOrigin)
     });
 })();

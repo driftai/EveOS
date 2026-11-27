@@ -6,9 +6,25 @@ importScripts('live-peer.js');
 
 let sourceTab = null, controlFrameId = 0, statePeer = null;
 let sourcePlayerSilenced = false;
-let lastRefresh = 0, lastCombinedSample = null, publisherReady = false;
+let lastRefresh = 0, lastCombinedSample = null, lastSentSample = null, publisherReady = false;
 let clockSamples = [];
+// The acknowledgement window applies only after this server proves it supports receipts.
+let deliverySeq=0, receiptReady=false, receiptRtt=null, deliveryDropped=0, deliveryRejected=0, deliveryPending=new Map(), lastDeliveryReconnect=-Infinity;
+function resetDelivery(){deliverySeq=0;receiptReady=false;receiptRtt=null;deliveryDropped=deliveryRejected=0;deliveryPending.clear();}
+function receiveDeliveryReceipt(status,now=Date.now()){
+  const m=/^wf-source-receipt\|(\d+)\|(accepted|rejected)$/.exec(String(status||''));if(!m)return false;
+  const seq=Number(m[1]),at=deliveryPending.get(seq);if(at===undefined)return true;
+  receiptReady=true;receiptRtt=Math.max(0,Math.min(60000,now-at));deliveryPending.delete(seq);if(m[2]==='rejected')deliveryRejected=Math.min(1000000,deliveryRejected+1);return true;
+}
+function canPublishSource(peer,now){
+  const socket=peer?.socket;if(socket&&socket.readyState!==1)return false;
+  const oldest=deliveryPending.values().next().value;
+  if(receiptReady&&oldest!==undefined&&now-oldest>5000&&now-lastDeliveryReconnect>30000&&socket?.readyState===1){lastDeliveryReconnect=now;socket.close(4001,'source receipt timeout');return false;}
+  if((socket?.bufferedAmount||0)>4096||receiptReady&&deliveryPending.size>=2){deliveryDropped=Math.min(1000000,deliveryDropped+1);return false;}
+  return !!peer;
+}
 let sourceOperation = Promise.resolve();
+let probeRefreshes=0,probeRefreshSkipped=0,muteAudits=0;
 
 // Serialize tab ownership, injection and mute writes. In-flight repairs must
 // finish before unlink restores the original browser mute.
@@ -25,7 +41,7 @@ async function ensureSourceTabMuted(tabId,force=false){
   if(!Number.isInteger(tabId)||sourceTab!==tabId)return false;
   const now=Date.now();
   if(!force&&now-lastMuteAttemptAt<4000)return muteVerified===true;
-  lastMuteAttemptAt=now;
+  lastMuteAttemptAt=now;muteAudits++;
   try{
     const before=await chrome.tabs.get(tabId);
     if(before?.mutedInfo?.muted!==true)await chrome.tabs.update(tabId,{muted:true});
@@ -65,8 +81,9 @@ async function cleanupInjected(tabId) {
 }
 
 async function inject(tabId) {
+  probeRefreshes++;
   await cleanupInjected(tabId);
-  frameSamples.clear(); controlFrameId = 0; lastCombinedSample = null;
+  frameSamples.clear(); controlFrameId = 0; lastCombinedSample = null; lastSentSample=null;
   let results;
   try {
     await chrome.scripting.executeScript({ target:{ tabId, allFrames:true }, world:'MAIN', files:[asset('source-page-adapter.js')] });
@@ -79,14 +96,21 @@ async function inject(tabId) {
   await messageFrames(tabId, { type:'probe-start', sourcePlayerSilenced });
 }
 
+// A healthy top-level media probe must not be torn down for unrelated iframe loads.
+function healthyTopProbe(tabId, pageUrl) {
+  const top=frameSamples.get(0), age=Date.now()-Number(top?.metadata?.sampledAt);
+  let direct=false;try{const u=new URL(pageUrl);direct=/^(?:(?:www|m)\.)?youtube\.com$/i.test(u.hostname)&&u.pathname==='/watch'&&/^[A-Za-z0-9_-]{11}$/.test(u.searchParams.get('v')||'');}catch{}
+  return direct && sourceTab===tabId && publisherReady && controlFrameId===0 && top?.topFrame===true && top.hasMedia===true && !top.metadata?.status && !!pageUrl && top.metadata?.pageUrl===pageUrl && age>=0 && age<=900;
+}
 function combinedSample(frameId, message, pageUrl = '') {
-  frameSamples.set(frameId, { ...message, frameId, at:Date.now() });
-  const fresh=[...frameSamples.values()].filter(value=>value&&Date.now()-value.at<1800);
+  const sampleAge=Date.now()-Number(message.metadata?.sampledAt);if(Number.isFinite(sampleAge)&&(sampleAge<0||sampleAge>900))return lastCombinedSample;
+  frameSamples.set(frameId, { ...message, frameId, publisherReceivedAt:Date.now() });
+  const fresh=[...frameSamples.values()].filter(value=>value&&Date.now()-value.publisherReceivedAt<1800&&(!Number.isFinite(value.metadata?.sampledAt)||(Date.now()-value.metadata.sampledAt>=0&&Date.now()-value.metadata.sampledAt<1800)));
   const media=fresh.filter(value=>value.hasMedia).sort((a,b)=>b.score-a.score)[0];
   const top=fresh.find(value=>value.topFrame);
   if(media)controlFrameId=media.frameId;
   const metadata=media?.metadata||top?.metadata||{};
-  lastCombinedSample={metadata:{...metadata,pageUrl:String(pageUrl||metadata.pageUrl||''),publisherReceivedAt:Date.now(),
+  lastCombinedSample={metadata:{...metadata,pageUrl:String(pageUrl||metadata.pageUrl||''),publisherReceivedAt:media?.publisherReceivedAt??top?.publisherReceivedAt??Date.now(),
     status:media?(metadata.status||''):'Waiting for playable media · enable Setup & embedded players access for embedded video.'}};
   return lastCombinedSample;
 }
@@ -107,10 +131,17 @@ async function restoreSourceTab(tabId, previousMuted) {
   if(typeof previousMuted==='boolean')await chrome.tabs.update(tabId,{muted:previousMuted}).catch(()=>{});
 }
 
-async function forwardControl(action,value) {
+async function forwardControl(action,value,expectedPeer=null) {
   const tabId=sourceTab??(await chrome.storage.session.get('sourceTab')).sourceTab;
-  if(!Number.isInteger(tabId))return;
-  return chrome.tabs.sendMessage(tabId,{type:'source-control',action,value},{frameId:controlFrameId}).catch(()=>{});
+  const navigation=action==='next'||action==='prev';
+  if(!Number.isInteger(tabId))return {outcome:'rejected',reason:'no-source-tab'};
+  let frameId=controlFrameId;
+  if(navigation){try{const tab=await chrome.tabs.get(tabId),u=new URL(tab.url);if(/^(?:(?:www|m)\.)?youtube\.com$/i.test(u.hostname))frameId=0;}catch{return {outcome:'rejected',reason:'source-tab-unavailable'};}}
+  if(expectedPeer&&(statePeer!==expectedPeer||sourceTab!==tabId))return {outcome:'rejected',reason:'source-link-changed'};
+  try {const result=await chrome.tabs.sendMessage(tabId,{type:'source-control',action,value},{frameId});
+    if(navigation)return ['accepted','rejected','unknown'].includes(result?.outcome)?result:{outcome:'unknown',reason:'no-execution-ack'};
+    return result;
+  } catch {return navigation?{outcome:'unknown',reason:'probe-delivery-error'}:undefined;}
 }
 
 function updatePublisherClock({sentAt, receivedAt, serverTime}, localAt) {
@@ -123,7 +154,8 @@ function updatePublisherClock({sentAt, receivedAt, serverTime}, localAt) {
   clockSamples = [...clockSamples.filter(item => localAt - item.at <= 12000), {offset,rtt,at:localAt}].slice(-5);
 }
 function sendSourceSample(sample, tabMuted) {
-  const now = Date.now();
+  const now = Date.now(), age=now-Number(sample.sampledAt);
+  if(Number.isFinite(age)&&(age<0||age>900))return false;
   const valid = clockSamples.filter(item => now - item.at <= 12000).sort((a,b) => a.rtt - b.rtt);
   const best = valid[0];
   const close = best ? valid.filter(item => item.rtt <= best.rtt + 12) : [];
@@ -131,28 +163,37 @@ function sendSourceSample(sample, tabMuted) {
   const uncertaintyMs = best ? best.rtt / 2 + (offsets.at(-1) - offsets[0]) + 8 : Infinity;
   const clock = close.length >= 3 && uncertaintyMs <= 125 && sample.sampledAt > 0 && now - sample.sampledAt >= 0 && now - sample.sampledAt <= 1500
     ? {serverSampledAt:sample.sampledAt + offsets[Math.floor(offsets.length / 2)], uncertaintyMs} : {};
-  statePeer?.metadata({...sample, ...clock, ...(typeof tabMuted === 'boolean' ? {tabMuted} : {}), sourcePlayerSilenced, publisherSentAt:now});
+  const peer=statePeer;if(!canPublishSource(peer,now))return false;
+  const seq=++deliverySeq;deliveryPending.set(seq,now);while(deliveryPending.size>16)deliveryPending.delete(deliveryPending.keys().next().value);
+  // An attempted send is not receipt evidence. Only the matching server result qualifies it.
+  peer.metadata({...sample, ...clock, probeRefreshes,probeRefreshSkipped,muteAudits,deliverySeq:seq,publisherBufferBytes:Math.min(1000000,Math.max(0,Math.round(peer.socket?.bufferedAmount||0))),publisherSkipped:deliveryDropped,publisherRejected:deliveryRejected,...(receiptRtt!==null?{publisherAckRttMs:receiptRtt}:{}), ...(typeof tabMuted === 'boolean' ? {tabMuted} : {}), sourcePlayerSilenced, publisherSentAt:now});return true;
 }
 
 function connectStatePublisher(config) {
   statePeer?.stop();
-  publisherReady=false;clockSamples=[];
-  const peer=new WatchFusionLivePeer({
-    base:config.base,id:config.id,token:config.token,publisher:true,
-    onReady:()=>{
-      if(statePeer!==peer)return;
-      publisherReady=true;
-      if(lastCombinedSample?.metadata)sendSourceSample(lastCombinedSample.metadata,muteVerified===true);
-    },
+  publisherReady=false;clockSamples=[];lastSentSample=null;resetDelivery();
+  let peer=null, earlyReady=false;
+  const onReady=()=>{
+    if(!peer){earlyReady=true;return;}
+    if(statePeer!==peer)return;
+    publisherReady=true;resetDelivery();
+    if(lastCombinedSample?.metadata&&sendSourceSample(lastCombinedSample.metadata,muteVerified===true))lastSentSample=lastCombinedSample;
+  };
+  peer=new WatchFusionLivePeer({
+    base:config.base,id:config.id,token:config.token,publisher:true,onReady,
     onClock:updatePublisherClock,
-    onControl:(action,value)=>void forwardControl(action,value),
+    onControl:(action,value)=>peer&&statePeer===peer?forwardControl(action,value,peer).then(result=>{
+      if(statePeer===peer&&['next','prev'].includes(action)&&Number.isSafeInteger(value)&&value>0){const outcome=result?.outcome||'unknown';peer.send({type:'navigation-result',action,value,outcome,reason:result?.reason||'no-execution-ack',target:result?.target||'',index:result?.index||0});}
+    }).catch(()=>{if(statePeer===peer&&['next','prev'].includes(action)&&Number.isSafeInteger(value)&&value>0)peer.send({type:'navigation-result',action,value,outcome:'unknown',reason:'probe-delivery-error'});}):undefined,
     onStatus:status=>{
+      if(!peer||statePeer!==peer||receiveDeliveryReceipt(status))return;
       if(/stopped|expired|denied|replaced/i.test(String(status||''))) {
         void withSourceOperation(()=>statePeer===peer && stop());
       }
     }
   });
   statePeer=peer;
+  if(earlyReady)onReady();
 }
 
 async function restorePublisherIfNeeded(expectedTabId) {
@@ -177,7 +218,7 @@ async function stop() {
   const tabId=sourceTab??saved.sourceTab;
   publisherReady=false;statePeer?.stop();statePeer=null;
   await restoreSourceTab(tabId,saved.sourceTabWasMuted);
-  sourceTab=null;sourcePlayerSilenced=false;muteVerified=null;lastMuteAttemptAt=0;frameSamples.clear();controlFrameId=0;lastCombinedSample=null;
+  sourceTab=null;sourcePlayerSilenced=false;muteVerified=null;lastMuteAttemptAt=0;probeRefreshes=probeRefreshSkipped=muteAudits=0;frameSamples.clear();controlFrameId=0;lastCombinedSample=null;lastSentSample=null;
   await chrome.storage.session.remove(['sourceTab','sourceTabWasMuted','sourceLinkConfig','sourcePlayerSilenced']);
   return {ok:true};
 }
@@ -238,6 +279,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
     const tabId=sourceTab??(await chrome.storage.session.get('sourceTab')).sourceTab;
     if(message.type==='refresh-probes'&&internal&&tabId!=null&&(!sender.tab||sender.tab.id===tabId)){
       return withSourceOperation(async()=>{
+        if(healthyTopProbe(tabId,sender.tab?.url)){probeRefreshSkipped++;return {ok:true,skipped:true};}
         if(Date.now()-lastRefresh>1000 && await restorePublisherIfNeeded(tabId)){
           lastRefresh=Date.now();
           await inject(tabId);
@@ -246,11 +288,18 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
       });
     }
     if(message.type==='sample'&&sender.tab?.id===tabId){
-      const sample=combinedSample(sender.frameId||0,message,sender.tab?.url||'');
+      const receivedAt=Date.now();
+      combinedSample(sender.frameId||0,message,sender.tab?.url||'');
       return withSourceOperation(async()=>{
         if(!(await restorePublisherIfNeeded(tabId))||!publisherReady)return {ok:true,pending:true};
+        // Native sender.tab mute metadata is browser-owned. Fresh positive evidence
+        // avoids a pair of redundant tabs.get round trips; explicit unmute still forces readback.
+        if(sourceTab===tabId&&muteVerified===true&&sender.tab?.mutedInfo?.muted===true&&Date.now()-receivedAt>=0&&Date.now()-receivedAt<=900)lastMuteAttemptAt=Date.now();
         const muted=await ensureSourceTabMuted(tabId,sender.tab?.mutedInfo?.muted===false);
-        sendSourceSample(sample.metadata,muted);return {ok:true};
+        // Coalesce queued delivery to the freshest known sample, not the callback's old sample.
+        const sample=lastCombinedSample;if(!sample||sample===lastSentSample||sourceTab!==tabId||!publisherReady||Number.isFinite(sample.metadata.sampledAt)&&sample.metadata.sampledAt===lastSentSample?.metadata?.sampledAt&&sample.metadata.pageUrl===lastSentSample?.metadata?.pageUrl)return {ok:true,superseded:true};
+        const age=Date.now()-Number(sample.metadata.sampledAt);if(Number.isFinite(age)&&(age<0||age>900))return {ok:true,stale:true};
+        if(sendSourceSample(sample.metadata,muted))lastSentSample=sample;return {ok:true};
       });
     }
     return {error:'No selected media tab.'};
@@ -277,3 +326,30 @@ chrome.tabs.onUpdated.addListener((tabId,info)=>{
     }catch{await stop();}
   });
 });
+
+/* Runtime activation witness: captured only after this module has loaded. */
+(() => {
+  const root = globalThis.EveOSExtensionModuleRoots?.watchfusion;
+  const build = globalThis.EveOSExtensionModuleBuilds?.watchfusion;
+  if (root !== 'modules/watchfusion/' || !/^[a-f0-9]{64}$/.test(build || '') ||
+      typeof globalThis.WatchFusionMediaLink?.startCurrentTab !== 'function' ||
+      typeof globalThis.WatchFusionLivePeer !== 'function') return;
+  const instance = crypto.randomUUID();
+  const extensionId = chrome.runtime.id;
+  const version = chrome.runtime.getManifest().version;
+  Object.defineProperty(globalThis, 'WatchFusionActivationWitness', { configurable: false, writable: false,
+    value: async nonce => {
+      if (typeof nonce !== 'string' || !/^[a-f0-9]{32}$/.test(nonce)) return null;
+      const hashes = {};
+      for (const file of ['worker.js', 'source-probe.js', 'live-peer.js']) {
+        const response = await fetch(chrome.runtime.getURL(root + file), { cache: 'no-store' });
+        if (!response.ok) throw new Error('activation asset unavailable');
+        const digest = await crypto.subtle.digest('SHA-256', await response.arrayBuffer());
+        hashes[file] = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+      }
+      const saved = await chrome.storage.session.get(['sourceTab', 'sourceLinkConfig']);
+      return { schema: 1, nonce, extensionId, version, build, instance, hashes,
+        loaded: true, linked: Number.isInteger(sourceTab) || !!saved.sourceLinkConfig || Number.isInteger(saved.sourceTab) };
+    }
+  });
+})();
