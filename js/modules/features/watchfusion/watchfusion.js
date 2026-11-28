@@ -106,6 +106,7 @@ window.EveWatchFusion = window.EveWatchFusion || {};
     }
     function stateLabel() {
         if (busy) return 'Working…';
+        if (status?.connectionUnverified === true) return 'Connection delayed';
         if (controlPortCurrent === false) return status?.running ? 'Online · restart control' : 'Restart control';
         if (status?.running && controllerAvailable === false) return 'Online · control off';
         if (status?.running) return 'Online';
@@ -274,15 +275,17 @@ window.EveWatchFusion = window.EveWatchFusion || {};
             status = {
                 ...(status || {}), ...(controlPortCurrent === false ? {} : (controlled || {})),
                 ok: true, running: true, state: 'running', controllerAvailable,
-                controlPortCurrent, directRuntime: true, port: direct.port, url: direct.url, directHostUrl: direct.url,
+                controlPortCurrent, directRuntime: true, connectionUnverified: false, port: direct.port, url: direct.url, directHostUrl: direct.url,
                 message: controlPortCurrent === false
                     ? 'WatchFusion is online on its registered port. Restart EveOS local control before using lifecycle/setup actions.'
                     : controllerAvailable
                         ? (controlWasStale ? 'WatchFusion runtime detected directly; lifecycle status was stale and has been reconciled.' : (controlled?.message || 'WatchFusion is online.'))
                         : 'WatchFusion runtime detected directly. Media stays available; Start/Stop/Setup require local control.'
             };
+        } else if (status?.running === true && !controlled && window.EveWatchFusionFrameCapabilities?.established?.()) {
+            status = { ...status, state: 'degraded', controllerAvailable: false, controlPortCurrent: null, directRuntime: false, connectionUnverified: true, message: 'Connection delayed. Established workspace retained; local control and runtime health are not currently verified.' };
         } else if (controlled && controlPortCurrent !== false) {
-            status = { ...controlled, controlPortCurrent: true, directRuntime: false };
+            status = { ...controlled, controlPortCurrent: true, directRuntime: false, connectionUnverified: false };
         } else if (controlPortCurrent === false) {
             status = {
                 ...(status || {}), ok: true, running: false, state: 'degraded', controllerAvailable: true,

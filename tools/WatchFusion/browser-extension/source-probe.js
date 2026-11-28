@@ -3,7 +3,7 @@
 (() => {
   if (window.__watchFusionMediaProbe) return;
   window.__watchFusionMediaProbe = true;
-  let enabled = true, pageMedia = null, sampleTimer = null, runtimeListenerAttached = false, navigationAttempt=0;
+  let enabled = true, pageMedia = null, sampleTimer = null, runtimeListenerAttached = false, navigationAttempt=0, generation=null;
   const frameToken = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   const PAGE_CHANNEL = 'eveos.watchfusion.page-media.v1';
   const mediaEvents=['play','pause','playing','seeking','seeked','ratechange','volumechange','waiting','ended'];
@@ -36,10 +36,13 @@
   function onSourceAudioChange(event) {
     if (silenceSourcePlayer && /^(AUDIO|VIDEO)$/.test(event.target?.tagName)) silenceElement(event.target);
   }
+  function scheduleSnapshot(){
+    if(!enabled)return;
+    clearTimeout(eventTimer);eventTimer=setTimeout(()=>{eventTimer=null;snapshot();},25);
+  }
   function onMediaEvent(event) {
     if (!enabled || event.target !== observedElement) return;
-    clearTimeout(eventTimer);
-    eventTimer=setTimeout(() => { eventTimer=null; snapshot(); },25);
+    scheduleSnapshot();
   }
   function observeMedia(element) {
     if (element===observedElement) return;
@@ -120,6 +123,8 @@
     document.removeEventListener('load', onDocumentLoad, true);
     document.removeEventListener('play', onSourceAudioChange, true);
     document.removeEventListener('volumechange', onSourceAudioChange, true);
+    document.removeEventListener('visibilitychange',scheduleSnapshot);
+    window.removeEventListener('pageshow',scheduleSnapshot);
     const runtime = runtimeListenerAttached ? runtimeApi() : null;
     runtimeListenerAttached = false;
     if (runtime) {
@@ -253,16 +258,16 @@
     const score = (element && !element.paused ? 4 : 0) + (element?.tagName === 'VIDEO' ? 2 : 0) + (controller ? 3 : 0);
     if (window !== top) parent.postMessage({ type:'watchfusion:media-frame', token:frameToken, hasMedia, score }, '*');
     sendRuntimeMessage({
-      to:'worker', type:'sample', token:frameToken, topFrame:window === top, hasMedia, score,
+      to:'worker', type:'sample', token:frameToken, generation, topFrame:window === top, hasMedia, score,
       metadata: {
         pageUrl:location.href,
         sampledAt:Date.now(),
-        title:pageMedia?.title || navigator.mediaSession?.metadata?.title || document.title,
+        title:(controller ? pageMedia?.title : null) || navigator.mediaSession?.metadata?.title || document.title,
         paused:element ? element.paused : pageMedia?.paused !== false,
         ended:element ? !!element.ended : !!pageMedia?.ended,
         buffering:element ? element.seeking || element.readyState < 3 : undefined,
-        currentTime:element?.currentTime || pageMedia?.currentTime || 0,
-        duration:Number.isFinite(element?.duration) ? element.duration : pageMedia?.duration || 0,
+        currentTime:element ? (Number.isFinite(element.currentTime)?element.currentTime:0) : controller ? (Number(pageMedia?.currentTime)||0) : 0,
+        duration:element ? (Number.isFinite(element.duration)?element.duration:0) : controller ? (Number(pageMedia?.duration)||0) : 0,
         rate:element?.playbackRate || pageMedia?.rate || 1,
         // The local output override must not mute WatchFusion's resolved player.
         volume:element ? ((priorMute.get(element) ?? element.muted) ? 0 : element.volume ?? 1) : pageMedia?.volume ?? 1,
@@ -273,12 +278,15 @@
 
   function onRuntimeMessage(message, _sender, reply) {
     if (message.type === 'probe-stop') { cleanup(); return; }
+    if (message.type === 'probe-health') { if(enabled&&generation&&message.generation===generation){snapshot();reply?.({ok:true});} return; }
     if (message.type === 'probe-start') {
       enabled = true;
+      generation=typeof message.generation==='string'?message.generation:null;
       setPlayerSilence(message.sourcePlayerSilenced === true);
       snapshot();
       return;
     }
+    if(message.generation!==undefined&&message.generation!==generation)return;
     if (message.type === 'source-player-silence' && enabled) {
       setPlayerSilence(message.enabled === true);
       snapshot();
@@ -317,6 +325,8 @@
   document.addEventListener('load', onDocumentLoad, true);
   document.addEventListener('play', onSourceAudioChange, true);
   document.addEventListener('volumechange', onSourceAudioChange, true);
+  document.addEventListener('visibilitychange',scheduleSnapshot);
+  window.addEventListener('pageshow',scheduleSnapshot);
   const runtime = runtimeApi();
   if (!runtime) { cleanup(); return; }
   try {

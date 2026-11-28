@@ -6,9 +6,10 @@ import { spawnSync } from 'node:child_process';
 import { VOXELVISION_PUBLIC } from './config.js';
 import { json, readBody } from './http-utils.js';
 import { isHostLocalRequest } from './local-request.js';
+import { youtubeStatusOffThread } from './youtube-status-worker.js';
 import { parseByteRange, streamMedia } from '../../voxelvision/media-range.js';
 import {
-  getYoutubeStatus,
+  DEFAULT_YOUTUBE_QUALITY, getYoutubeQualityProfiles,
   isSupportedYoutubeUrl,
   normalizeYoutubeQuality,
   resolveYoutubeStream,
@@ -170,11 +171,10 @@ const REDACTED_HARDWARE = Object.freeze({
   redacted: true
 });
 
-function youtubeStatusForRequest(hostLocal) {
-  const status = getYoutubeStatus();
-  if (hostLocal) return { ...status, busy: youtubeImportBusy, remoteDisabled: false };
+async function youtubeStatusForRequest(hostLocal) {
+  if (hostLocal) return { ...await youtubeStatusOffThread(), busy: youtubeImportBusy, remoteDisabled: false };
   return {
-    ...status,
+    defaultQuality: DEFAULT_YOUTUBE_QUALITY, qualityProfiles: getYoutubeQualityProfiles(),
     available: false,
     provider: null,
     ffmpegAvailable: false,
@@ -250,14 +250,14 @@ async function handleVoxelVisionApi(req, res, pathname) {
       mounted: true,
       hostLocal,
       hardware: hostLocal ? SYSTEM_HARDWARE : REDACTED_HARDWARE,
-      youtube: youtubeStatusForRequest(hostLocal)
+      youtube: await youtubeStatusForRequest(hostLocal)
     });
   }
   if (req.method === 'GET' && pathname === '/voxelvision/api/hardware') {
     return json(res, 200, hostLocal ? SYSTEM_HARDWARE : REDACTED_HARDWARE);
   }
   if (req.method === 'GET' && pathname === '/voxelvision/api/youtube/status') {
-    return json(res, 200, youtubeStatusForRequest(hostLocal));
+    return json(res, 200, await youtubeStatusForRequest(hostLocal));
   }
   const streamMatch = pathname.match(/^\/voxelvision\/api\/youtube\/stream\/([a-f0-9]{32})\.m3u8$/);
   if (req.method === 'GET' && streamMatch) {

@@ -37,6 +37,11 @@ export function sanitizeSensor(value) {
     timelineRatePct: int(value.timelineRatePct, 0, 300), audibleOutput: AUDIBLE_OUTPUTS.has(value.audibleOutput) ? value.audibleOutput : 'unknown'};
 }
 
+// Diagnostic fields do not grant correction authority; only bounded values survive.
+export function sanitizeMemberPrecision(v){
+  if(!v||typeof v!=='object'||Array.isArray(v))return null;
+  return {reason:word(v.reason),medianMs:ms(v.medianMs),madMs:int(v.madMs,0,600000),pulses:count(v.pulses),active:v.active===true,restoring:v.restoring===true,verdict:word(v.verdict),verification:word(v.verification),rateTrial:word(v.rateTrial),rateAttempts:count(v.rateAttempts),clockAllowanceMs:int(v.clockAllowanceMs,0,10000)};
+}
 // Remote decoder diagnostics are bounded enums and integers only: never raw messages or URLs.
 export function sanitizeDecoderRecovery(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;

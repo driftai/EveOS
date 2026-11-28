@@ -1,6 +1,6 @@
 import { json, readBody } from './http-utils.js';
 import { createPlayoutCoordinator } from './playout-coordinator.js';
-import { noteRejection, roster, sanitizeHostRecovery, sanitizeSensor, sanitizeDecoderRecovery, collectRecoveryEvents, recoveryHistory } from './presentation-report-schema.js';
+import { noteRejection, roster, sanitizeHostRecovery, sanitizeSensor, sanitizeDecoderRecovery, sanitizeMemberPrecision, collectRecoveryEvents, recoveryHistory } from './presentation-report-schema.js';
 
 const reportsByRoom = new WeakMap();
 const reportLifetime = 5000;
@@ -95,7 +95,7 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
         audible: report.audible === true, follows: report.follows === true, correcting: report.correcting === true,
         // v13.10.8e: host recovery (legacy peer path and source-led path) and sensor provenance survive, bounded.
         hostRecovery: member.id === room.hostId ? sanitizeHostRecovery(report.hostRecovery) : null,
-        sensor: sanitizeSensor(report.sensor), decoderRecovery: sanitizeDecoderRecovery(report.decoderRecovery)
+        sensor: sanitizeSensor(report.sensor), decoderRecovery: sanitizeDecoderRecovery(report.decoderRecovery), memberPrecision:sanitizeMemberPrecision(report.memberPrecision), precisionAllowanceMs:member.id===room.hostId&&current.mode==='youtube'&&body.segment===segment&&report.clockWitness===true&&finite(report.rttMs,0,45)?metric(report.precisionAllowanceMs,0,12):null
       });
       // Off-rate playback is active correction, not a reason to drop the device:
       // it remains observed as telemetry while excluded from reference selection.
@@ -127,6 +127,12 @@ export async function handlePresentation(req, res, room, member, at = Date.now()
   const coordination = entry.playout.coordinate({now:time, authority:entry.current.linked ? 'linked' : room.hostId, viewers,
     allowHoldback:entry.current.mode === 'direct' && entry.linkedOutput?.muted === true && time - entry.linkedOutput.at < 1800});
   coordination.mirrorContradicted = entry.mirrorConflict?.segment === segment && time - entry.mirrorConflict.at <= 1500;
+  // Only the current host's current-segment report can corroborate member precision.
+  const hostReport=entry.reports.get(room.hostId);
+  if(member.id!==room.hostId&&entry.current.mode==='youtube'&&entry.current.linked&&hostReport?.playoutSegment===segment&&time-hostReport.receivedAt<=1000&&room.members.has(room.hostId)){
+    const {member,outputSession,playoutSegment,positionMs,sampledAt,rate,ready,playing,buffering,correcting,adjustmentMs,startupPhase,clockWitness,audible,rttMs,precisionAllowanceMs}=hostReport;
+    coordination.hostWitness={member,outputSession,playoutSegment,positionMs,sampledAt,rate,ready,playing,buffering,correcting,adjustmentMs,startupPhase,clockWitness,audible,rttMs,precisionAllowanceMs};
+  }
   return json(res, 200, {
     serverReceivedAt: at, serverTime: Date.now(), coordination, serverBuild:'wf-06jid', recoveryAck,
     ...((body.diagnostics === true || body.trace === true) ? {peers:[...entry.reports.values()], roster:roster(entry, room, time),...(body.trace===true?{recoveryHistory:recoveryHistory(room,time)}:{})} : {}),

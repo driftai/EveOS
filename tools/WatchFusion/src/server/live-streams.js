@@ -5,8 +5,13 @@ import { json, readBody } from './http-utils.js';
 import { observeLinkedPlayout } from './presentation-routes.js';
 import { parseYoutubeUrl } from './youtube.js';
 import { networkProbeStats } from './network.js';
+import { createRelayLoopWitness } from './relay-loop-witness.js';
+import { PROJECT_ROOT } from './config.js';
+import { attachMaintenanceUnlink, publisherProvenance } from './maintenance-unlink.js';
+import { trustedExtensionIds } from './extension-identity.js';
 
 const streams = new Map();
+let maintenanceControl=()=>null;
 const token = () => crypto.randomBytes(24).toString('hex');
 const send = (socket, data) => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(data)); };
 const text = (value, limit = 200) => String(value || '').slice(0, limit);
@@ -109,6 +114,11 @@ function dispose(stream) {
 }
 export async function handleLiveRoute(req, res, parts) {
   if (parts[0] !== 'api' || parts[1] !== 'live') return false;
+  if(parts[2]==='maintenance-unlink'){
+    const ctl=maintenanceControl();
+    if(!ctl||!ctl.authorized(req))return json(res,403,{ok:false,code:'MAINTENANCE_AUTH_REQUIRED'});
+    const body=await readBody(req,{maxBytes:1024}),result=ctl.execute(req,body);return json(res,result.status,result.body);
+  }
   if (req.method !== 'POST' || !sameOrigin(req)) return json(res, 403, { error: 'Open this control in WatchFusion.' });
   const body = await readBody(req, { maxBytes: 4096 });
   if (!parts[2]) {
@@ -193,13 +203,20 @@ function metadata(value = {}) {
 }
 export function attachLiveStreams(server) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024, perMessageDeflate: false });
+  const extensionIds=new Set(trustedExtensionIds());
+  maintenanceControl=attachMaintenanceUnlink(server,{root:PROJECT_ROOT,streams,dispose,eligible:(stream,id)=>{
+    if(!extensionIds.has(id)||stream.maintenancePublisherOrigin!==id||stream.publisher?.readyState!==WebSocket.OPEN||!Number.isSafeInteger(stream.metadata?.deliverySeq)||stream.metadata.deliverySeq<=0)return false;
+    if(!stream.roomId)return !stream.linkedMemberId;
+    if(!stream.linkedMemberId||!hasRoom(stream.roomId))return false;
+    const room=getRoom(stream.roomId,{touch:false});return room.linkedSourceId===stream.id&&room.hostId===stream.linkedMemberId&&room.members.has(stream.linkedMemberId);
+  }});
   server.on('upgrade', (req, socket, head) => {
     if (String(req.url).split('?')[0] !== '/live-ws') return;
-    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws));
+    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
   });
-  let loopAt=Date.now(),loopDelay=0,loopDelayAt=0;
-  const loopMonitor=setInterval(()=>{const now=Date.now(),delay=Math.max(0,now-loopAt-250);loopAt=now;if(delay>100||now-loopDelayAt>1500){loopDelay=Math.min(60000,Math.round(delay));loopDelayAt=now;}},250);loopMonitor.unref?.();
-  wss.on('connection', socket => {
+  const loopWitness=createRelayLoopWitness();let loopAt=performance.now(),loopDelay=0,loopDelayAt=0;
+  const loopMonitor=setInterval(()=>{const now=performance.now(),delay=Math.max(0,now-loopAt-250);loopAt=now;if(delay>100||now-loopDelayAt>1500){loopDelay=Math.min(60000,Math.round(delay));loopDelayAt=now;}loopWitness.setActive([...streams.values()].some(x=>x.linkedMemberId&&x.publisher?.readyState===WebSocket.OPEN));loopWitness.sample();},250);loopMonitor.unref?.();
+  wss.on('connection', (socket,request) => {
     let stream, peerId, publisher = false, credential;
     let count = 0, windowAt = Date.now();const delivery={seq:0,sent:0,floor:Infinity};
     const authTimer = setTimeout(() => socket.close(1008, 'Authentication required'), 5000);
@@ -219,7 +236,7 @@ export function attachLiveStreams(server) {
           if (!publisher && candidate.viewers.size >= 16) return socket.close(1008, 'Live viewer limit reached');
           stream = candidate; stream.at = Date.now(); clearTimeout(authTimer);
           if (publisher) {
-            stream.publisher?.close(1000, 'Publisher replaced'); stream.publisher = socket;
+            stream.publisher?.close(1000, 'Publisher replaced'); stream.publisher = socket;stream.maintenancePublisherOrigin=publisherProvenance(request);
             send(socket, { type: 'ready', iceServers: iceServers() });
             for (const [id, viewer] of stream.viewers) { send(socket, { type: 'viewer', peer: id }); send(viewer, { type: 'status', status: 'Source connected' }); }
           } else {
@@ -244,8 +261,8 @@ export function attachLiveStreams(server) {
           const proof=sourceDelivery(message.metadata,receivedAt,delivery);
           if(proof){send(socket,{type:'status',status:`wf-source-receipt|${proof.seq}|${proof.accept?'accepted':'rejected'}`});if(!proof.accept)return;}
           stream.metadata = metadata(message.metadata);
-          if(proof){Object.assign(stream.metadata,{deliverySeq:proof.seq,relayLagMs:proof.lag,relayLoopDelayMs:loopDelay});
-            if(typeof networkProbeStats==='function'){const n=networkProbeStats();Object.assign(stream.metadata,{relayNetworkProbeMs:n.ms,relayNetworkProbeSequence:n.sequence,relayNetworkProbeAgeMs:n.ageMs});}}
+          if(proof){Object.assign(stream.metadata,{deliverySeq:proof.seq,relayLagMs:proof.lag,relayLoopDelayMs:loopDelay});const witness=loopWitness.current();if(witness)Object.assign(stream.metadata,{relayLoopSequence:witness.sequence,relayLoopKind:witness.kind,relayLoopCallbackMs:witness.callbackMs,relayLoopProcessCpuMs:witness.processCpuMs});
+            if(typeof networkProbeStats==='function'){const n=networkProbeStats();Object.assign(stream.metadata,{relayNetworkProbeMs:n.ms,relayNetworkProbeSequence:n.sequence,relayNetworkProbeAgeMs:n.ageMs,relaySyncNetworkProbeMs:n.syncMs,relaySyncNetworkProbeSequence:n.syncSequence,relaySyncNetworkProbeAgeMs:n.syncAgeMs});}}
           relayLinkedPlayout(stream, message.metadata);
           for (const viewer of stream.viewers.values()) {if(proof&&(viewer.bufferedAmount||0)>65536)continue;send(viewer, { type: 'metadata', metadata: { ...stream.metadata, relaySentAt: Date.now() } });}
         } else if (publisher && message.type === 'navigation-result') {
@@ -289,5 +306,5 @@ export function attachLiveStreams(server) {
       if (Date.now() - stream.at > 120000) dispose(stream);
     }
   }, 30000);
-  timer.unref(); server.on('close', () => { clearInterval(timer);clearInterval(loopMonitor); for (const stream of streams.values()) dispose(stream); wss.close(); });
+  timer.unref(); server.on('close', () => { clearInterval(timer);clearInterval(loopMonitor);loopWitness.close(); for (const stream of streams.values()) dispose(stream); wss.close(); });
 }

@@ -10,6 +10,7 @@ import {
 } from './config.js';
 import { now } from './http-utils.js';
 import { presentationScope } from './presentation-routes.js';
+import { summarizeRoomActivity } from './maintenance-activity.js';
 
 const rooms = new Map();
 const roomAliases = new Map();
@@ -245,6 +246,7 @@ export function deleteRoom(roomId, room) {
 
 export function isDeleted(roomId) { return deletedRooms.has(roomId); }
 export function counts() { return { rooms: rooms.size, aliases: roomAliases.size }; }
+export function maintenanceCounts() { return summarizeRoomActivity(rooms.values()); }
 
 export function pruneRooms() {
   const nowMs = now(), cutoff = nowMs - ROOM_TTL_MS;

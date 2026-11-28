@@ -21,6 +21,7 @@ function ensurePlayer(videoId, recoveryStart = null) {
           ...(Number.isFinite(recoveryStart) ? {start:Math.max(0, Math.floor(recoveryStart))} : {}),
           autoplay: 1,
           controls: 1,
+          fs: 1, // Keep native YouTube fullscreen alongside room fullscreen.
           rel: 0,
           modestbranding: 1,
           playsinline: 1,
@@ -34,7 +35,8 @@ function ensurePlayer(videoId, recoveryStart = null) {
             try {
               const frame = ytPlayer.getIframe?.();
               if (frame) {
-                frame.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+                frame.setAttribute('allow', "autoplay; encrypted-media; picture-in-picture; fullscreen");
+                frame.setAttribute('allowfullscreen', '');
                 frame.style.display = 'block';
                 frame.hidden = false;
               }
@@ -43,8 +45,7 @@ function ensurePlayer(videoId, recoveryStart = null) {
             if (recoveryRoom && recoveryRoom === roomId && state?.presentationEpoch === recoveryEpoch &&
                 desired === videoId && state.source?.videoId === videoId && !isHost() && followsRoomPlayback()) {
               const recovering = ytPlayer;
-              // The constructor already loaded this track at the live position. A
-              // slow video ID on ready must not cue it again from zero.
+              // Recovery already loaded the live position; do not cue it from zero.
               try { await waitForPlayerCued(videoId); } catch { /* normal sync retries a mismatched player */ }
               if (ytPlayer === recovering && roomId === recoveryRoom && state?.presentationEpoch === recoveryEpoch && state.source?.videoId === videoId) {
                 playerInitializing = false;
@@ -61,10 +62,9 @@ function ensurePlayer(videoId, recoveryStart = null) {
               }
             }
             if (roomId) {
-              await primeYouTubePlayer();
-              // Allow manual host playback after blocked autoplay.
+              const witness = await primeYouTubePlayer();
               playerInitializing = false;
-              syncHydratedPlayer(desired);
+              syncHydratedPlayer(desired, witness);
             } else {
               restorePlayerAudioPrefs();
               playerPrimed = true;
@@ -104,10 +104,10 @@ function ensurePlayer(videoId, recoveryStart = null) {
       const desired = pendingVideoId;
       ytPlayer.cueVideoById(desired);
       waitForPlayerCued(desired).then(async () => {
-        await primeYouTubePlayer(true);
+        const witness = await primeYouTubePlayer(true);
         applyingRemote = false;
         playerInitializing = false;
-        syncHydratedPlayer(desired);
+        syncHydratedPlayer(desired, witness);
       }).catch(() => {
         applyingRemote = false;
         playerInitializing = false;
@@ -115,9 +115,9 @@ function ensurePlayer(videoId, recoveryStart = null) {
       });
     } else {
       if (roomId) {
-        primeYouTubePlayer().then(() => {
+        primeYouTubePlayer().then(witness => {
           playerInitializing = false;
-          syncHydratedPlayer(pendingVideoId);
+          syncHydratedPlayer(pendingVideoId, witness);
         });
       } else {
         playerPrimed = true;
@@ -150,7 +150,7 @@ function primeYouTubePlayer(force = false) {
   installUserGesturePrime();
   if (!ytPlayer || !ytPlayerReady || primingPlayer) return Promise.resolve();
   if (playerPrimed && !force) return Promise.resolve();
-  const player = ytPlayer, video = pendingVideoId, room = roomId, epoch = state?.presentationEpoch;
+  const player = ytPlayer, video = pendingVideoId, room = roomId, epoch = state?.presentationEpoch, segment = state?.playoutSegment;
   const same = () => ytPlayer === player && pendingVideoId === video && roomId === room && state?.presentationEpoch === epoch;
   primingPlayer = true; window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
   suppressAudioPersistence = true;
@@ -164,7 +164,6 @@ function primeYouTubePlayer(force = false) {
       if (!same()) { primingPlayer = false; applyingRemote = wasApplyingRemote; suppressAudioPersistence = false; resolve(); return; }
       try {
         window.watchFusionLinkedTab?.suppressPlaybackEcho?.();
-        // Only warm a paused room, never pause an already-running join to prime it.
         if (state?.playback?.paused) {
           player.pauseVideo?.();
           const target = Number(state.playback.position) || 0;
@@ -179,7 +178,7 @@ function primeYouTubePlayer(force = false) {
       applyingRemote = wasApplyingRemote;
       setTimeout(() => { suppressAudioPersistence = false; }, 0);
       window.watchFusionRoomSyncLog?.note?.('startup-prime-result', {reason:warm?'motion-confirmed':sawPlaying?'decoder-unverified':'play-unconfirmed'});
-      resolve();
+      resolve(warm ? {player, video, room, epoch, segment, at:performance.now()} : null);
     };
     const observe = () => {
       if (!same()) return finish();
@@ -262,7 +261,6 @@ function onYouTubeStateChange(event) {
   if (!hostPlaybackEventAllowed(event.data)) return;
   const position = Number(ytPlayer?.getCurrentTime?.()) || 0;
   const duration = Number(ytPlayer?.getDuration?.()) || 0;
-
   if (event.data === YT.PlayerState.ENDED) {
     // Natural completion is authoritative room state. Do not use a timer or
     // position heuristic; the YouTube event itself defines the transition.
@@ -272,7 +270,6 @@ function onYouTubeStateChange(event) {
     });
     return;
   }
-
   if (event.data === YT.PlayerState.PLAYING) {
     const replaying = !!state.playback.ended;
     const playPosition = replaying ? 0 : position;
@@ -354,11 +351,17 @@ function requestViewerPlayback() {
     if (autoplayWasBlocked) setStatus('Starting synchronized playback muted · tap WatchFusion once for audio');
   }, 320);
 }
-function syncHydratedPlayer(videoId = state?.source?.videoId) {
+function syncHydratedPlayer(videoId = state?.source?.videoId, witness = null) {
   const expected = String(videoId || '');
   if (expected && state?.source?.videoId !== expected) return false;
   const forceViewer = followsRoomPlayback();
-  syncPlayer({ hydrateHost: true, force: forceViewer });
+  let near = false;
+  if(forceViewer&&witness&&witness.player===ytPlayer&&witness.video===expected&&witness.room===roomId&&witness.epoch===state?.presentationEpoch&&witness.segment===state?.playoutSegment&&performance.now()-witness.at>=0&&performance.now()-witness.at<=500&&!document.hidden&&state?.linkedSourceActive===true&&!state.playback?.paused&&!state.playback?.ended&&playerPrimed&&ytPlayer?.getPlayerState?.()===1&&ytPlayer.getVideoData?.()?.video_id===expected&&expected)try{
+    const p=window.watchFusionPlayout,c=p?.status?.(),now=estimatedServerNow();
+    near=c?.reference==='linked-tab'&&c.source==='live'&&!c.authorityBuffering&&p.hasSourceReference?.(c,now)===true&&Number.isFinite(c.uncertaintyMs)&&c.uncertaintyMs>=0&&c.uncertaintyMs<=35&&!window.WatchFusionMirrorConvergenceGate?.contradicted?.()&&Math.abs(window.watchFusionYouTubeTarget?.(now,Number(ytPlayer.getDuration?.())||0)-Number(ytPlayer.getCurrentTime?.()))<=.10;
+  }catch{}
+  if(near) syncPlayer({ hydrateHost: true, force: false });
+  else syncPlayer({ hydrateHost: true, force: forceViewer });
   if (forceViewer && expected) {
     setTimeout(() => {
       if (!roomId || !followsRoomPlayback() || !ytPlayerReady || state?.source?.videoId !== expected) return;
@@ -377,8 +380,7 @@ function syncPlayer(options = {}) {
   }
   if (!followsRoomPlayback() && options.hydrateHost !== true) return;
   if (followsRoomPlayback() && typeof window.applyAdaptiveViewerSync === 'function') {
-    // Playback lifecycle ownership stays here. Adaptive sync is a focused
-    // viewer-correction service and must not replace this function wholesale.
+    // Adaptive sync owns correction, not playback lifecycle.
     window.applyAdaptiveViewerSync(Boolean(options.force), false, options.explicitSync === true);
     return;
   }

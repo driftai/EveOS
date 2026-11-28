@@ -14,12 +14,14 @@ function tvHarness() {
   const api=ctx.WatchFusionReleaseEvidence;
   assert(!!api?.tvRecoveryOwner,'TV recovery owner missing');
   const owner=api.tvRecoveryOwner;
-  let current=100, trusted=true, buffered=true, sourceReady=true, state=1, discrepancy=false;
+  let target=110, current=100, trusted=true, buffered=true, sourceReady=true, state=1, discrepancy=false;
   const io={follower:true,hostLinked:false,linkedSourceActive:()=>true,state:()=>state,
     sourceReferenceQualified:()=>sourceReady,referenceTrusted:()=>trusted,
     sourceBuffering:()=>false,mirrorContradicted:()=>discrepancy,
-    referenceUncertaintyMs:()=>15,target:()=>110,current:()=>current,buffered:()=>buffered};
-  return {owner,io,setCurrent:v=>current=v,setTrusted:v=>trusted=v,setBuffered:v=>buffered=v,
+    referenceUncertaintyMs:()=>15,target:()=>target,current:()=>current,buffered:()=>buffered};
+  // Advance the independent room clock; never derive target from decoder motion.
+  const block=(value,at,error,why,io)=>{target=100+at/1000+error;return owner.block(value,at,error,why,io);};
+  return {owner,block,io,setCurrent:v=>current=v,setTrusted:v=>trusted=v,setBuffered:v=>buffered=v,
     setSourceReady:v=>sourceReady=v,setState:v=>state=v,setDiscrepancy:v=>discrepancy=v};
 }
 function logHarness({legacy=false,blocked=false}={}) {
@@ -49,42 +51,44 @@ export async function runR14zCopyRecoverySmokes() {
   async function check(id,fn){try{await fn();checks.push({id,status:'PASS'})}catch(e){checks.push({id,status:'FAIL',error:e.message})}}
   await check('R14Z-01 one bounded TV retry on stable advancing large lag',()=>{
     const h=tvHarness(),id='111:host:videoA:seg1';h.owner.release(id,0);
-    let grants=0;for(let at=5000;at<=8000;at+=500){h.setCurrent(100+at/1000);if(!h.owner.block(id,at,3.6,'plateau',h.io))grants++}
+    let grants=0;for(let at=5000;at<=8000;at+=500){h.setCurrent(100+at/1000);if(!h.block(id,at,3.6,'plateau',h.io))grants++}
     assert(grants===1,'expected one verified buffered retry, got '+grants);
   });
   await check('R14Z-02 no repeated retry after second release',()=>{
     const h=tvHarness(),id='111:host:videoA:seg1';h.owner.release(id,0);
-    for(let at=5000;at<=8000;at+=500){h.setCurrent(100+at/1000);h.owner.block(id,at,3.6,'plateau',h.io)}
+    let firstGrants=0;for(let at=5000;at<=8000;at+=500){h.setCurrent(100+at/1000);if(!h.block(id,at,3.6,'plateau',h.io))firstGrants++}
+    assert(firstGrants===1,'first video must consume exactly one retry before testing budget isolation');
     h.owner.release(id,8100);let blocks=0;
-    for(let at=13000;at<=16000;at+=500){h.setCurrent(100+at/1000);if(h.owner.block(id,at,3.6,'plateau',h.io))blocks++}
+    for(let at=13000;at<=16000;at+=500){h.setCurrent(100+at/1000);if(h.block(id,at,3.6,'plateau',h.io))blocks++}
     assert(blocks===7,'duplicate retry was permitted');
   });
   await check('R14Z-03 stalled decoder cannot escape',()=>{
     const h=tvHarness(),id='111:host:stalled:seg1';h.owner.release(id,0);
-    for(let at=5000;at<=10000;at+=500)assert(h.owner.block(id,at,3.6,'plateau',h.io),'stalled decoder escaped');
+    for(let at=5000;at<=10000;at+=500)assert(h.block(id,at,3.6,'plateau',h.io),'stalled decoder escaped');
   });
   await check('R14Z-04 unbuffered target cannot escape',()=>{
     const h=tvHarness(),id='111:host:no-buffer:seg1';h.setBuffered(false);h.owner.release(id,0);
-    for(let at=5000;at<=10000;at+=500){h.setCurrent(100+at/1000);assert(h.owner.block(id,at,3.6,'plateau',h.io),'unbuffered retry allowed')}
+    for(let at=5000;at<=10000;at+=500){h.setCurrent(100+at/1000);assert(h.block(id,at,3.6,'plateau',h.io),'unbuffered retry allowed')}
   });
   await check('R14Z-05 source distrust blocks retry',()=>{
     const h=tvHarness(),id='111:host:no-source:seg1';h.setSourceReady(false);h.owner.release(id,0);
-    for(let at=5000;at<=10000;at+=500){h.setCurrent(100+at/1000);assert(h.owner.block(id,at,3.6,'plateau',h.io),'untrusted retry allowed')}
+    for(let at=5000;at<=10000;at+=500){h.setCurrent(100+at/1000);assert(h.block(id,at,3.6,'plateau',h.io),'untrusted retry allowed')}
   });
   await check('R14Z-06 normal smaller drift retains rejoin guard',()=>{
     const h=tvHarness(),id='111:host:small:seg1';h.owner.release(id,0);
-    for(let at=5000;at<=10000;at+=500){h.setCurrent(100+at/1000);assert(h.owner.block(id,at,.25,'plateau',h.io),'small drift bypassed guard')}
+    for(let at=5000;at<=10000;at+=500){h.setCurrent(100+at/1000);assert(h.block(id,at,.25,'plateau',h.io),'small drift bypassed guard')}
   });
   await check('R14Z-07 normal >4s rejoin and manual still pass through',()=>{
     const h=tvHarness(),id='111:host:large:seg1';h.owner.release(id,0);
-    assert(h.owner.block(id,5000,4.5,'plateau',h.io)===false,'old large gap rescue was blocked');
-    assert(h.owner.block(id,5000,.15,'manual',h.io)===false,'manual override blocked');
+    assert(h.block(id,5000,4.5,'plateau',h.io)===false,'old large gap rescue was blocked');
+    assert(h.block(id,5000,.15,'manual',h.io)===false,'manual override blocked');
   });
   await check('R14Z-08 one retry budget resets only on new video identity',()=>{
     const h=tvHarness(),id='111:host:video1:seg1';h.owner.release(id,0);
-    for(let at=5000;at<=8000;at+=500){h.setCurrent(100+at/1000);h.owner.block(id,at,3.6,'plateau',h.io)}
+    let firstGrants=0;for(let at=5000;at<=8000;at+=500){h.setCurrent(100+at/1000);if(!h.block(id,at,3.6,'plateau',h.io))firstGrants++}
+    assert(firstGrants===1,'first video must consume exactly one retry before testing budget isolation');
     const next='111:host:video2:seg1';h.owner.release(next,10000);let grants=0;
-    for(let at=15000;at<=18000;at+=500){h.setCurrent(100+at/1000);if(!h.owner.block(next,at,3.6,'plateau',h.io))grants++}
+    for(let at=15000;at<=18000;at+=500){h.setCurrent(100+at/1000);if(!h.block(next,at,3.6,'plateau',h.io))grants++}
     assert(grants===1,'new video did not receive separate budget');
   });
   await check('R14Z-09 Copy Log yields to playback and maintains JSON schema',async()=>{

@@ -49,7 +49,7 @@
     const positionMs = position * 1000;
     const roomPositionMs = base * 1000 + (running ? Math.max(0, at - anchor) * (Number(playback.rate) || 1) : 0);
     const diagnostics = direct ? {correctiveSeeks:mediaSyncSeeks, action:mediaSyncAction} : window.watchFusionSyncDiagnostics?.();
-    const hostServo = !direct && isHost() ? window.watchFusionHostZeroCenter?.diagnostics?.() : null;
+    const hostServo = !direct && isHost() ? window.watchFusionHostZeroCenter?.diagnostics?.() : null;const z=!direct?window.WatchFusionZeroConverge?.diagnostics?.():null,trial=!direct?diagnostics?.arbiter?.tvRateRecheck:null;
     const syncReference = window.watchFusionPlayout?.status?.();
     const following = followsRoomPlayback();
     const target = !(following || isHost()) ? null : direct ? window.mediaPlayback?.target?.(at, media.duration) : window.watchFusionYouTubeTarget?.(at, media.getDuration?.());
@@ -64,10 +64,10 @@
       buffering: direct ? media.seeking || media.readyState < 3 : ytState === 3,
       ready: direct ? !!mediaPlayerReady : !!ytPlayerReady && !playerInitializing && !primingPlayer,
       audible: volume > .01 && (direct ? !media.muted : media.isMuted?.() === false),
-      outputSession, follows: !isHost() && following, adjustmentMs, correcting: (!direct && window.watchFusionViewerArbiter?.correcting?.() === true) || hostServo?.active === true,
+      outputSession, follows: !isHost() && following, adjustmentMs, correcting: (!direct && (window.watchFusionViewerArbiter?.correcting?.() === true || z?.active===true || z?.restoring===true)) || hostServo?.active === true,
       videoFrameOffsetMs: direct && videoFrame && performance.now() - videoFrame.at < 500 ? videoFrame.offset : null,
       rttMs: window.watchPartyClock.rttMs(), offsetMs: window.watchPartyClock.offsetMs(),
-      clockWitness: window.watchPartyClock.witnessReady?.() === true,
+      clockWitness: window.watchPartyClock.witnessReady?.() === true, ...(!direct&&isHost()?{precisionAllowanceMs:window.watchPartyClock.fineAllowanceMs?.()??null}:{}), ...(z?{memberPrecision:{reason:z.reason,medianMs:z.medianMs,madMs:z.madMs,pulses:z.pulses,active:z.active,restoring:z.restoring,verdict:z.actuator?.verdict,verification:z.actuator?.verificationReason,rateTrial:trial?.reason,rateAttempts:trial?.attempts,clockAllowanceMs:window.watchPartyClock.fineAllowanceMs?.()}}:{}),
       corrections: isHost() ? Math.max(diagnostics?.arbiter?.corrections??0,diagnostics?.correctiveSeeks??0)+(hostServo?.attempts??0) : diagnostics?.correctiveSeeks ?? null, recentCorrection: hostServo?.active ? 'rate-correction' : diagnostics?.action ?? null, sourceAgeMs,
       timingReference: syncReference?.reference === 'peer-cohort' && Number.isFinite(syncReference.uncertaintyMs) ? 'Shared cohort ±'+Math.round(syncReference.uncertaintyMs)+' ms' : syncReference?.reference === 'linked-tab' ? 'Linked tab (estimated clock)' : 'Room clock (limited)',
       hostCorrection: window.WatchFusionHostPeerRecovery?.diagnostics?.()?.outcome === 'host-peer-rejoin' ? 'Peers corroborated · host rejoin' : hostServo?.outcome ?? null, hostRecovery: isHost() ? {...(window.WatchFusionHostPeerRecovery?.diagnostics?.()??{}),linkedSource:window.WatchFusionHostSourceConverge?.diagnostics?.()??null} : null, sensor: window.WatchFusionSensorProvenance?.describe?.({direct, media, now:performance.now(), clock:window.watchPartyClock.offsetBound?.(), source:isHost()&&window.watchFusionLinkedTab?.publishing?.()?window.watchFusionLinkedTab.metadata?.():null}) ?? null,
@@ -128,7 +128,7 @@
   async function exchange(body, signal, onReceived) {
     const active = identity();
     if (!active || state.presentationEpoch == null) throw new Error('Restart WatchFusion to load timing diagnostics.');
-    const payload={epoch:state.presentationEpoch, segment:state.playoutSegment, diagnostics:panel.open, ...body}, queued=payload.report?.decoderRecovery?.events; if(Array.isArray(queued)){const fit=queued.slice();payload.report={...payload.report,decoderRecovery:{...payload.report.decoderRecovery,events:fit}};while(fit.length&&JSON.stringify(payload).replace(/[^\x00-\x7f]/g,'xxx').length>2560)fit.pop();if(!fit.length)delete payload.report.decoderRecovery.events;} const response = await fetch(apiUrl('/api/rooms/' + encodeURIComponent(roomId) + '/presentation'), {
+    const payload={epoch:state.presentationEpoch, segment:state.playoutSegment, diagnostics:panel.open, ...body}, queued=payload.report?.decoderRecovery?.events; if(Array.isArray(queued)){const fit=queued.slice();payload.report={...payload.report,decoderRecovery:{...payload.report.decoderRecovery,events:fit}};while(fit.length&&JSON.stringify(payload).replace(/[^\x00-\x7f]/g,'xxx').length>2560)fit.pop();if(!fit.length)delete payload.report.decoderRecovery.events;} if(payload.report?.memberPrecision&&JSON.stringify(payload).replace(/[^\x00-\x7f]/g,'xxx').length>2560){payload.report={...payload.report};delete payload.report.memberPrecision;} if(payload.report?.precisionAllowanceMs!=null&&JSON.stringify(payload).replace(/[^\x00-\x7f]/g,'xxx').length>2560){payload.report={...payload.report};delete payload.report.precisionAllowanceMs;} const response = await fetch(apiUrl('/api/rooms/' + encodeURIComponent(roomId) + '/presentation'), {
       method: 'POST', cache: 'no-store', signal, headers: {'Content-Type':'application/json','x-member-id':session.memberId},
       body: JSON.stringify(payload)
     });

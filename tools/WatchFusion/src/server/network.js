@@ -5,6 +5,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 const interfaceScope = new AsyncLocalStorage();
 let interfaceWorker = null, pendingProbe = null, retiringWorker = null;
 let probeSequence = 0, lastProbeMs = 0, lastProbeAt = 0;
+let syncProbeSequence=0,syncProbeMs=0,syncProbeAt=0;
 // The native interface enumeration can block on Windows adapter discovery. The
 // worker never receives user input or grants authority; the request uses its own fresh snapshot.
 const interfaceWorkerCode = `const {parentPort}=require('node:worker_threads');
@@ -49,9 +50,12 @@ export async function withNetworkSnapshot(task) {
   const interfaces = await freshInterfaceSnapshot();
   return interfaceScope.run(interfaces, task);
 }
-export function networkInterfacesSnapshot() { return interfaceScope.getStore() ?? os.networkInterfaces(); }
+export function networkInterfacesSnapshot() {
+  const scoped=interfaceScope.getStore();if(scoped!==undefined)return scoped;
+  const start=performance.now();try{return os.networkInterfaces();}finally{syncProbeMs=Math.min(60000,Math.round(performance.now()-start));syncProbeAt=Date.now();syncProbeSequence++;}
+}
 export function networkSnapshotActive() { return interfaceScope.getStore() !== undefined; }
-export function networkProbeStats() { return { sequence:probeSequence, ms:lastProbeMs, ageMs:lastProbeAt ? Math.min(60000, Math.max(0, Date.now()-lastProbeAt)) : 60000 }; }
+export function networkProbeStats() { return { sequence:probeSequence, ms:lastProbeMs, ageMs:lastProbeAt ? Math.min(60000, Math.max(0, Date.now()-lastProbeAt)) : 60000, syncSequence:syncProbeSequence,syncMs:syncProbeMs,syncAgeMs:syncProbeAt?Math.min(60000,Math.max(0,Date.now()-syncProbeAt)):60000 }; }
 
 
 const VIRTUAL_NAME = /(virtual|vEthernet|hyper-v|wsl|docker|vmware|virtualbox|loopback|tunnel|zerotier|tailscale|wireguard|hamachi|host-only|nat)/i;

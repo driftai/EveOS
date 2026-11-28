@@ -143,7 +143,9 @@ export async function runSourceTabSmokes() {
     assert.match(linkedPlayback, /function mirrorPlan/);
     assert.match(linkedPlayback, /function transportTiming/);
     assert.match(linkedTab, /diagnostics:\(\)=>\(\{transport:lastTransportTiming[,}]/); // v13.10.3 adds peer-readiness fields
-    assert.match(worker, /publisherReceivedAt:Date\.now\(\)/);
+    assert.match(worker, /const at=Date\.now\(\), stamp=message\.metadata\?\.sampledAt/);
+    assert.match(worker, /frameSamples\.set\(frameId, \{ \.\.\.message, frameId, publisherReceivedAt:at \}\)/);
+    assert.match(worker, /publisherReceivedAt:media\?\.publisherReceivedAt\?\?top\?\.publisherReceivedAt\?\?Date\.now\(\)/);
     assert.match(worker, /publisherSentAt:now/);
     assert.match(worker, /serverSampledAt:sample.sampledAt \+ offsets/);
   })();

@@ -162,15 +162,18 @@
   let previous=null,admitted=null,hold=null;
   function admit(raw,now,scope,normalized){
     if(!Number.isSafeInteger(raw?.deliverySeq)||raw.deliverySeq<=0)return true;
-    const relay=stamp(raw.relayReceivedAt),sample=stamp(raw.sampledAt),sent=stamp(raw.publisherSentAt);if(!relay||!sample||!sent||sent<sample||sent-sample>900)return false;
-    if(!admitted||admitted.scope!==scope)admitted={scope,floor:now-relay,sample:0,seq:0};
-    if(sample<=admitted.sample)return false;
-    // A new publisher connection can restart its sequence, but never its sample time.
-    admitted.floor=Math.min(admitted.floor,now-relay);const excess=Math.max(0,now-relay-admitted.floor),lag=Number(raw.relayLagMs);
-    if(!Number.isFinite(lag)||lag<0||lag+excess+sent-sample>900)return false;
-    if(normalized&&normalized.sampleClock!=='server-qualified'&&Number.isFinite(normalized.sampledAt))normalized.sampledAt=Math.min(normalized.sampledAt,now-(sent-sample+lag+excess));
-    if(normalized&&(!Number.isFinite(normalized.sampledAt)||now-normalized.sampledAt>900||now-normalized.sampledAt<0))return false;
-    admitted.sample=sample;admitted.seq=raw.deliverySeq;return true;
+    const relay=stamp(raw.relayReceivedAt),sample=stamp(raw.sampledAt),sent=stamp(raw.publisherSentAt);
+    const lag=raw.relayLagMs;
+    if(!Number.isFinite(now)||!relay||!sample||!sent||sent<sample||sent-sample>900||!Number.isFinite(lag)||lag<0||lag+sent-sample>900)return false;
+    const prior=admitted?.scope===scope?admitted:null;
+    if(prior&&sample<=prior.sample)return false;
+    // Rejected or future evidence must never poison the accepted clock floor.
+    const transit=now-relay,floor=Math.min(prior?.floor??transit,transit),excess=Math.max(0,transit-floor);
+    if(lag+excess+sent-sample>900)return false;
+    const normalizedAt=normalized?.sampleClock!=='server-qualified'&&Number.isFinite(normalized?.sampledAt)?Math.min(normalized.sampledAt,now-(sent-sample+lag+excess)):normalized?.sampledAt;
+    if(normalized&&(!Number.isFinite(normalizedAt)||now-normalizedAt>900||now-normalizedAt<0))return false;
+    if(normalized)normalized.sampledAt=normalizedAt;
+    admitted={scope,floor,sample,seq:raw.deliverySeq};return true;
   }
   function holdSteady(previous,next,now,gap,pending){
     const steady=previous?.pageUrl&&previous.pageUrl===next.pageUrl&&previous.paused===false&&next.paused===false&&!previous.ended&&!next.ended&&!next.buffering&&Math.abs((Number(previous.rate)||1)-(Number(next.rate)||1))<.01&&(!Number.isFinite(next.volume)||Number.isFinite(previous.volume)&&Math.abs(next.volume-previous.volume)<=.02)&&!pending;
@@ -184,13 +187,15 @@
   const count=(v)=>Number.isSafeInteger(v)&&v>=0&&v<=1000000?v:null;
   function observe(raw,now,scope,log){
     if(!raw||!scope||!Number.isFinite(now))return;
-    const next={scope,now,sample:stamp(raw.sampledAt),received:stamp(raw.publisherReceivedAt),sent:stamp(raw.publisherSentAt),relay:stamp(raw.relayReceivedAt),refresh:count(raw.probeRefreshes),skipped:count(raw.probeRefreshSkipped),mute:count(raw.muteAudits),skippedSend:count(raw.publisherSkipped),rejected:count(raw.publisherRejected),ack:count(raw.publisherAckRttMs),buffer:count(raw.publisherBufferBytes),lag:count(raw.relayLagMs),loop:count(raw.relayLoopDelayMs),networkSeq:count(raw.relayNetworkProbeSequence),networkMs:count(raw.relayNetworkProbeMs),networkAge:count(raw.relayNetworkProbeAgeMs)};
+    const next={scope,now,sample:stamp(raw.sampledAt),received:stamp(raw.publisherReceivedAt),sent:stamp(raw.publisherSentAt),relay:stamp(raw.relayReceivedAt),refresh:count(raw.probeRefreshes),skipped:count(raw.probeRefreshSkipped),mute:count(raw.muteAudits),skippedSend:count(raw.publisherSkipped),rejected:count(raw.publisherRejected),ack:count(raw.publisherAckRttMs),buffer:count(raw.publisherBufferBytes),lag:count(raw.relayLagMs),loop:count(raw.relayLoopDelayMs),networkSeq:count(raw.relayNetworkProbeSequence),networkMs:count(raw.relayNetworkProbeMs),networkAge:count(raw.relayNetworkProbeAgeMs),syncNetworkSeq:count(raw.relaySyncNetworkProbeSequence),syncNetworkMs:count(raw.relaySyncNetworkProbeMs),syncNetworkAge:count(raw.relaySyncNetworkProbeAgeMs),loopSeq:count(raw.relayLoopSequence),loopKind:['timer','immediate','promise','next-tick','http','socket','socket-write','filesystem','worker-message','dns','other','unattributed'].includes(raw.relayLoopKind)?raw.relayLoopKind:null,loopCallback:count(raw.relayLoopCallbackMs),loopCpu:count(raw.relayLoopProcessCpuMs)};
     const p=previous; if(!next.sample||p?.scope===scope&&next.sample<=p.sample)return;
     previous=next;if(!p||p.scope!==scope||now<p.now)return;
     const delta=k=>p[k]!==null&&next[k]!==null&&next[k]>=p[k]?Math.round(next[k]-p[k]):null;
     for(const [k,reason] of [['refresh','source-probe-refresh'],['skipped','source-probe-refresh-skipped'],['mute','source-mute-audit'],['skippedSend','source-send-skipped'],['rejected','source-relay-rejected']]){const d=delta(k);if(d>0)log(reason,{sequence:d});}
     for(const [k,reason,limit] of [['ack','source-receipt-rtt',900],['buffer','source-socket-buffer',4096],['lag','source-relay-lag',350],['loop','source-server-loop-delay',100]])if(next[k]!==null&&next[k]>=limit&&next[k]!==p[k])log(reason,{sampleAgeMs:next[k]});
+    if(next.loopSeq!==null&&next.loopSeq!==p.loopSeq&&next.loopKind&&next.loopCallback!==null&&next.loopCpu!==null)log('source-loop-callback-witness',{action:next.loopKind,sequence:next.loopSeq,durationMs:next.loopCallback,extraMs:next.loopCpu,sampleAgeMs:next.loop});
     if(next.networkSeq!==null&&next.networkSeq!==p.networkSeq&&next.networkMs!==null&&next.networkMs>=100)log('source-server-network-probe',{sampleAgeMs:next.networkMs,extraMs:next.networkAge});
+    if(next.syncNetworkSeq!==null&&next.syncNetworkSeq!==p.syncNetworkSeq&&next.syncNetworkMs!==null&&next.syncNetworkMs>=100)log('source-server-sync-network-probe',{sampleAgeMs:next.syncNetworkMs,extraMs:next.syncNetworkAge});
     if(now-p.now<=1800)return;
     // Differences reveal where the gap appeared, without subtracting clocks across devices.
     for(const [k,reason] of [['sample','source-gap-probe'],['received','source-gap-worker'],['sent','source-gap-publisher'],['relay','source-gap-relay']]){const d=delta(k);if(d!==null)log(reason,{sampleAgeMs:d});}

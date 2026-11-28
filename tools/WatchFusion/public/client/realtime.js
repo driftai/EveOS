@@ -62,6 +62,14 @@ function openRealtimeSocket() {
   try {
     const socket = new WebSocket(websocketUrl());
     realtimeSocket = socket;
+    let probe=null, probeSequence=0, nextProbeAt=0;const joinedRoom=roomId,joinedMember=session.memberId;
+    const clockTimer=setInterval(()=>{
+      if(realtimeSocket!==socket||!realtimeStarted){clearInterval(clockTimer);return;}
+      const now=Date.now();if(!realtimeJoined||socket.readyState!==WebSocket.OPEN||document.hidden||roomId!==joinedRoom||session?.memberId!==joinedMember||state?.playback?.paused||state?.playback?.ended||now<nextProbeAt)return;
+      if(probe&&now-probe.sent<=1200)return;probe={id:++probeSequence,sent:now,mono:performance.now()};
+      const allowance=window.watchPartyClock?.fineAllowanceMs?.();nextProbeAt=now+(Number.isFinite(allowance)&&allowance<=8?5000:1200);
+      try{socket.send(JSON.stringify({type:'clock-probe',id:probe.id}));}catch{probe=null;}
+    },500);
     realtimeHandshakeTimer = setTimeout(() => { if (realtimeSocket === socket && realtimeStarted && !realtimeJoined) promoteFallback(); }, 4000);
     socket.onopen = () => {
       if (realtimeSocket !== socket || !realtimeStarted) return;
@@ -73,6 +81,11 @@ function openRealtimeSocket() {
       if (realtimeSocket !== socket || !realtimeStarted) return;
       let payload;
       try { payload = JSON.parse(event.data); } catch { return; }
+      if(payload.type==='clock-probe-ack'){
+        const at=Date.now(),p=probe;if(!p||payload.id!==p.id||roomId!==joinedRoom||session?.memberId!==joinedMember)return;probe=null;
+        if(at>=p.sent&&at-p.sent<=1200&&Math.abs(at-p.sent-(performance.now()-p.mono))<=3&&Number.isFinite(payload.receivedAt)&&Number.isFinite(payload.serverTime))updateServerClock(payload.serverTime,p.sent,at,payload.receivedAt);
+        return;
+      }
       if (payload.type === 'chat-ack') {
         const pending = realtimeChatAcks.get(String(payload.clientId || ''));
         if (!pending) return;
@@ -97,6 +110,7 @@ function openRealtimeSocket() {
     };
     socket.onerror = () => {};
     socket.onclose = () => {
+      clearInterval(clockTimer);probe=null;
       if (realtimeSocket !== socket || !realtimeStarted) return;
       if (realtimeHandshakeTimer) { clearTimeout(realtimeHandshakeTimer); realtimeHandshakeTimer = null; }
       realtimeSocket = null;

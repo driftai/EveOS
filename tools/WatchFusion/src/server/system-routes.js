@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { LAN_MODE, PORT, PROJECT_ROOT } from './config.js';
-import { counts } from './room-store.js';
+import { counts, maintenanceCounts } from './room-store.js';
 import { TIMING_VERSION } from './playout-coordinator.js';
 import { trustedExtensionIds } from './extension-identity.js';
 import { isHostLocalRequest, socketIsHostMachine, requestHostIsLocal } from './local-request.js';
@@ -30,7 +30,7 @@ export function handleSystemRoute(req, res, parts) {
   if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'health') {
     const { rooms, aliases } = counts();
     const hostFallbackUrl = socketIsHostMachine(req) && requestHostIsLocal(req) && !req.headers['cf-ray'] && !req.headers['cf-connecting-ip'] ? localEmbedHostUrl(PORT) : null;
-    json(res, 200, { ok: true, app: 'WatchFusion', port: PORT, rooms, aliases, time: now(), youtubePlayer: 'iframe-api', timingVersion: TIMING_VERSION, iframeClientRevision: 'solo12', ...(typeof networkSnapshotActive==='function'&&networkSnapshotActive()?{networkProbeMode:'worker'}:{}), ...(hostFallbackUrl ? {hostFallbackUrl} : {}) });
+    json(res, 200, { ok: true, app: 'WatchFusion', port: PORT, rooms, aliases, time: now(), youtubePlayer: 'iframe-api', timingVersion: TIMING_VERSION, iframeClientRevision: 'solo12', ...(isHostLocalRequest(req) ? { roomActivity: maintenanceCounts() } : {}), ...(typeof networkSnapshotActive==='function'&&networkSnapshotActive()?{networkProbeMode:'worker'}:{}), ...(hostFallbackUrl ? {hostFallbackUrl} : {}) });
     return true;
   }
 

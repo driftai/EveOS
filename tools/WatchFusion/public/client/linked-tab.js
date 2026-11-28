@@ -400,8 +400,8 @@
   }
   function connectPeer(){
     peer?.stop();if(!link)return;if(typeof navigationAgent!=='undefined')navigationAgent?.cancel();transitionPending=false;window.WatchFusionLinkedTransition?.reset?.();lastSampleAt=0;lastSampleUrl="";lastLinkedSampleAt=0;window.WatchFusionSourceDelivery?.reset?.();peerCreatedAt=performance.now();
-    peer=new WatchFusionLivePeer({base:location.origin,id:link.id,token:link.publisherToken,roomId,memberId:session?.memberId,
-      onStatus:message=>{if(typeof navigationAgent==='undefined'||!navigationAgent?.receive(message))status(message==='Source connected'?'Attached tab connected · matching media source…':message);},
+    const activeLink=link;peer=new WatchFusionLivePeer({base:location.origin,id:link.id,token:link.publisherToken,roomId,memberId:session?.memberId,
+      onStatus:message=>{if(link===activeLink&&/^(?:Live source stopped|Live source expired|Source stopped)$/i.test(String(message||''))){void stop({quiet:true});return;}if(typeof navigationAgent==='undefined'||!navigationAgent?.receive(message))status(message==='Source connected'?'Attached tab connected · matching media source…':message);},
       onMetadata,onClock:(pong,at)=>{const rtt=at-Number(pong.sentAt);if(rtt>=900&&rtt<=60000)window.watchFusionRoomSyncLog?.note?.('linked-acquisition',{reason:'source-viewer-heartbeat-rtt',sampleAgeMs:Math.round(rtt)});},onReady:()=>{status('Linked transport connected · awaiting source confirmation…');replayQueued();}});
   }
   async function start(){

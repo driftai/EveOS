@@ -92,7 +92,10 @@ export function createServer() {
       /^(?:127\.0\.0\.1|localhost|127-0-0-1\.sslip\.io)(?::\d+)?$/i.test(String(req.headers.host || '')) &&
       /^(?:127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/i.test(String(req.socket?.remoteAddress || '')) &&
       !req.headers.origin && !req.headers['x-forwarded-host'];
-    if (!directLoopbackHealth && (target === '/api/health' || target === '/api/network-info')) {
+    // Read-only discovery and navigation must never enumerate adapters on the relay loop.
+    // Mutating authorization routes retain their original fresh, synchronous checks.
+    const readNetwork = ['GET','HEAD'].includes(req.method) && (target === '/api/setup/status' || target === '/__nuvio__/diagnostics' || target === '/__wrapper__/diagnostics' || target.startsWith('/voxelvision/api/') || (!isApiRequest(req) && isHtmlNavigation(req)));
+    if (!directLoopbackHealth && (target === '/api/health' || target === '/api/network-info' || readNetwork)) {
       try { return await withNetworkSnapshot(() => handleRequest(req, res)); }
       catch { return json(res, 503, { error:'Network interface probe unavailable' }); }
     }

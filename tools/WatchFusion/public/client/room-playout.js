@@ -1,7 +1,7 @@
 // Playback timing is exchanged during ordinary room playback. Microphone input is never used here.
 (() => {
   let lease = null, phaseSentAt = -Infinity, latestRoom, nextIdlePoll = 0, lastTransportKey = null, lifecycleKick = null;
-  const health = $('roomPlayoutStatus');
+  const health = $('roomPlayoutStatus'), relative=window.WatchFusionRelativePrecision?.create?.();
   const roomKey = () => roomId && session && state?.presentationEpoch != null && state.playoutSegment != null
     ? [roomId, session.memberId, state.presentationEpoch, state.playoutSegment].join(':') : null;
   const supportedPlayback = () => !!(state?.source?.videoId || state?.source?.kind === 'media' && state.source.url);
@@ -38,6 +38,7 @@
     if (key !== roomKey() || !value || value.segment !== state.playoutSegment || sampledAt < phaseSentAt) return;
     phaseSentAt = sampledAt;
     lease = {key, value, at:performance.now()};
+    if(!isHost())relative?.observe(value,estimatedServerNow(),state.hostId);
     render();
   }
 
@@ -112,7 +113,7 @@
 
   async function tick() {
     const key = roomKey();
-    if (key !== latestRoom) { latestRoom = key; lease = null; phaseSentAt = -Infinity; }
+    if (key !== latestRoom) { latestRoom = key; lease = null; phaseSentAt = -Infinity; relative?.clear(); }
     const diagnostics = window.watchFusionPresentation;
     if (!key || !diagnostics?.exchange || !supportedPlayback() || (document.hidden && !backgroundHost())) { render(); return; }
     if (!playing() && !diagnostics.open() && performance.now() < nextIdlePoll) return;
@@ -120,7 +121,7 @@
     else nextIdlePoll = performance.now() + 4000;
     try { await diagnostics.exchange(noteCoordination, key); } finally { render(); }
   }
-  document.addEventListener('visibilitychange', () => { if (document.hidden && !backgroundHost()) lease = null; else void tick().catch(() => {}); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && !backgroundHost()) {lease = null;relative?.clear();} else void tick().catch(() => {}); });
   window.watchFusionPlayout = {
     render,
     position:adjustedPosition,
@@ -128,6 +129,7 @@
     bufferedThreshold, bufferedUntil,
     status:target,
     hasSourceReference, sourceErrorMs,
+    relativeFine:(action,e,bound,extra)=>{const c=target(),now=estimatedServerNow(),clock=window.watchPartyClock?.fineAllowanceMs?.();if(!relative||isHost()||!c||!hasSourceReference(c,now)||!Number.isFinite(clock)||!Number.isFinite(bound))return null;const args=[c,now,state.hostId,e,bound,clock];return action==='admit'?relative.admit(...args,extra):action==='verified'?relative.verified(...args,extra):relative.evidence(...args);},
     sourceBuffering: () => target()?.authorityBuffering === true
   };
   setInterval(() => void tick().catch(() => {}), 700);

@@ -33,7 +33,7 @@
   let warm = null, rejoinCandidate = null, rejoinSpent = false, recovered = null, transportScope = '', protectedStep = 0;
   // 06jidk: raw decoder motion and room alignment are independent. A spent
   // ladder is not evidence of a frozen decoder. No command is issued here.
-  let motion=null, provenStep=-Infinity, retryAt=-Infinity, retrySince=null, handoff=null;
+  let motion=null, provenStep=-Infinity, retryAt=-Infinity, retrySince=null, handoff=null, handoffProof=null;
   const JOURNAL_KEY='wf.decoder-journal.v1', JOURNAL_AGE=1800000, JOURNAL_MAX=32;
   let journalRoom='', journal=[], journalLoaded=false;
   const eventKinds=new Set(['reload-requested','reload-issued','reload-failed','rebuild-requested','rebuild-issued','rebuild-failed','motion-restored','handoff-issued','handoff-verified','handoff-unverified','retry-reload-requested','retry-reload-issued','retry-reload-failed','budget-spent','manual-rebuild-requested','manual-rebuild-issued','manual-rebuild-failed']);
@@ -64,15 +64,16 @@
     if(!motion.proven)return false;
     if(steps>0&&!warm&&provenStep!==lastStepAt){provenStep=lastStepAt;protectedStep=steps;recovered={scope:raw,at,step:steps};outcome='decoder-motion-restored';recordRecovery('motion-restored',{scope:raw,drift:target-position});}
     if(steps>0&&!warm&&['terminal-recovery-spent','freeze-unverified','rebuild-budget-spent'].includes(outcome))outcome='decoder-motion-restored';
-    if(handoff&&at-handoff.at>=3000){recordRecovery(Math.abs(target-position)<=.1||Math.abs(target-position)<Math.abs(handoff.error)*.7?'handoff-verified':'handoff-unverified',{scope:raw,drift:target-position});handoff=null;}
+    if(handoff&&at-handoff.at>=3000){const verified=Math.abs(target-position)<=.1||Math.abs(target-position)<Math.abs(handoff.error)*.7;if(verified)handoffProof={scope:raw,at,step:lastStepAt,valid:io.valid};recordRecovery(verified?'handoff-verified':'handoff-unverified',{scope:raw,drift:target-position});handoff=null;}
     return true;
   }
+  function postRecoveryRateReady(io,at,raw){return !!(handoffProof&&handoffProof.scope===raw&&handoffProof.step===lastStepAt&&handoffProof.valid?.()===true&&at>=handoffProof.at&&at-handoffProof.at<=60000&&steps>0&&!warm&&rejoinSpent&&motionVerified(raw,at)&&io?.tvIdentity===scope&&io.valid?.()===true&&!document.hidden);}
   function handoffReady(io,at,error){return steps>0&&!warm&&!rejoinSpent&&provenStep===lastStepAt&&error>=.45&&error<=8&&motionVerified(transportScope,at)&&io?.follower===true&&!io.hostLinked&&io.tvIdentity===scope&&io.valid?.()===true;}
   // Only a decoder that really recovered and subsequently stalled gets one
   // further reload, after a fresh reference dwell. Persistent failure stops.
   function retryTerminal(input,at,wedged){
     const confirmed=input.buffering&&Math.abs(input.drift)>=MIN_DRIFT_SEC||input.qualifiedStall===true&&input.stalledMs>=STALL_DWELL_MS;
-    if(!wedged||!confirmed||input.follower!==true||!input.trusted||input.sourceQualified!==true||input.sourceBuffering||input.mirrorContradicted||document.hidden||steps!==2||warm||provenStep!==lastStepAt||at-lastStepAt<45000||at-retryAt<CHECKPOINT_MS||typeof input.reload!=='function'){retrySince=null;return false;}
+    if(!wedged||!confirmed||input.follower!==true||!input.trusted||input.sourceQualified!==true||input.sourceBuffering||input.mirrorContradicted||document.hidden||steps!==2||warm||provenStep!==lastStepAt||at-lastStepAt<(handoff&&handoff.scope===input.scope&&rejoinSpent?15000:45000)||at-retryAt<CHECKPOINT_MS||typeof input.reload!=='function'){retrySince=null;return false;}
     if(!retrySince||retrySince.scope!==input.scope||at-retrySince.last>1000||at<retrySince.last){retrySince={scope:input.scope,at,last:at};return false;}
     retrySince.last=at;if(at-retrySince.at<5000)return false;
     retrySince=null;retryAt=lastStepAt=at;provenStep=-Infinity;motion=null;recovered=null;rejoinCandidate=null;rejoinSpent=false;since=0;warm={scope:input.scope,at,sample:null,progress:0};checkpoint(at);
@@ -123,7 +124,7 @@
   function enterScope(next, nowMs) {
     if (next === scope) return;
     const first=!scope;
-    warm = null; recovered = null; protectedStep=0; rejoinCandidate = null; rejoinSpent = false; motion=null;provenStep=-Infinity;retrySince=null;handoff=null;scope = next; since = 0; steps = 0; lastStepAt = -Infinity; liveSeenAt = -Infinity;
+    warm = null; recovered = null; protectedStep=0; rejoinCandidate = null; rejoinSpent = false; motion=null;provenStep=-Infinity;retrySince=null;handoff=null;handoffProof=null;scope = next; since = 0; steps = 0; lastStepAt = -Infinity; liveSeenAt = -Infinity;
     healthySince = 0; healthyAt = -1; healthyPosition = null; healthyProgressMs = 0;
     healthOffsets = [];
     pausedAt = -1; wasRoomPaused = false; outcome = 'scope-change';
@@ -136,7 +137,7 @@
     const next = raw ? dwellScope(raw) : '';
     if (!next || !Number.isFinite(nowMs)) return false;
     enterScope(next,nowMs);
-    if (raw !== transportScope || paused === true) { transportScope=raw; recovered=null; rejoinCandidate=null; motion=null;retrySince=null; }
+    if (raw !== transportScope || paused === true) { transportScope=raw; recovered=null; rejoinCandidate=null; motion=null;retrySince=null;handoffProof=null; }
     if (paused === true) {
       warm = null;
       if (!wasRoomPaused) { pausedAt = nowMs; wasRoomPaused = true; }
@@ -254,6 +255,8 @@
       if (nowMs - since < (input.buffering ? BUFFER_DWELL_MS : STALL_DWELL_MS)) return false;
       if (steps === 1 && nowMs - lastStepAt < RETRY_AFTER_MS) { outcome = 'verifying-decoder-reload'; return false; }
     }
+    // A brief trust blink may preserve dwell, but cannot authorize a transport action.
+    if(input.trusted!==true || input.mirrorContradicted===true){outcome='awaiting-fresh-recovery-reference';return false;}
     const recent = rebuilds.filter(t => nowMs - t < 600000);
     const rebuild = steps === 1 && recent.length < MAX_REBUILDS_PER_10_MIN && typeof input.rebuild === 'function';
     if (steps === 1 && !rebuild) { steps = 2; outcome = 'rebuild-budget-spent'; checkpoint(nowMs); return false; }
@@ -312,7 +315,7 @@
     ytPlayer = null; ytPlayerReady = false; playerPrimed = false; playerInitializing = false;
     ensurePlayer(videoId, startSeconds);
   }
-  window.WatchFusionDecoderRescue = {version: 'adaptive-room-06jidk', observeContinuity,motionVerified,handoffReady,recoveryEvents,acknowledgeRecovery,consider, qualifiesStall, observeTransport, rebuildPlayer, settling, isSettling, allowAutomaticRejoin, canOwnPostRelease,
+  window.WatchFusionDecoderRescue = {version: 'adaptive-room-06jidk', observeContinuity,motionVerified,handoffReady,postRecoveryRateReady,recoveryEvents,acknowledgeRecovery,consider, qualifiesStall, observeTransport, rebuildPlayer, settling, isSettling, allowAutomaticRejoin, canOwnPostRelease,
     diagnostics: () => ({scope, attempted: steps > 0, steps, outcome, healthyProgressMs: Math.round(healthyProgressMs),
       rearmCount, healCount, lastRearmDwellMs, pauseObserved: wasRoomPaused})};
 })();

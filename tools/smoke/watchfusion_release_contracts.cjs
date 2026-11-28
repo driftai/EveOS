@@ -1,0 +1,35 @@
+'use strict';
+// Run the actual production functions in deterministic VM fixtures. No browser or network.
+const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
+const section=(source,start,end)=>{const a=source.indexOf(start),b=end?source.indexOf(end,a+start.length):source.length;assert(a>=0&&b>a,'production section missing');return source.slice(a,b);};
+const context=(source,globals)=>{const c=vm.createContext(globals);vm.runInContext(source,c,{timeout:1000});return c;};
+async function clock(source){
+  let now=100000;const window={},c=context('let serverClockSamples=[], serverClockReference=null, serverClockRttMs=Infinity, serverClockOffsetMs=0;\n'+section(source,'function medianNumber(', 'function playbackAuthorityKey('),{window,Date:{now:()=>now},performance:{now:()=>now-100000},roomId:'room',session:{memberId:'member'},transportBaseUrl:'local'});
+  const api=window.watchPartyClock;
+  const sample=(offset,rtt,precise=false,advance=100)=>{now+=advance;const sent=now-rtt,server=sent+rtt/2+offset;api.update(server,sent,now,precise?server:undefined);};
+  sample(0,4);sample(20,6);sample(20,8);assert.equal(api.sampleCount(),3);assert.equal(api.offsetMs(),20,'low-latency rolling median must move beyond the first minimum RTT');
+  sample(900,100);assert.equal(api.offsetMs(),20,'high latency outlier must not dominate median');sample(35,10,false,46000);assert.equal(api.sampleCount(),1);assert.equal(api.offsetMs(),35,'expired samples must not pin the estimate');
+  for(let i=0;i<3;i++)sample(40,8,true);assert(api.witnessReady());assert(Number.isFinite(api.fineAllowanceMs()));sample(500,8,true);assert.equal(api.witnessReady(),false,'contradictory intervals cannot authorize precision');assert.equal(api.fineAllowanceMs(),null);
+  void c;
+}
+async function resume(source){
+  let now=20000,joins=0,applied=0,ui=0,connected=0,ping=0,sync=0,media=0;const handlers={},document={visibilityState:'visible',addEventListener:(n,f)=>handlers[n]=f};const window={addEventListener:(n,f)=>handlers[n]=f,watchPartyRealtime:{connected:()=>true},mediaPlayback:{sync:()=>media++}};
+  const c=context(section(source,'let roomResumePromise = null;',null),{window,document,performance:{now:()=>now},Date:{now:()=>now},roomId:'r',session:{memberId:'m'},lastRoomStateReceipt:{room:'r',member:'m',at:now-100},eventSource:null,remotePollTimer:null,state:{source:{kind:'youtube'}},roomRequest:async()=>{joins++;return {response:{ok:true},data:{state:{serverTime:now}},receivedAt:now};},apiUrl:x=>x,currentName:()=> 'fixture',accountId:'a',roomCode:'r',joinCode:'j',setStatus:()=>{},updateServerClock:()=>{},applyIncomingRoomState:()=>applied++,hydrateRoomUi:()=>ui++,connectEvents:()=>connected++,pingServerClock:()=>ping++,syncPlayer:()=>sync++,saveRoomSession:()=>{},leaveRoom:()=>{throw Error('unexpected leave');}});
+  assert.equal(typeof handlers.focus,'function');assert.equal(typeof handlers.visibilitychange,'function');assert.equal(typeof handlers.pageshow,'function');await handlers.focus();assert.equal(joins,0,'healthy focus must not replay room');
+  now+=16000;await handlers.focus();assert.deepEqual([joins,applied,ui,connected,ping,sync],[1,1,1,1,1,1],'stale focus must rejoin and synchronize');
+  document.visibilityState='hidden';handlers.visibilitychange();assert.equal(joins,1);document.visibilityState='visible';c.state.source.kind='media';handlers.visibilitychange();await c.resumeRoomSession();assert.deepEqual([joins,applied,ui,connected,ping,sync,media],[2,2,2,2,2,1,1],'visibility recovery must coalesce and synchronize the active provider');
+  await handlers.pageshow();assert.equal(joins,3);
+}
+async function autoplay(source){
+  let options,timeout,hydration=[],plays=0;const noop=()=>{};const window={location:{origin:'http://fixture'}},state={source:{videoId:'v'},playback:{paused:false},presentationEpoch:1,playoutSegment:1};
+  function Player(id,o){options=o;this.getVideoData=()=>({video_id:'v'});this.getPlayerState=()=>2;this.getCurrentTime=()=>0;this.playVideo=()=>plays++;this.mute=noop;}
+  const globals={window,state,document:{hidden:false},performance:{now:()=>1000},YT:{Player,PlayerState:{PLAYING:1,PAUSED:2}},roomId:'r',pendingVideoId:null,ytPlayer:null,ytPlayerReady:false,playerInitializing:false,playerPrimed:false,primingPlayer:false,autoplayWasBlocked:false,applyingRemote:false,suppressAudioPersistence:false,userGesturePrimeUsed:false,showYouTubePlayer:noop,continueLinkedViewerTrack:()=>false,loadYouTubeApi:()=>Promise.resolve(),isHost:()=>true,followsRoomPlayback:()=>false,onYouTubeStateChange:noop,onYouTubeRateChange:noop,onYouTubeVolumeChange:noop,onYouTubeError:noop,installUserGesturePrime:noop,restorePlayerAudioPrefs:noop,applyRoomAudioState:()=>true,setStatus:noop,setInterval:()=>1,clearInterval:noop,clearTimeout:noop,setTimeout:(fn,ms)=>{if(ms>=2500)timeout=fn;return 2;},syncPlayer:o=>hydration.push(o)};
+  const c=context(section(source,'function ensurePlayer(', 'function onYouTubeError(')+section(source,'function hostPlaybackEventAllowed(', '// Automatic room corrections')+section(source,'function syncHydratedPlayer(', 'function syncPlayer('),globals);
+  c.ensurePlayer('v');await Promise.resolve();await Promise.resolve();assert(options?.events?.onReady,'missing player ready callback');const ready=options.events.onReady({target:c.ytPlayer});assert.equal(c.playerInitializing,true);assert.equal(c.hostPlaybackEventAllowed(1),false,'prime events must not echo');assert.equal(typeof timeout,'function');timeout();await ready;
+  assert(plays>0);assert.equal(c.autoplayWasBlocked,true);assert.equal(c.playerPrimed,false);assert.equal(c.playerInitializing,false,'blocked prime must release initialization');assert.equal(c.primingPlayer,false);assert.equal(c.hostPlaybackEventAllowed(1),true,'manual host play must be admitted');assert.equal(hydration.length,1);assert.equal(hydration[0].hydrateHost,true);assert.equal(hydration[0].force,false);
+}
+const tests={clock,resume,autoplay};const sources={clock:'core.js',resume:'room-connection.js',autoplay:'commands.js'};
+const mutations={clock:s=>s.replace('serverClockOffsetMs=medianNumber(low.map(s=>s.offset));','serverClockOffsetMs=sorted[0].offset;'),resume:s=>s.replace("window.addEventListener('focus', resumeFocusedRoom);","window.addEventListener('focus', ()=>{});"),autoplay:s=>s.replace(/(const witness = await primeYouTubePlayer\(\);\s*)playerInitializing = false;/,'$1playerInitializing = true;')};
+async function run(name,source){assert(tests[name]);await tests[name](source);const bad=mutations[name](source);assert.notEqual(bad,source,'falsifier must change exact production branch');await assert.rejects(()=>tests[name](bad));}
+if(require.main===module){const name=process.argv[2];Promise.resolve().then(()=>run(name,fs.readFileSync(path.join(__dirname,'../WatchFusion/public/client',sources[name]),'utf8').replace(/\r\n/g,'\n'))).then(()=>console.log('WF_RELEASE_CONTRACT_PASS '+name)).catch(e=>{console.error(e.stack);process.exitCode=1;});}
+module.exports={tests,run};

@@ -1,13 +1,16 @@
 // Source-tab mute and silence regression checks extracted from v13107-falsifiers.js.
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { webcrypto } from 'node:crypto';
 
 export async function runSourceWorkerChecks(check, read) {
   await check('V13107-08:source-tab-mute-is-verified-and-reasserted', () => {
     const src = read('browser-extension/worker.js');
     assert.ok(!/chrome\.tabs\.update\(tabId,\{muted:true\}\)\.catch\(\(\)=>\{\}\)/.test(src), 'mute failures are no longer swallowed');
     assert.match(src, /muteVerified=after\?\.mutedInfo\?\.muted===true/, 'mute is read back after the update');
-    assert.match(src, /const muted=await ensureSourceTabMuted\(tabId,sender\.tab\?\.mutedInfo\?\.muted===false\)/, 'an audible source sample awaits a verified mute recheck');
+    assert.match(src, /latestMuteEvidence=\{tabId,at:receivedAt,muted:sender\.tab\?\.mutedInfo\?\.muted\}/, 'capture actual sender mute evidence');
+    assert.match(src, /const fresh=evidence\?\.tabId===tabId&&age>=0&&age<=900/);
+    assert.match(src, /const muted=await ensureSourceTabMuted\(tabId,fresh&&evidence\.muted===false\)/, 'a fresh audible source sample awaits a verified mute recheck');
     assert.match(src, /sendSourceSample\(sample\.metadata,muted\)/, 'source telemetry carries verified mute, not a stale sender flag');
     assert.match(src, /chrome\.tabs\.update\(tabId,\{muted:previousMuted\}\)/, 'unlink restores the original mute state');
   });
@@ -106,14 +109,17 @@ function sourceWorkerLab(read, previousMuted, { linked = true } = {}) {
   class LivePeer {
     constructor(options) { this.options = options; this.samples = []; peers.push(this); }
     metadata(sample) { this.samples.push(sample); }
+    send(message) { if(this.closed)return false; if(message.type==='metadata')this.metadata(message.metadata); return true; }
     stop() { this.closed = true; }
   }
+  const timers=new Map();let timerId=0;
   const ctx = vm.createContext({
-    URL,
+    URL, crypto:webcrypto, setTimeout, clearTimeout,
+    setInterval:fn=>{const id=++timerId;timers.set(id,fn);return id;},clearInterval:id=>timers.delete(id),
     importScripts() {},
     WatchFusionLivePeer: LivePeer,
     chrome: {
-      runtime: { onMessage: { addListener: (listener) => { onMessage = listener; } } },
+      runtime: { id:'fixture', onMessage: { addListener: (listener) => { onMessage = listener; } } },
       storage: { session },
       scripting: { executeScript: async () => [{ frameId: 0 }] },
       tabs: {
@@ -128,8 +134,8 @@ function sourceWorkerLab(read, previousMuted, { linked = true } = {}) {
           if (message.type !== 'probe-start') return;
           probeStartModes.push(message.sourcePlayerSilenced);
           assert.equal(muted, true, 'Browser tab must be muted before collecting source samples');
-          onMessage({ to: 'worker', type: 'sample', hasMedia: true }, {
-            tab: { id, url: 'https://example.test/media', mutedInfo: { muted } }
+          onMessage({ to: 'worker', type: 'sample', hasMedia: true, generation:message.generation, token:'fixture-probe', topFrame:true, score:3, metadata:{pageUrl:'https://example.test/media',sampledAt:Date.now(),currentTime:12,paused:false} }, {
+            id:'fixture', frameId:0, tab: { id, url: 'https://example.test/media', mutedInfo: { muted } }
           }, () => {});
         },
         onRemoved: { addListener() {} },

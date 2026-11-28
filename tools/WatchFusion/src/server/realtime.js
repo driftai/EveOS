@@ -42,7 +42,7 @@ export function attachRealtime(server) {
     socket.on('pong', () => { socket.isAlive = true; });
 
     socket.on('message', raw => {
-      let message;
+      const receivedAt=Date.now();let message;
       try { message = JSON.parse(raw.toString()); } catch { return send(socket, { type: 'error', error: 'invalid JSON' }); }
       if (!message || typeof message.type !== 'string') return send(socket, { type: 'error', error: 'invalid realtime message' });
 
@@ -58,6 +58,10 @@ export function attachRealtime(server) {
         return send(socket, { type: 'state', state: publicState(room), transport: 'websocket' });
       }
 
+      if(message.type==='clock-probe'){
+        if(!socket.roomId||!socket.memberId||!hasRoom(socket.roomId)||!getMember(getRoom(socket.roomId,{touch:false}),socket.memberId)||!Number.isSafeInteger(message.id)||message.id<1||receivedAt-(socket.lastClockProbeAt||0)<750)return;
+        socket.lastClockProbeAt=receivedAt;return send(socket,{type:'clock-probe-ack',id:message.id,receivedAt,serverTime:Date.now()});
+      }
       if (message.type === 'chat') {
         const roomId = socket.roomId;
         const memberId = String(socket.memberId || '');

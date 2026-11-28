@@ -7,7 +7,7 @@
   const clear = document.getElementById('syncRoomLogClear');
   const count = document.getElementById('syncRoomLogCount');
   const MAX_ENTRIES = 1200, MAX_EVENTS = 1800, MAX_AGE = 1800000;
-  let droppedSnapshots=0,droppedEvents=0;
+  let droppedSnapshots=0,droppedEvents=0; const eventRetention=window.WatchFusionSyncEventRetention?.create?.();
   // Correction burst: 500 ms snapshots for 6 s reveal landing/rebound; local-only, normal cadence 4.5 s.
   const BURST = /^(?:host-source-(?:rejoin-accepted|landing-incomplete|backoff|settled)|host-rejoin-accepted|rejoin-landing|zero-converge-pulse)$/;
   let burstUntil = -Infinity, lastHealthKey = '', lastHealthCritical = false;
@@ -145,7 +145,7 @@
     const key=state?.presentationEpoch!=null&&state?.playoutSegment!=null
       ? String(state.presentationEpoch)+':'+String(state.playoutSegment) : '';
     if(!key||key===lastSegmentKey)return;
-    if(lastSegmentKey)events.push({at:new Date().toISOString(),kind:'playback-segment-transition',sequence:segmentSequence+1});
+    eventRetention?.reset();if(lastSegmentKey)events.push({at:new Date().toISOString(),kind:'playback-segment-transition',sequence:segmentSequence+1});
     lastSegmentKey=key;segmentSequence++;prune();
   }
   function decoderProgressUnverified(peer) {
@@ -154,6 +154,7 @@
       || peer.decoderRecovery?.outcome === 'terminal-recovery-spent';
   }
   function strip(peer, now, coordination, commonRoomMs, names) {
+    const reasons=/^[a-z-]{1,42}$/;
     const projected = window.WatchFusionPrecisionPolicy?.comparisonPosition(peer,now,state?.playoutSegment);
     const rawPhase = finite(peer.positionMs - peer.roomPositionMs);
     const targetError = Number.isFinite(peer.targetPositionMs) ? finite(peer.positionMs - peer.targetPositionMs) : null;
@@ -212,7 +213,7 @@
       correctionOwner:/^(?:tv-decoder-(?:first|settling)|decoder-(?:recovery|manual-restart))/.test(peer.recentCorrection||'')?'bounded-decoder-rescue':
         /^(?:tv-post-release-duplicate-blocked|tv-healthy-plateau-no-speaker-proof|tv-motion-|tv-reference-)/.test(peer.recentCorrection||'')?'observe-only':
         /^(?:rejoin-|stall-kick|rate-|track-start-qualified-rejoin|late-release-retry-started)/.test(peer.recentCorrection||'')?'viewer-arbiter':null, hostRecovery:recover(peer) || (peer.member===state?.hostId && typeof isHost==='function' && isHost() ? recover(localRecovery()) : null),
-      audible:typeof peer.audible==='boolean'?peer.audible:null, sensor:sensor(peer.sensor),
+      audible:typeof peer.audible==='boolean'?peer.audible:null, sensor:sensor(peer.sensor), memberPrecision:peer.memberPrecision?{reason:reasons.test(peer.memberPrecision.reason)?peer.memberPrecision.reason:null,medianMs:finite(peer.memberPrecision.medianMs),madMs:finite(peer.memberPrecision.madMs),pulses:finite(peer.memberPrecision.pulses),active:peer.memberPrecision.active===true,restoring:peer.memberPrecision.restoring===true,verdict:reasons.test(peer.memberPrecision.verdict)?peer.memberPrecision.verdict:null,verification:reasons.test(peer.memberPrecision.verification)?peer.memberPrecision.verification:null,rateTrial:reasons.test(peer.memberPrecision.rateTrial)?peer.memberPrecision.rateTrial:null,rateAttempts:finite(peer.memberPrecision.rateAttempts),clockAllowanceMs:finite(peer.memberPrecision.clockAllowanceMs)}:null,
       filteredDriftMs:finite(peer.filteredDriftMs),
       seekHealth:peer.seekHealth || null, decoderRecovery:decoder(peer.decoderRecovery),
       freeze: (peer.member === session?.publicId || (!session?.publicId && peer.member === state?.hostId && typeof isHost === 'function' && isHost()))
@@ -228,7 +229,7 @@
       const h=item.peers.find(p=>p.freeze)?.freeze;
       return `${item.at.slice(11,19)} #${item.segmentSequence||'?'} song${item.song?.playlistIndex||item.song?.observedSong||'?'} ${item.song?.title||'title unavailable'} ${clock(item.song?.elapsedMs)}/${clock(item.song?.durationMs)} (-${clock(item.song?.remainingMs)}) ${item.ref || 'room-clock'}${item.source ? ' src:' + item.source : ''}${item.groupPhase ? ' · ' + item.groupPhase : ''} · measured ${item.timelinePlayerCount}/${item.expectedMemberCount??item.roster?.members??'?'}${item.activity?' · '+item.activity.localParticipation+' · '+item.activity.sourceContinuity:''} | ${peers}${h ? ' · host:'+h.state+(h.guard ? ' ('+h.guard+')' : '') : ''}`;
     }).join('\n');
-    const transitions = events.slice(-10).map(e => `${e.at.slice(11,19)} #${e.segmentSequence||'?'} ! ${e.kind}${e.reason?' · '+e.reason:''}`).join('\n');
+    const transitions = events.slice(-10).map(e => `${e.at.slice(11,19)} #${e.segmentSequence||'?'} ! ${e.kind}${e.reason?' · '+e.reason:''}${e.repeatCount?' ×'+e.repeatCount:''}`).join('\n');
     const display = [recent,transitions].filter(Boolean).join('\n');
     if (manualContent===null && document.activeElement!==area && display !== lastRendered) {area.value = display || 'Gathering room timing…'; lastRendered = display;}
     if (count) count.textContent = manualContent!==null?'Snapshot held · Ctrl+C to copy · close/reopen log for live view':entries.length + ' snapshots · ' + events.length + ' transitions';
@@ -296,7 +297,7 @@
     const scope = currentScope();
     const solo=scope?'':window.WatchFusionSoloDiagnostics?.scopeToken?.()||''; if(solo!==soloCopyScope){soloCopyScope=solo;resetCopy();area.value='';} if (scope === roomScope) return;
     roomScope = scope;
-    entries = []; events = []; trackSummaries=[]; previousActivity=null; droppedSnapshots=droppedEvents=0;
+    entries = []; events = []; eventRetention?.reset(); trackSummaries=[]; previousActivity=null; droppedSnapshots=droppedEvents=0;
     lastPeers.clear();lastRowsByMember.clear();
     lastKey = lastRendered = '';lastSegmentKey='';segmentSequence=0;lastHealthKey='';lastHealthCritical=false;observedSong=0;lastSongKey='';plateauScope='';plateauSamples=[];
     window.WatchFusionFreezeTelemetry?.reset?.();
@@ -320,7 +321,7 @@
           typeof v==='string' && /^[a-z-]{1,35}$/.test(v)) fields[key]=v;
     }
     if (BURST.test(kind)) burstUntil = performance.now() + 6000;
-    events.push({at:new Date().toISOString(),kind,segmentSequence,song:song(),...fields});prune();render();
+    const row={at:new Date().toISOString(),kind,segmentSequence,song:song(),...fields}; if(eventRetention)eventRetention.append(events,row,fields);else events.push(row);prune();render();
   }
   function wantsSample() {
     refreshScope();
@@ -330,7 +331,7 @@
   let recoverySeen=new Set(),recoveryRoom=''; function observe(peers, coordination, roster, history) {
     refreshScope();
     if (!roomScope) return;
-    if(recoveryRoom!==roomScope){recoveryRoom=roomScope;recoverySeen.clear();} for(const e of Array.isArray(history)?history.slice(-180):[]){if(!e||typeof e.id!=='string'||recoverySeen.has(e.id)||!/^[-a-z]{1,36}$/.test(e.kind)||!Number.isFinite(e.at))continue; recoverySeen.add(e.id);if(recoverySeen.size>512)recoverySeen.delete(recoverySeen.values().next().value);events.push({at:new Date().toISOString(),kind:'remote-decoder-'+e.kind,device:title(e.device)||'Viewer',eventAt:new Date(e.at).toISOString(),remoteSegment:finite(e.segment),step:finite(e.step),errorMs:finite(e.errorMs),segmentSequence:null,song:null});} prune(); requestAt = performance.now();
+    if(recoveryRoom!==roomScope){recoveryRoom=roomScope;recoverySeen.clear();} for(const e of Array.isArray(history)?history.slice(-180):[]){if(!e||typeof e.id!=='string'||recoverySeen.has(e.id)||!/^[-a-z]{1,36}$/.test(e.kind)||!Number.isFinite(e.at))continue; recoverySeen.add(e.id);if(recoverySeen.size>512)recoverySeen.delete(recoverySeen.values().next().value);eventRetention?.reset();events.push({at:new Date().toISOString(),kind:'remote-decoder-'+e.kind,device:title(e.device)||'Viewer',eventAt:new Date(e.at).toISOString(),remoteSegment:finite(e.segment),step:finite(e.step),errorMs:finite(e.errorMs),segmentSequence:null,song:null});} prune(); requestAt = performance.now();
     if (peers.length || (state?.linkedSourceActive===true && (document.hidden===true || previousActivity?.localParticipation==='background-inactive' || previousActivity?.localParticipation==='foreground-reacquiring'))) emit(estimatedServerNow(), peers, coordination, roster);
     else render();
   }
@@ -366,7 +367,7 @@
     refreshScope(); if(window.WatchFusionSoloDiagnostics?.active?.())return window.WatchFusionSoloDiagnostics.payload();
     prune(true);
     return {format:'WatchFusion room sync trace v3',generatedAt:new Date().toISOString(),windowMs:MAX_AGE,
-      disclosure:'Player timing, source-supplied song titles and durations, user control intents and redacted transitions only; no audio, URLs, tokens or microphone measurements. Titles are included only when the user copies this local log. Up to 32 per-video sampled summaries survive detailed-row expiry; cleared on room change or Clear. Room spread uses a common timestamp and room anchor; individual target and linked-source errors remain separate. Clock-only spread upper estimates omit decoder sampling and output latency. Activity labels distinguish local availability and sampled viewer source-following; missing intervals are not passes. Qualified samples are not a strict error bound. Player timing does not measure speaker latency; clock bounds include unknown asymmetry.',
+      disclosure:'Player timing, source-supplied song titles and durations, user control intents and redacted transitions only; no audio, URLs, tokens or microphone measurements. Titles are included only when the user copies this local log. Repetitive observations may include firstAt, repeatCount and numeric repeatRanges and sequenceTotal for counter deltas; at and scalar fields describe the latest observation. Retention counts stored rows, not underlying repetitions. Up to 32 per-video sampled summaries survive detailed-row expiry; cleared on room change or Clear. Room spread uses a common timestamp and room anchor; individual target and linked-source errors remain separate. Clock-only spread upper estimates omit decoder sampling and output latency. Activity labels distinguish local availability and sampled viewer source-following; missing intervals are not passes. Qualified samples are not a strict error bound. Player timing does not measure speaker latency; clock bounds include unknown asymmetry.',
       diagnosticsVersion:'v13.10.8x-room-recovery',traceVersion:'adaptive-room-06je-trace',clientBuild:window.watchFusionPresentation?.build==='wf-06jid'?'wf-06jid':null,serverBuild:window.watchFusionPresentation?.serverBuild?.()==='wf-06jid'?'wf-06jid':null,retention:{maxSnapshots:MAX_ENTRIES,maxEvents:MAX_EVENTS,droppedSnapshots,droppedEvents},localRuntime:runtimeEvidence(),localActuator:localActuatorEvidence(),trackSummaries:trackSummaries.map(t=>({...t})),snapshots:entries,events};
   }
   function exported() { return JSON.stringify(exportPayload(),null,2); }
@@ -429,7 +430,7 @@
     finally {copyBusy=false; if(copy)copy.disabled=false;}
   }
   copy?.addEventListener('click', copyLog);
-  clear?.addEventListener('click', () => {resetCopy();if(window.WatchFusionSoloDiagnostics?.active?.()){window.WatchFusionSoloDiagnostics.clear();area.value='';render();return;}entries=[];events=[];trackSummaries=[];previousActivity=null;lastAt=0;requestAt=-Infinity;droppedSnapshots=droppedEvents=0;lastPeers.clear();lastRowsByMember.clear();lastKey='';lastRendered='';observedSong=0;lastSongKey='';area.value='';render();});
+  clear?.addEventListener('click', () => {resetCopy();if(window.WatchFusionSoloDiagnostics?.active?.()){window.WatchFusionSoloDiagnostics.clear();area.value='';render();return;}entries=[];events=[];eventRetention?.reset();trackSummaries=[];previousActivity=null;lastAt=0;requestAt=-Infinity;droppedSnapshots=droppedEvents=0;lastPeers.clear();lastRowsByMember.clear();lastKey='';lastRendered='';observedSong=0;lastSongKey='';area.value='';render();});
   panel.addEventListener('toggle',()=>{if(!panel.open)resetCopy();render();});
   area.addEventListener?.('blur',render);
   for(const [event,kind] of [['visibilitychange','visibility'],['freeze','freeze'],['resume','resume']]) document.addEventListener?.(event,()=>{requestAt=-Infinity;note('runtime-'+kind,{hidden:document.hidden===true});});

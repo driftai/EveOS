@@ -19,6 +19,48 @@
     let frameObserver = null;
     let readyTimer = 0;
     let reloadAttempts = 0;
+    const HEARTBEAT_TTL_MS = 4500;
+    let scope = null, lastHeartbeat = 0, reloadSequence = 0;
+
+    // A heartbeat is evidence of a usable document, not a lease to keep it alive.
+    // Once established, only an explicit navigation/reload may replace the document.
+    function connectivity(frame, degraded) {
+        const wrap = frame?.closest('.watchfusion-frame-wrap');
+        if (wrap) wrap.dataset.frameConnectivity = degraded ? 'degraded' : 'healthy';
+        const head = document.querySelector('#watchfusion-overlay .watchfusion-head-actions');
+        if (!head) return;
+        let note = head.querySelector('[data-wf-frame-connectivity]');
+        if (degraded && !note) {
+            note = document.createElement('span');
+            note.dataset.wfFrameConnectivity = '1';
+            note.className = 'watchfusion-status';
+            note.setAttribute('role', 'status');
+            note.textContent = 'Connection delayed';
+            head.prepend(note);
+        }
+        if (note) note.hidden = !degraded;
+    }
+
+    function syncScope(frame, preserveBudget = false) {
+        const src = frame?.src || '';
+        if (!frame || frame !== activeFrame || frame.hidden || !/^https?:/i.test(src)) {
+            if (scope) { clearReadyTimer(); scope = null; lastHeartbeat = 0; connectivity(frame, false); }
+            return null;
+        }
+        if (!scope || scope.frame !== frame || scope.src !== src) {
+            clearReadyTimer();
+            if (!preserveBudget) reloadAttempts = 0;
+            scope = { frame, src, since: Date.now(), established: false, probing: false, finished: false };
+            lastHeartbeat = 0;
+            connectivity(frame, false);
+            setFrameState(frame, 'loading', 'Waiting for the embedded workspace to finish loading.');
+        }
+        return scope;
+    }
+
+    function currentScope(expected) {
+        return expected && scope === expected && expected.frame === activeFrame && !expected.frame.hidden && expected.frame.src === expected.src;
+    }
 
     function ensureLoadingSurface(frame) {
         const wrap = frame?.closest('.watchfusion-frame-wrap');
@@ -56,19 +98,24 @@
     }
 
     function scheduleReadyCheck(frame) {
-        clearReadyTimer();
-        if (!frame || frame.hidden || !/^https?:/i.test(frame.src || '')) return;
+        const expected = syncScope(frame);
+        if (!expected || expected.established || expected.finished || expected.probing || readyTimer) return;
         readyTimer = window.setTimeout(async () => {
             readyTimer = 0;
-            if (frame !== activeFrame || frame.hidden) return;
-            const direct = await window.EveWatchFusionRuntimeSensor?.probe?.(frame.src);
+            if (!currentScope(expected) || expected.established) return;
+            expected.probing = true;
+            let direct = null;
+            try { direct = await window.EveWatchFusionRuntimeSensor?.probe?.(expected.src); }
+            catch { /* an unavailable probe never authorizes a reload */ }
+            finally { expected.probing = false; }
+            if (!currentScope(expected) || expected.established) return;
             const reloadLimit = autoReloadLimit();
             if (direct && reloadAttempts < reloadLimit) {
                 reloadAttempts += 1;
-                setFrameState(frame, 'loading', `The runtime is online. Retrying the embedded view (${reloadAttempts}/${reloadLimit})…`);
                 reloadFrame(frame);
                 return;
             }
+            expected.finished = true;
             const remote = exposureMode() === 'cloudflare';
             setFrameState(frame, 'error', direct
                 ? (remote
@@ -79,26 +126,36 @@
     }
 
     function reloadFrame(frame, manual = false) {
-        if (!frame || frame.hidden) return;
-        if (manual) reloadAttempts = 0;
+        const prior = syncScope(frame);
+        if (!prior || (!manual && prior.established)) return false;
         let url;
-        try { url = new URL(frame.src); } catch { return; }
-        if (!/^https?:$/.test(url.protocol)) return;
-        url.searchParams.set('_wfReload', String(Date.now()));
-        setFrameState(frame, 'loading', 'Reloading the embedded WatchFusion workspace…');
+        try { url = new URL(frame.src); } catch { return false; }
+        if (!/^https?:$/.test(url.protocol)) return false;
+        if (manual) reloadAttempts = 0;
+        url.searchParams.set('_wfReload', `${Date.now()}-${++reloadSequence}`);
+        clearReadyTimer();
+        scope = null;
         frame.src = url.href;
+        syncScope(frame, true);
         scheduleReadyCheck(frame);
+        return true;
     }
 
     function bindFrame(frame) {
         if (frame === activeFrame) return;
         frameObserver?.disconnect();
+        clearReadyTimer(); scope = null; lastHeartbeat = 0;
         activeFrame = frame;
         reloadAttempts = 0;
         ensureLoadingSurface(frame);
-        frame.addEventListener('load', () => scheduleReadyCheck(frame));
-        frame.addEventListener('error', () => setFrameState(frame, 'error', 'The embedded view could not load.'));
-        frameObserver = new MutationObserver(() => patchFrame(frame));
+        frame.addEventListener('load', () => { if (frame === activeFrame) scheduleReadyCheck(frame); });
+        frame.addEventListener('error', () => {
+            if (frame !== activeFrame) return;
+            const current = syncScope(frame);
+            if (current?.established) connectivity(frame, true);
+            else if (current) { clearReadyTimer(); current.finished = true; setFrameState(frame, 'error', 'The embedded view could not load.'); }
+        });
+        frameObserver = new MutationObserver(() => { if (frame === activeFrame) patchFrame(frame); });
         frameObserver.observe(frame, { attributes: true, attributeFilter: ['hidden', 'src'] });
     }
 
@@ -118,28 +175,37 @@
         }
         const allow = values.join('; ');
         if (frame.getAttribute('allow') !== allow) frame.setAttribute('allow', allow);
-        if (!frame.hidden && /^https?:/i.test(frame.src || '')) {
-            const wrap = frame.closest('.watchfusion-frame-wrap');
-            if (wrap?.dataset.frameState !== 'ready') {
-                setFrameState(frame, 'loading');
-                scheduleReadyCheck(frame);
-            }
-        }
+        const current = syncScope(frame);
+        if (current?.established) {
+            setFrameState(frame, 'ready');
+            connectivity(frame, Date.now() - lastHeartbeat > HEARTBEAT_TTL_MS);
+        } else if (current) scheduleReadyCheck(frame);
         return true;
     }
 
-    window.addEventListener('eve:watchfusion-presence', (event) => {
-        if (!activeFrame) return;
-        if (event.detail?.embedded === true) {
-            reloadAttempts = 0;
-            clearReadyTimer();
+    // Consume the actual message from this iframe, never a cached global presence
+    // event (which may refer to a previous navigation or another window).
+    window.addEventListener('message', event => {
+        const data = event.data, frame = activeFrame;
+        if (!frame || !event.source || event.source !== frame.contentWindow || data?.source !== 'WatchFusion' || data.version !== 1 || data.type !== 'watchfusion:embedded-presence') return;
+        const current = syncScope(frame), now = Date.now();
+        if (!current || !Number.isFinite(data.time) || data.time < current.since || data.time > now + 1000 || now - data.time > HEARTBEAT_TTL_MS) return;
+        try {
+            const expected = new URL(current.src), actual = new URL(data.url);
+            if (event.origin !== expected.origin || actual.origin !== expected.origin || actual.searchParams.get('_wfReload') !== expected.searchParams.get('_wfReload') || !window.EveWatchFusionRuntimeSensor?.isCandidateOrigin?.(event.origin)) return;
+        } catch { return; }
+        current.established = true;
+        lastHeartbeat = now;
+        clearReadyTimer();
+        setFrameState(frame, 'ready');
+        connectivity(frame, false);
+    });
+
+    window.addEventListener('eve:watchfusion-presence', () => {
+        const current = syncScope(activeFrame);
+        if (current?.established) {
             setFrameState(activeFrame, 'ready');
-            return;
-        }
-        const wrap = activeFrame.closest('.watchfusion-frame-wrap');
-        if (!activeFrame.hidden && wrap?.dataset.frameState === 'ready') {
-            setFrameState(activeFrame, 'loading', 'The embedded workspace stopped responding. Reconnecting…');
-            scheduleReadyCheck(activeFrame);
+            connectivity(activeFrame, Date.now() - lastHeartbeat > HEARTBEAT_TTL_MS);
         }
     });
 
@@ -173,10 +239,10 @@
     });
 
     window.EveWatchFusionFrameCapabilities = Object.freeze({
+        established() { return Boolean(currentScope(scope) && scope.established); },
         reload(manual = true) {
             if (!activeFrame || activeFrame.hidden || !/^https?:/i.test(activeFrame.src || '')) return false;
-            reloadFrame(activeFrame, manual);
-            return true;
+            return reloadFrame(activeFrame, manual);
         },
         refresh() {
             return patchFrame();

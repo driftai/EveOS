@@ -17,6 +17,7 @@ import { runSecuritySmokes } from './node/security.smoke.js';
 import { runSourceTabSmokes } from './node/source-tab-wiring.smoke.js';
 import { runMergerIndependenceSmokes } from './node/merger-independence.smoke.js';
 import { runR14zCopyRecoverySmokes } from './node/r14z-copy-recovery.js';
+import { runReliabilityRegressions } from './node/reliability-regressions.js';
 import { runLanSmoke } from './integration/lan.smoke.js';
 import { runCloudflareSmoke } from './integration/cloudflare.smoke.js';
 import { runYouTubeSmoke } from './integration/youtube-live.smoke.js';
@@ -141,6 +142,7 @@ async function main() {
 
   results.push(...await runMergerIndependenceSmokes());
   if (fast) results.push(...await runR14zCopyRecoverySmokes());
+  if (fast) results.push(...await runReliabilityRegressions());
   if (fast) results.push(...await runFastSmoke());
 
   if (node) {

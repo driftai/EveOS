@@ -109,10 +109,12 @@ export async function sendFile(req, res) {
       'client/sensor-provenance.js',
       'client/acoustic-timing.js',
       'client/presentation-sync.js',
+      'client/relative-precision.js',
       'client/room-playout.js',
       'client/zero-converge.js',
       'client/room-audio-unlock.js',
       'client/freeze-telemetry.js',
+      'client/sync-event-retention.js',
       'client/sync-room-log.js'
     ];
     try {
